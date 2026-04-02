@@ -1,6 +1,6 @@
 from ngllib.utils.Communication import *
 
-medium = FilesystemProtocol(action_file_path="/scratch/gpfs/TSILVER/kp0374/neurogym-agent/proxy/actions", observation_file_path="/scratch/gpfs/TSILVER/kp0374/neurogym-agent/proxy/observations", timeout=999999)
+medium = FilesystemProtocol(action_file_path="/scratch/gpfs/TSILVER/kp0374/neurogym-agent/proxy/actions", observation_file_path="/scratch/gpfs/TSILVER/kp0374/neurogym-agent/proxy/observations", timeout=9999999)
 
 client = NGLClient(protocol=medium)
 
