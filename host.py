@@ -15,7 +15,7 @@ def custom_reward(state, action, prev_state):
 
 env = Environment(headless=False, config_path="config.json", verbose=False, reward_function=custom_reward)
 
-medium = FilesystemProtocol(action_file_path="K:/Coding Projects/Labs/Seung Lab/Tests/proxy/actions", observation_file_path="K:/Coding Projects/Labs/Seung Lab/Tests/proxy/observations", timeout=99999)
+medium = FilesystemProtocol(action_file_path="Y:/kp0374/neurogym-agent/proxy/actions", observation_file_path="Y:/kp0374/neurogym-agent/proxy/observations", timeout=99999)
 
 server = NGLServer(protocol=medium, environment=env)
 
