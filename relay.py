@@ -13,9 +13,9 @@ def handle(c):
 
 srv = socket.socket()
 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-srv.bind(('0.0.0.0', 7861))
+srv.bind(('0.0.0.0', 8888))
 srv.listen(5)
-print('relay ready on 0.0.0.0:7861')
+print('relay ready on 0.0.0.0:8888')
 while True:
     c, _ = srv.accept()
     threading.Thread(target=handle, args=(c,), daemon=True).start()
