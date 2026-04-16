@@ -11,4 +11,4 @@
 #SBATCH --mail-type=fail         # send email if job fails
 #SBATCH --mail-user=kp0374@princeton.edu
 
-curl -s --max-time 5 http://128.112.220.200:7861 && echo reachable || echo unreachable
+ping -c 3 128.112.220.200
