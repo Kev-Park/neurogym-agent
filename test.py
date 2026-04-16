@@ -1,0 +1,12 @@
+import socket
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', 7861))
+s.listen(1)
+print('waiting...')
+conn, addr = s.accept()
+print('connected from', addr)
+data = conn.recv(4096)
+print('received:', data)
+conn.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello')
+conn.close()
