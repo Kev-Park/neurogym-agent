@@ -10,5 +10,7 @@
 #SBATCH --mail-type=end          # send email when job ends
 #SBATCH --mail-type=fail         # send email if job fails
 #SBATCH --mail-user=kp0374@princeton.edu
+#SBATCH --nodelist=sarekl16-8
 
-curl -v http://128.112.220.200:8888
+echo "job started on $(hostname)"
+sleep 3600
