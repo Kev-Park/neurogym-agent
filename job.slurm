@@ -11,4 +11,4 @@
 #SBATCH --mail-type=fail         # send email if job fails
 #SBATCH --mail-user=kp0374@princeton.edu
 
-ping -c 3 128.112.220.200
+curl -v http://128.112.220.200:7861
