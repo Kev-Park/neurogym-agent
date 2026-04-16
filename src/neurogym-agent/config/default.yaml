@@ -1,0 +1,55 @@
+env:
+  neurogym_config_path: "./config.json"
+  euler_angles: true
+  headless: false
+
+  window_width: 1800
+  window_height: 900
+  pane_3d_bounds: [900, 0, 1800, 900]
+
+  click_grid_rows: 32
+  click_grid_cols: 32
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+
+  reset_rotation_perturb_rad: 0.5
+  reset_zoom_perturb_frac: 0.25
+
+  max_episode_steps: 300
+  z_tolerance: 10.0
+  reward_success: 1.0
+  reward_noop_penalty: -0.01
+  noop_position_eps: 0.5
+
+obs:
+  dino_repo: "facebookresearch/dinov2"
+  dino_model: "dinov2_vits14"
+  dino_feature_dim: 384
+  dino_input_size: 224
+  pane_count: 2
+
+train:
+  n_envs: 1
+  total_timesteps: 200000
+  n_steps: 128
+  batch_size: 256
+  n_epochs: 4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  learning_rate: 3.0e-4
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  device: "cuda"
+  seed: 0
+
+logging:
+  wandb_project: "neurogym-agent"
+  wandb_mode: "online"
+  checkpoint_dir: "./checkpoints"
+  checkpoint_freq: 10000
+
+data:
+  start_links_path: null
+  z_max_path: null
