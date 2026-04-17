@@ -15,7 +15,7 @@ action_vector = [
     2000  # projection scaling (log-scale in neuroglancer)
     ]
 
-client.get_initial_observation()
+client.get_initial()
 
 for i in range(100):
     client.send_actions(action_vector)
