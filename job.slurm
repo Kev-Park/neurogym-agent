@@ -12,5 +12,4 @@
 #SBATCH --mail-user=kp0374@princeton.edu
 #SBATCH --nodelist=sarekl16-8
 
-echo "job started on $(hostname)"
-sleep 3600
+uv run client.py

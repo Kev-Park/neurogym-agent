@@ -15,7 +15,7 @@ def custom_reward(state, action, prev_state):
 
 env = Environment(headless=False, config_path="config.json", verbose=False, reward_function=custom_reward)
 
-medium = SocketProtocol(host="127.0.0.1", port=7861, is_server=True)
+medium = SocketProtocol(host="0.0.0.0", port=7861, is_server=True)
 
 server = NGLServer(protocol=medium, environment=env)
 
