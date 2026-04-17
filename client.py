@@ -1,6 +1,6 @@
 from ngllib.utils.Communication import *
 
-medium = SocketProtocol(host="127.0.0.1", port=7861, is_server=True)
+medium = SocketProtocol(host="127.0.0.1", port=7860, is_server=False)
 
 client = NGLClient(protocol=medium)
 
