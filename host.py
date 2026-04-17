@@ -20,8 +20,8 @@ print("[host] Creating Environment...", flush=True)
 env = Environment(headless=False, config_path="config.json", verbose=False, reward_function=custom_reward)
 print("[host] Environment created.", flush=True)
 
-print("[host] Creating SocketProtocol (listener on 0.0.0.0:7861)...", flush=True)
-medium = SocketProtocol(host="0.0.0.0", port=7861, is_server=True, timeout=600)
+print("[host] Creating SocketProtocol (listener on 127.0.0.1:7861)...", flush=True)
+medium = SocketProtocol(host="127.0.0.1", port=7861, is_server=True, timeout=600)
 print("[host] SocketProtocol ready, waiting for client connection...", flush=True)
 
 server = NGLServer(protocol=medium, environment=env)
