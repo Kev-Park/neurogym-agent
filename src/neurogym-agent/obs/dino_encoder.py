@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-from PIL import Image
-from torchvision import transforms
+import torch.nn.functional as F
 
-_IMAGENET_MEAN = (0.485, 0.456, 0.406)
-_IMAGENET_STD = (0.229, 0.224, 0.225)
+_IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+_IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
 
 
 class DinoEncoder:
@@ -25,27 +24,28 @@ class DinoEncoder:
         self.model.to(self.device)
 
         self.input_size = input_size
-        self.preprocess = transforms.Compose(
-            [
-                transforms.Resize((input_size, input_size), antialias=True),
-                transforms.ToTensor(),
-                transforms.Normalize(_IMAGENET_MEAN, _IMAGENET_STD),
-            ]
-        )
+        self._mean = _IMAGENET_MEAN.to(self.device)
+        self._std = _IMAGENET_STD.to(self.device)
+
         with torch.no_grad():
             dummy = torch.zeros(1, 3, input_size, input_size, device=self.device)
             self.feature_dim = int(self.model(dummy).shape[-1])
 
     @torch.no_grad()
-    def encode_pil(self, images: list[Image.Image]) -> np.ndarray:
-        batch = torch.stack([self.preprocess(img.convert("RGB")) for img in images])
+    def encode(self, images: list[np.ndarray]) -> np.ndarray:
+        """Encode a list of RGB numpy arrays (H, W, 3) uint8 into DINO feature vectors."""
+        # Stack into (B, H, W, 3) then convert to (B, 3, H, W) float32 [0, 1]
+        batch = torch.from_numpy(np.stack(images)).permute(0, 3, 1, 2).float().div_(255.0)
         batch = batch.to(self.device, non_blocking=True)
+        batch = F.interpolate(batch, size=(self.input_size, self.input_size), mode="bilinear", align_corners=False)
+        batch = (batch - self._mean) / self._std
         feats = self.model(batch)
         return feats.detach().cpu().numpy().astype(np.float32)
 
-    def split_panes(self, image: Image.Image, pane_bounds_3d: tuple[int, int, int, int]) -> list[Image.Image]:
-        w, h = image.size
+    def split_panes(self, image: np.ndarray, pane_bounds_3d: tuple[int, int, int, int]) -> list[np.ndarray]:
+        """Split an (H, W, 3) image array into left and right panes."""
+        h, w = image.shape[:2]
         x0, y0, x1, y1 = pane_bounds_3d
-        left_pane = image.crop((0, 0, x0, h)) if x0 > 0 else image.crop((0, 0, w // 2, h))
-        right_pane = image.crop((x0, y0, x1, y1))
+        left_pane = image[:, :x0] if x0 > 0 else image[:, :w // 2]
+        right_pane = image[y0:y1, x0:x1]
         return [left_pane, right_pane]

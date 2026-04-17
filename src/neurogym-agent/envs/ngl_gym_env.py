@@ -134,16 +134,16 @@ class NGLGymEnv(gym.Env):
             dtype=np.float32,
         )
 
-    def _encode_image(self, pil_image) -> np.ndarray:
-        panes = self._dino.split_panes(pil_image, self._pane_bounds_3d)
-        feats = self._dino.encode_pil(panes)
+    def _encode_image(self, image: np.ndarray) -> np.ndarray:
+        panes = self._dino.split_panes(image, self._pane_bounds_3d)
+        feats = self._dino.encode(panes)
         return feats.reshape(-1).astype(np.float32)
 
     def _build_obs(self, state) -> dict[str, np.ndarray]:
-        pos_state, pil_image = state
-        self._last_image = pil_image
+        pos_state, image = state
+        self._last_image = image
         return {
-            "image_features": self._encode_image(pil_image),
+            "image_features": self._encode_image(image),
             "pos_state": self._flatten_pos_state(pos_state),
         }
 
