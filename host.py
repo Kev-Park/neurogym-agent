@@ -15,7 +15,7 @@ def custom_reward(state, action, prev_state):
 
 env = Environment(headless=False, config_path="config.json", verbose=False, reward_function=custom_reward)
 
-medium = FilesystemProtocol(action_file_path="proxy/actions", observation_file_path="proxy/observations", timeout=999999)
+medium = SocketProtocol(host="127.0.0.1", port=7860, is_server=False)
 
 server = NGLServer(protocol=medium, environment=env)
 

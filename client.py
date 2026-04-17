@@ -1,6 +1,6 @@
 from ngllib.utils.Communication import *
 
-medium = FilesystemProtocol(action_file_path="proxy/actions", observation_file_path="proxy/observations", timeout=999999)
+medium = SocketProtocol(host="127.0.0.1", port=7861, is_server=True)
 
 client = NGLClient(protocol=medium)
 
@@ -15,7 +15,7 @@ action_vector = [
     2000  # projection scaling (log-scale in neuroglancer)
     ]
 
-client.get_initial()
+client.get_initial_observation()
 
 for i in range(100):
     client.send_actions(action_vector)
