@@ -19,5 +19,5 @@ server = NGLServer(protocol=medium, environment=env)
 
 server.start_session(**options)
 
-for i in range(100):
+for i in range(250):
     server.process_actions()
