@@ -42,10 +42,3 @@ class DinoEncoder:
         feats = self.model(batch)
         return feats.detach().cpu().numpy().astype(np.float32)
 
-    def split_panes(self, image: np.ndarray, pane_bounds_3d: tuple[int, int, int, int]) -> list[np.ndarray]:
-        """Split an (H, W, 3) image array into left and right panes."""
-        h, w = image.shape[:2]
-        x0, y0, x1, y1 = pane_bounds_3d
-        left_pane = image[:, :x0] if x0 > 0 else image[:, :w // 2]
-        right_pane = image[y0:y1, x0:x1]
-        return [left_pane, right_pane]

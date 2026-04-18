@@ -76,7 +76,6 @@ class NGLGymEnv(gym.Env):
         dino_repo: str = "facebookresearch/dinov2",
         dino_model: str = "dinov2_vits14",
         dino_input_size: int = 224,
-        pane_count: int = 2,
         dino_device: str | None = None,
     ):
         super().__init__()
@@ -86,13 +85,6 @@ class NGLGymEnv(gym.Env):
         self._max_episode_steps = max_episode_steps
         self._reset_rotation_perturb_rad = reset_rotation_perturb_rad
         self._reset_zoom_perturb_frac = reset_zoom_perturb_frac
-        self._pane_bounds_3d = (
-            action_spec.pane_x0,
-            action_spec.pane_y0,
-            action_spec.pane_x1,
-            action_spec.pane_y1,
-        )
-
         self._neuro_env = Environment(
             headless=headless,
             config_path=neurogym_config_path,
@@ -105,10 +97,9 @@ class NGLGymEnv(gym.Env):
             input_size=dino_input_size,
             device=dino_device,
         )
-        self._pane_count = pane_count
 
         pos_dim = 3 + 1 + 3 + 1
-        image_feature_dim = pane_count * self._dino.feature_dim
+        image_feature_dim = self._dino.feature_dim
 
         self.observation_space = spaces.Dict(
             {
@@ -135,8 +126,7 @@ class NGLGymEnv(gym.Env):
         )
 
     def _encode_image(self, image: np.ndarray) -> np.ndarray:
-        panes = self._dino.split_panes(image, self._pane_bounds_3d)
-        feats = self._dino.encode(panes)
+        feats = self._dino.encode([image])
         return feats.reshape(-1).astype(np.float32)
 
     def _build_obs(self, state) -> dict[str, np.ndarray]:

@@ -55,7 +55,6 @@ def build_env(cfg: dict, start_links_path: str, z_max_path: str) -> NGLGymEnv:
         dino_repo=obs_cfg["dino_repo"],
         dino_model=obs_cfg["dino_model"],
         dino_input_size=obs_cfg["dino_input_size"],
-        pane_count=obs_cfg["pane_count"],
     )
 
 

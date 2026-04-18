@@ -6,7 +6,8 @@ options = {
         'resize': False,
         'add_mouse': False,
         'fast': True,
-        'image_path': None
+        'image_path': None,
+        'left_pane': False
 }
 
 def custom_reward(state, action, prev_state):
