@@ -16,7 +16,8 @@ action_vector = [
 
 obs = client.get_initial()
 
-for _ in range(5):
-    for i in range(50):
+for i in range(5):
+    for j in range(50):
         obs = client.send_actions(action_vector)
-    client.send_reset()
+    obs = client.send_reset()
+    print(f"environment reset {i}")
