@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "caveclient>=8.0.1",
     "gymnasium>=1.2.3",
     "msgpack>=1.1.2",
     "ngllib",

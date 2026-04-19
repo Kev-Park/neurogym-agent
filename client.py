@@ -2,11 +2,10 @@ from ngllib.utils.Communication import *
 import csv
 import math
 import random
-import sys
 import urllib.parse
 import json
 
-csv.field_size_limit(sys.maxsize)
+csv.field_size_limit(2**31 - 1)
 
 # Load segment positions: {root_id: [[x,y,z], ...]}
 segment_data = {}
