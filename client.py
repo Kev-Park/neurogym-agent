@@ -1,19 +1,32 @@
 from ngllib.utils.Communication import *
+import csv
+import math
 import random
 import urllib.parse
 import json
 
-# Load available segment IDs
-with open("segment_ids.txt", "r") as f:
-    segment_ids = [line.strip() for line in f if line.strip()]
+# Load segment positions: {root_id: [[x,y,z], ...]}
+segment_data = {}
+with open("segment_positions.csv", "r") as f:
+    reader = csv.reader(f)
+    next(reader)  # skip header
+    for row in reader:
+        rid = row[0]
+        coords = []
+        for pos in row[1].split("|"):
+            x, y, z = pos.split(";")
+            coords.append([float(x), float(y), float(z)])
+        segment_data[rid] = coords
 
-# Base Neuroglancer state — segments field will be swapped per reset
+segment_ids = list(segment_data.keys())
+
+# Base Neuroglancer state
 BASE_STATE = {
     "dimensions": {"x": [4e-9, "m"], "y": [4e-9, "m"], "z": [4e-8, "m"]},
-    "position": [148684.421875, 57005.6640625, 111.5],
-    "crossSectionScale": 2.0339912586467497,
-    "projectionOrientation": [-0.4934331774711609, 0.7386592030525208, -0.27805963158607483, 0.365498423576355],
-    "projectionScale": 13976.00585680798,
+    "position": [0, 0, 0],
+    "crossSectionScale": 2.0,
+    "projectionOrientation": [0, 0, 0, 1],
+    "projectionScale": 14000,
     "layers": [
         {
             "type": "image",
@@ -34,10 +47,30 @@ BASE_STATE = {
     "layout": "xy-3d"
 }
 
+
+def random_quaternion():
+    """Generate a uniformly random unit quaternion [x, y, z, w]."""
+    u1, u2, u3 = random.random(), random.random(), random.random()
+    q = [
+        math.sqrt(1 - u1) * math.sin(2 * math.pi * u2),
+        math.sqrt(1 - u1) * math.cos(2 * math.pi * u2),
+        math.sqrt(u1) * math.sin(2 * math.pi * u3),
+        math.sqrt(u1) * math.cos(2 * math.pi * u3),
+    ]
+    return q
+
+
 def make_url(segment_id: str) -> str:
+    positions = segment_data[segment_id]
+    pos = random.choice(positions)
+    orientation = random_quaternion()
+
     state = json.loads(json.dumps(BASE_STATE))
     state["layers"][1]["segments"] = [segment_id]
+    state["position"] = pos
+    state["projectionOrientation"] = orientation
     return "https://neuroglancer-demo.appspot.com/#!" + urllib.parse.quote(json.dumps(state))
+
 
 medium = SocketProtocol(host="127.0.0.1", port=7860, is_server=False, timeout=600)
 client = NGLClient(protocol=medium)
