@@ -13,6 +13,9 @@ Usage:
 import argparse
 import csv
 import os
+import sys
+
+csv.field_size_limit(sys.maxsize)
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from caveclient import CAVEclient
