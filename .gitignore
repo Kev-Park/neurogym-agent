@@ -209,3 +209,5 @@ __marimo__/
 # Device-specific configuration files
 config.json
 **/chromedriver*/
+
+test.jpg
