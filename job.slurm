@@ -12,4 +12,6 @@
 #SBATCH --mail-user=kp0374@princeton.edu
 #SBATCH --nodelist=sarekl16-8
 
+ssh -R 7860:127.0.0.1:7861 slogin-gpu01.pni.princeton.edu -N -f
+
 uv run client.py
