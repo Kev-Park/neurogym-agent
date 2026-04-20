@@ -21,6 +21,10 @@ server.start_session(**options)
 
 i = 0
 while True:
-    server.process_actions()
-    print("Step:", i)
-    i += 1
+    try:
+        server.process_actions()
+        print("Step:", i)
+        i += 1
+    except:
+        print("Session ended.")
+        break
