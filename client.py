@@ -90,7 +90,7 @@ action_vector = [
 
 obs = client.get_initial()
 
-for i in range(5):
+for i in range(2):
     for j in range(50):
         obs = client.send_actions(action_vector)
     seg_id = random.choice(segment_ids)

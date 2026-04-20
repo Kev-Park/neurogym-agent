@@ -14,7 +14,7 @@ if str(_THIS_DIR) not in sys.path:
 from stable_baselines3 import PPO
 
 from envs.action_translator import ActionSpec
-from envs.ngl_gym_env import NGLGymEnv, load_start_links
+from envs.ngl_gym_env import NGLGymEnv
 from envs.reward import RewardConfig
 
 
@@ -23,7 +23,7 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def build_env(cfg: dict, start_links_path: str, z_max_path: str) -> NGLGymEnv:
+def build_env(cfg: dict, segment_positions_path: str, host: str, port: int) -> NGLGymEnv:
     env_cfg = cfg["env"]
     obs_cfg = cfg["obs"]
     action_spec = ActionSpec(
@@ -42,16 +42,16 @@ def build_env(cfg: dict, start_links_path: str, z_max_path: str) -> NGLGymEnv:
         noop_penalty=env_cfg["reward_noop_penalty"],
         noop_position_eps=env_cfg["noop_position_eps"],
     )
-    start_links = load_start_links(start_links_path, z_max_path)
     return NGLGymEnv(
-        neurogym_config_path=env_cfg["neurogym_config_path"],
-        start_links=start_links,
+        host=host,
+        port=port,
+        segment_positions_path=segment_positions_path,
         action_spec=action_spec,
         reward_cfg=reward_cfg,
         max_episode_steps=env_cfg["max_episode_steps"],
         reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
         reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
-        headless=env_cfg["headless"],
+        z_max=env_cfg.get("z_max", float("inf")),
         dino_repo=obs_cfg["dino_repo"],
         dino_model=obs_cfg["dino_model"],
         dino_input_size=obs_cfg["dino_input_size"],
@@ -61,8 +61,9 @@ def build_env(cfg: dict, start_links_path: str, z_max_path: str) -> NGLGymEnv:
 def main():
     parser = argparse.ArgumentParser(description="Evaluate a trained PPO policy on neurogym.")
     parser.add_argument("--config", type=str, default=str(_THIS_DIR / "config" / "default.yaml"))
-    parser.add_argument("--start_links", type=str, required=True, help="Text file: one URL per line.")
-    parser.add_argument("--z_max", type=str, required=True, help="Text file: one Z_max float per line, same order as --start_links.")
+    parser.add_argument("--segment_positions", type=str, required=True, help="Path to segment_positions.csv.")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host where NGLServer is listening.")
+    parser.add_argument("--port", type=int, default=7860, help="Port where NGLServer is listening.")
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--deterministic", action="store_true")
@@ -70,10 +71,9 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    env = build_env(cfg, args.start_links, args.z_max)
+    env = build_env(cfg, args.segment_positions, args.host, args.port)
     model = PPO.load(args.checkpoint, device=cfg["train"]["device"])
 
-    per_link_success: dict[int, list[bool]] = {}
     all_successes: list[bool] = []
     all_returns: list[float] = []
     all_steps: list[int] = []
@@ -81,7 +81,7 @@ def main():
     try:
         for ep in range(args.episodes):
             obs, info = env.reset(seed=args.seed + ep)
-            link_idx = info["start_link_idx"]
+            seg_id = info["segment_id"]
             total_reward = 0.0
             steps = 0
             while True:
@@ -92,13 +92,12 @@ def main():
                 if terminated or truncated:
                     break
             success = bool(info["episode_success"])
-            per_link_success.setdefault(link_idx, []).append(success)
             all_successes.append(success)
             all_returns.append(total_reward)
             all_steps.append(steps)
             print(
-                f"ep {ep:03d} link={link_idx:02d} success={success} "
-                f"return={total_reward:.3f} steps={steps} z_now={info['z_now']:.2f} z_max={info['z_max']:.2f}"
+                f"ep {ep:03d} seg={seg_id} success={success} "
+                f"return={total_reward:.3f} steps={steps} z_now={info['z_now']:.2f}"
             )
     finally:
         env.close()
@@ -108,10 +107,6 @@ def main():
     print(f"success rate:   {np.mean(all_successes):.3f}")
     print(f"avg return:     {np.mean(all_returns):.3f}")
     print(f"avg steps:      {np.mean(all_steps):.1f}")
-    print("\n=== per start-link ===")
-    for idx in sorted(per_link_success):
-        s = per_link_success[idx]
-        print(f"link {idx:02d}: {np.mean(s):.3f} ({sum(s)}/{len(s)})")
 
 
 if __name__ == "__main__":

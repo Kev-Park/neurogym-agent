@@ -15,7 +15,7 @@ from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from envs.action_translator import ActionSpec
-from envs.ngl_gym_env import NGLGymEnv, load_start_links
+from envs.ngl_gym_env import NGLGymEnv
 from envs.reward import RewardConfig
 from obs.features_extractor import DinoFeaturesExtractor
 
@@ -25,7 +25,7 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def build_env_factory(cfg: dict, start_links_path: str, z_max_path: str):
+def build_env_factory(cfg: dict, segment_positions_path: str, host: str, port: int):
     env_cfg = cfg["env"]
     obs_cfg = cfg["obs"]
 
@@ -45,18 +45,18 @@ def build_env_factory(cfg: dict, start_links_path: str, z_max_path: str):
         noop_penalty=env_cfg["reward_noop_penalty"],
         noop_position_eps=env_cfg["noop_position_eps"],
     )
-    start_links = load_start_links(start_links_path, z_max_path)
 
     def _make():
         return NGLGymEnv(
-            neurogym_config_path=env_cfg["neurogym_config_path"],
-            start_links=start_links,
+            host=host,
+            port=port,
+            segment_positions_path=segment_positions_path,
             action_spec=action_spec,
             reward_cfg=reward_cfg,
             max_episode_steps=env_cfg["max_episode_steps"],
             reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
             reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
-            headless=env_cfg["headless"],
+            z_max=env_cfg.get("z_max", float("inf")),
             dino_repo=obs_cfg["dino_repo"],
             dino_model=obs_cfg["dino_model"],
             dino_input_size=obs_cfg["dino_input_size"],
@@ -65,8 +65,8 @@ def build_env_factory(cfg: dict, start_links_path: str, z_max_path: str):
     return _make
 
 
-def make_vec_env(cfg: dict, start_links_path: str, z_max_path: str, n_envs: int):
-    make_fn = build_env_factory(cfg, start_links_path, z_max_path)
+def make_vec_env(cfg: dict, segment_positions_path: str, host: str, port: int, n_envs: int):
+    make_fn = build_env_factory(cfg, segment_positions_path, host, port)
     if n_envs <= 1:
         return DummyVecEnv([make_fn])
     return SubprocVecEnv([make_fn for _ in range(n_envs)])
@@ -75,8 +75,9 @@ def make_vec_env(cfg: dict, start_links_path: str, z_max_path: str, n_envs: int)
 def main():
     parser = argparse.ArgumentParser(description="Train click-based PPO agent on neurogym.")
     parser.add_argument("--config", type=str, default=str(_THIS_DIR / "config" / "default.yaml"))
-    parser.add_argument("--start_links", type=str, required=True, help="Text file: one Neuroglancer URL per line.")
-    parser.add_argument("--z_max", type=str, required=True, help="Text file: one Z_max float per line, same order as --start_links.")
+    parser.add_argument("--segment_positions", type=str, required=True, help="Path to segment_positions.csv.")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host where NGLServer is listening.")
+    parser.add_argument("--port", type=int, default=7860, help="Port where NGLServer is listening.")
     parser.add_argument("--n_envs", type=int, default=None)
     parser.add_argument("--total_timesteps", type=int, default=None)
     parser.add_argument("--wandb_project", type=str, default=None)
@@ -106,7 +107,7 @@ def main():
         monitor_gym=False,
     )
 
-    vec_env = make_vec_env(cfg, args.start_links, args.z_max, n_envs)
+    vec_env = make_vec_env(cfg, args.segment_positions, args.host, args.port, n_envs)
 
     policy_kwargs = dict(
         features_extractor_class=DinoFeaturesExtractor,
