@@ -19,5 +19,8 @@ server = NGLServer(protocol=medium, environment=env)
 
 server.start_session(**options)
 
-for i in range(100):
+i = 0
+while True:
     server.process_actions()
+    print("Step:", i)
+    i += 1
