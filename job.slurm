@@ -12,4 +12,5 @@
 #SBATCH --mail-user=kp0374@princeton.edu
 #SBATCH --nodelist=sarekl16-8
 
-uv run client.py
+#uv run client.py
+uv run src/train.py
