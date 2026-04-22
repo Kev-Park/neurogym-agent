@@ -1,10 +1,4 @@
 env:
-  neurogym_config_path: "./config.json"
-  euler_angles: true
-  headless: false
-
-  window_width: 1800
-  window_height: 900
   pane_3d_bounds: [900, 0, 1800, 900]
 
   click_grid_rows: 32
@@ -24,9 +18,7 @@ env:
 obs:
   dino_repo: "facebookresearch/dinov2"
   dino_model: "dinov2_vits14"
-  dino_feature_dim: 384
   dino_input_size: 224
-  pane_count: 2
 
 train:
   n_envs: 1
@@ -49,7 +41,3 @@ logging:
   wandb_mode: "online"
   checkpoint_dir: "./checkpoints"
   checkpoint_freq: 10000
-
-data:
-  start_links_path: null
-  z_max_path: null

@@ -1,5 +1,10 @@
+import argparse
 from ngllib.utils.Communication import *
 from ngllib import Environment
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--port", type=int, default=7861)
+args = parser.parse_args()
 
 options = {
         'euler_angles': True,
@@ -14,7 +19,7 @@ def custom_reward(state, action, prev_state):
     return 1, False
 
 env = Environment(headless=True, config_path="config.json", verbose=False, reward_function=custom_reward)
-medium = SocketProtocol(host="127.0.0.1", port=7861, is_server=True, timeout=600)
+medium = SocketProtocol(host="127.0.0.1", port=args.port, is_server=True, timeout=600)
 server = NGLServer(protocol=medium, environment=env)
 
 server.start_session(**options)

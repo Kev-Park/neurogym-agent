@@ -103,7 +103,6 @@ class NGLGymEnv(gym.Env):
         max_episode_steps: int = 300,
         reset_rotation_perturb_rad: float = 0.5,
         reset_zoom_perturb_frac: float = 0.25,
-        z_max: float = float("inf"),
         socket_timeout: float = 600.0,
         dino_repo: str = "facebookresearch/dinov2",
         dino_model: str = "dinov2_vits14",
@@ -116,7 +115,6 @@ class NGLGymEnv(gym.Env):
         self._max_episode_steps = max_episode_steps
         self._reset_rotation_perturb_rad = reset_rotation_perturb_rad
         self._reset_zoom_perturb_frac = reset_zoom_perturb_frac
-        self._z_max = z_max
 
         self._segment_data, self._segment_ids = _load_segment_positions(segment_positions_path)
 
@@ -149,10 +147,7 @@ class NGLGymEnv(gym.Env):
         self._step_count = 0
         self._prev_state = None
         self._last_image = None
-
-        # Consume the initial observation that NGLServer.start_session() pushes
-        # before entering its process_actions() loop.
-        self._client.get_initial()
+        self._z_max: float = float("inf")
 
     def _flatten_pos_state(self, pos_state: list) -> np.ndarray:
         position, cs_scale, orientation_euler, proj_scale = pos_state
@@ -180,6 +175,7 @@ class NGLGymEnv(gym.Env):
         self._step_count = 0
 
         seg_id = random.choice(self._segment_ids)
+        self._z_max = max(pos[2] for pos in self._segment_data[seg_id])
         url = _make_url(seg_id, self._segment_data)
         reset_result = self._client.send_reset(url=url)
         state = reset_result[0]

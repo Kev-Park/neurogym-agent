@@ -51,7 +51,6 @@ def build_env(cfg: dict, segment_positions_path: str, host: str, port: int) -> N
         max_episode_steps=env_cfg["max_episode_steps"],
         reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
         reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
-        z_max=env_cfg.get("z_max", float("inf")),
         dino_repo=obs_cfg["dino_repo"],
         dino_model=obs_cfg["dino_model"],
         dino_input_size=obs_cfg["dino_input_size"],
