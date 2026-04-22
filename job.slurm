@@ -13,4 +13,4 @@
 #SBATCH --nodelist=sarekl16-8
 
 #uv run client.py
-uv run src/train.py
+uv run src/neurogym-agent/train.py
