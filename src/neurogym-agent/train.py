@@ -10,14 +10,27 @@ _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
+import wandb
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, CallbackList
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from envs.action_translator import ActionSpec
 from envs.ngl_gym_env import NGLGymEnv
 from envs.reward import RewardConfig
 from obs.features_extractor import DinoFeaturesExtractor
+
+
+class SB3WandbCallback(BaseCallback):
+    """Log SB3's internal metrics directly to wandb at each rollout end."""
+
+    def _on_step(self) -> bool:
+        return True
+
+    def _on_rollout_end(self) -> None:
+        metrics = {k: float(v) for k, v in self.logger.name_to_value.items()}
+        if metrics:
+            wandb.log(metrics, step=self.num_timesteps)
 
 
 def load_config(path: str) -> dict:
@@ -94,7 +107,6 @@ def main():
     wandb_project = args.wandb_project or log_cfg["wandb_project"]
     wandb_mode = args.wandb_mode or log_cfg["wandb_mode"]
 
-    import wandb
     from wandb.integration.sb3 import WandbCallback
 
     wandb_run = wandb.init(
@@ -102,7 +114,6 @@ def main():
         mode=wandb_mode,
         name=args.run_name,
         config=cfg,
-        sync_tensorboard=True,
         monitor_gym=False,
     )
 
@@ -118,7 +129,6 @@ def main():
         model = PPO.load(
             args.resume,
             env=vec_env,
-            tensorboard_log=f"runs/{wandb_run.id}",
             device=train_cfg["device"],
         )
     else:
@@ -138,7 +148,6 @@ def main():
             max_grad_norm=train_cfg["max_grad_norm"],
             seed=train_cfg["seed"],
             device=train_cfg["device"],
-            tensorboard_log=f"runs/{wandb_run.id}",
             verbose=1,
         )
 
@@ -146,6 +155,7 @@ def main():
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     callbacks = CallbackList(
         [
+            SB3WandbCallback(),
             WandbCallback(
                 model_save_path=str(checkpoint_dir),
                 model_save_freq=log_cfg["checkpoint_freq"],
