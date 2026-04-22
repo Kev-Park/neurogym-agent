@@ -11,7 +11,7 @@ options = {
         'resize': False,
         'add_mouse': False,
         'fast': True,
-        'image_path': "viewport.jpg",
+        'image_path': None,
         'left_pane': False
 }
 
