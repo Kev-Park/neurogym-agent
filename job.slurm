@@ -13,4 +13,11 @@
 #SBATCH --nodelist=sarekl16-8
 
 #uv run client.py
-uv run src/neurogym-agent/train.py
+uv run src/neurogym-agent/train.py \
+  --segment_positions segment_positions.csv \
+  --host 127.0.0.1 \
+  --port 7860 \
+  --n_envs 1 \
+  --total_timesteps 500000 \
+  --wandb_mode online \
+  --run_name v0
