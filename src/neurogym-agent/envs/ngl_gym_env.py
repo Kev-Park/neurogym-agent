@@ -150,6 +150,10 @@ class NGLGymEnv(gym.Env):
         self._prev_state = None
         self._last_image = None
 
+        # Consume the initial observation that NGLServer.start_session() pushes
+        # before entering its process_actions() loop.
+        self._client.get_initial()
+
     def _flatten_pos_state(self, pos_state: list) -> np.ndarray:
         position, cs_scale, orientation_euler, proj_scale = pos_state
         return np.asarray(

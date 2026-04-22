@@ -88,12 +88,15 @@ action_vector = [
     2000  # projection scaling (log-scale in neuroglancer)
     ]
 
-obs = client.get_initial()
 
 for i in range(2):
-    for j in range(50):
-        obs = client.send_actions(action_vector)
     seg_id = random.choice(segment_ids)
     url = make_url(seg_id)
     obs = client.send_reset(url=url)
     print(f"environment reset {i} to segment {seg_id}")
+
+
+    for j in range(50):
+        obs = client.send_actions(action_vector)
+    
+    
