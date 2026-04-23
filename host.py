@@ -30,6 +30,6 @@ while True:
         server.process_actions()
         print("Step:", i)
         i += 1
-    except:
+    except TimeoutError:
         print("Session ended.")
         break

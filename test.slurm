@@ -11,4 +11,4 @@
 #SBATCH --mail-type=fail         # send email if job fails
 #SBATCH --mail-user=kp0374@princeton.edu
 
-curl -I "https://neuroglancer-demo.appspot.com/"
+uv run test.py
