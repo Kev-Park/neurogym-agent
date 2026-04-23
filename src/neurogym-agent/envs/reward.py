@@ -12,6 +12,7 @@ class RewardConfig:
     success: float = 1.0
     noop_penalty: float = -0.01
     noop_position_eps: float = 0.5
+    z_shaping_coef: float = 0.001
 
 
 def compute(
@@ -22,6 +23,8 @@ def compute(
     cfg: RewardConfig,
 ) -> tuple[float, bool, bool]:
     z_now = float(state[0][0][2])
+    z_prev = float(prev_state[0][0][2])
+
     if abs(z_now - z_max) <= cfg.z_tolerance:
         return cfg.success, True, False
 
@@ -31,7 +34,10 @@ def compute(
         if np.linalg.norm(pos_now - pos_prev) < cfg.noop_position_eps:
             return cfg.noop_penalty, False, True
 
-    return 0.0, False, False
+    # Dense shaping: reward progress toward z_max, penalise moving away.
+    # Scaled small so it doesn't overwhelm the sparse success signal.
+    shaping = cfg.z_shaping_coef * (z_now - z_prev) * np.sign(z_max - z_prev)
+    return float(shaping), False, False
 
 
 def make_env_reward_fn(

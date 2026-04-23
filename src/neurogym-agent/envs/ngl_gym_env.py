@@ -21,7 +21,7 @@ if str(_PKG_DIR) not in sys.path:
 from envs.action_translator import ActionSpec, decode, sample_reset_perturbation
 from envs.reward import RewardConfig, compute as compute_reward
 from obs.dino_encoder import DinoEncoder
-from ngllib.utils.Communication import NGLClient, SocketProtocol
+from ngllib import Environment
 
 csv.field_size_limit(2**31 - 1)
 
@@ -95,15 +95,16 @@ class NGLGymEnv(gym.Env):
 
     def __init__(
         self,
-        host: str,
-        port: int,
+        neurogym_config_path: str,
         segment_positions_path: str,
         action_spec: ActionSpec,
         reward_cfg: RewardConfig,
         max_episode_steps: int = 300,
         reset_rotation_perturb_rad: float = 0.5,
         reset_zoom_perturb_frac: float = 0.25,
-        socket_timeout: float = 600.0,
+        headless: bool = True,
+        left_pane: bool = False,
+        right_pane: bool = True,
         dino_repo: str = "facebookresearch/dinov2",
         dino_model: str = "dinov2_vits14",
         dino_input_size: int = 224,
@@ -118,8 +119,19 @@ class NGLGymEnv(gym.Env):
 
         self._segment_data, self._segment_ids = _load_segment_positions(segment_positions_path)
 
-        medium = SocketProtocol(host=host, port=port, is_server=False, timeout=socket_timeout)
-        self._client = NGLClient(protocol=medium)
+        self._neuro_env = Environment(
+            headless=headless,
+            config_path=neurogym_config_path,
+        )
+        self._neuro_env.options = {
+            "euler_angles": True,
+            "resize": False,
+            "add_mouse": False,
+            "fast": True,
+            "image_path": None,
+            "left_pane": left_pane,
+            "right_pane": right_pane,
+        }
 
         self._dino = DinoEncoder(
             repo=dino_repo,
@@ -145,7 +157,6 @@ class NGLGymEnv(gym.Env):
 
         self._rng = np.random.default_rng()
         self._step_count = 0
-        self._prev_state = None
         self._last_image = None
         self._z_max: float = float("inf")
 
@@ -177,8 +188,7 @@ class NGLGymEnv(gym.Env):
         seg_id = random.choice(self._segment_ids)
         self._z_max = max(pos[2] for pos in self._segment_data[seg_id])
         url = _make_url(seg_id, self._segment_data)
-        reset_result = self._client.send_reset(url=url)
-        state = reset_result[0]
+        self._neuro_env.reset(url=url)
 
         perturb_vec = sample_reset_perturbation(
             self._action_spec,
@@ -186,9 +196,7 @@ class NGLGymEnv(gym.Env):
             self._reset_rotation_perturb_rad,
             self._reset_zoom_perturb_frac,
         )
-        step_result = self._client.send_actions(perturb_vec)
-        state = step_result[0]
-        self._prev_state = state
+        state, _reward, _done, _json = self._neuro_env.step(perturb_vec)
 
         info = {
             "segment_id": seg_id,
@@ -198,12 +206,10 @@ class NGLGymEnv(gym.Env):
         return self._build_obs(state), info
 
     def step(self, action):
-        prev_state = self._prev_state
+        prev_state = self._neuro_env.prev_state
         vec, right_click_fired = decode(action, self._action_spec)
 
-        result = self._client.send_actions(vec)
-        state, _server_reward, _server_done, _json = result
-        self._prev_state = state
+        state, _default_reward, _default_done, _json = self._neuro_env.step(vec)
         self._step_count += 1
 
         reward, terminated, was_noop = compute_reward(
@@ -230,6 +236,6 @@ class NGLGymEnv(gym.Env):
 
     def close(self):
         try:
-            self._client.protocol.close()
+            self._neuro_env.end_session()
         except Exception:
             pass

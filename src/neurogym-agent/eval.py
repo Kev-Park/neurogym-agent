@@ -23,7 +23,7 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def build_env(cfg: dict, segment_positions_path: str, host: str, port: int) -> NGLGymEnv:
+def build_env(cfg: dict, segment_positions_path: str) -> NGLGymEnv:
     env_cfg = cfg["env"]
     obs_cfg = cfg["obs"]
     action_spec = ActionSpec(
@@ -41,16 +41,17 @@ def build_env(cfg: dict, segment_positions_path: str, host: str, port: int) -> N
         success=env_cfg["reward_success"],
         noop_penalty=env_cfg["reward_noop_penalty"],
         noop_position_eps=env_cfg["noop_position_eps"],
+        z_shaping_coef=env_cfg.get("z_shaping_coef", 0.001),
     )
     return NGLGymEnv(
-        host=host,
-        port=port,
+        neurogym_config_path=env_cfg["neurogym_config_path"],
         segment_positions_path=segment_positions_path,
         action_spec=action_spec,
         reward_cfg=reward_cfg,
         max_episode_steps=env_cfg["max_episode_steps"],
         reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
         reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
+        headless=env_cfg.get("headless", True),
         dino_repo=obs_cfg["dino_repo"],
         dino_model=obs_cfg["dino_model"],
         dino_input_size=obs_cfg["dino_input_size"],
@@ -61,8 +62,6 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate a trained PPO policy on neurogym.")
     parser.add_argument("--config", type=str, default=str(_THIS_DIR / "config" / "default.yaml"))
     parser.add_argument("--segment_positions", type=str, required=True, help="Path to segment_positions.csv.")
-    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host where NGLServer is listening.")
-    parser.add_argument("--port", type=int, default=7860, help="Port where NGLServer is listening.")
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--deterministic", action="store_true")
@@ -70,7 +69,7 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    env = build_env(cfg, args.segment_positions, args.host, args.port)
+    env = build_env(cfg, args.segment_positions)
     model = PPO.load(args.checkpoint, device=cfg["train"]["device"])
 
     all_successes: list[bool] = []

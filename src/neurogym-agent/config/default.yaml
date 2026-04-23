@@ -1,4 +1,6 @@
 env:
+  neurogym_config_path: "config.json"
+  headless: true
   pane_3d_bounds: [900, 0, 1800, 900]
 
   click_grid_rows: 32
@@ -14,6 +16,7 @@ env:
   reward_success: 1.0
   reward_noop_penalty: -0.01
   noop_position_eps: 0.5
+  z_shaping_coef: 0.001
 
 obs:
   dino_repo: "facebookresearch/dinov2"
@@ -24,7 +27,7 @@ train:
   n_envs: 1
   total_timesteps: 200000
   n_steps: 128
-  batch_size: 256
+  batch_size: 128
   n_epochs: 4
   gamma: 0.99
   gae_lambda: 0.95

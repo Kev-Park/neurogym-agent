@@ -1,23 +1,20 @@
 #!/bin/bash
-#SBATCH --job-name=socket     # create a short name for your job
-#SBATCH --nodes=1                # node count
-#SBATCH --ntasks=1               # total number of tasks across all nodes
-#SBATCH --cpus-per-task=1        # cpu-cores per task (>1 if multi-threaded tasks)
-#SBATCH --mem=4G         # memory per cpu-core (4G is default)
-#SBATCH --gres=gpu:3090:1             # number of GPUs per node
-#SBATCH --time=20:00:00          # total run time limit (HH:MM:SS)
-#SBATCH --mail-type=begin        # send email when job begins
-#SBATCH --mail-type=end          # send email when job ends
-#SBATCH --mail-type=fail         # send email if job fails
+#SBATCH --job-name=ngl-train
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4        # one per environment
+#SBATCH --mem=32G                # ~6G per Chrome env + DINO model + headroom
+#SBATCH --gres=gpu:3090:1
+#SBATCH --time=24:00:00
+#SBATCH --mail-type=begin
+#SBATCH --mail-type=end
+#SBATCH --mail-type=fail
 #SBATCH --mail-user=kp0374@princeton.edu
 #SBATCH --nodelist=sarekl16-8
 
-#uv run client.py
 uv run src/neurogym-agent/train.py \
   --segment_positions segment_positions.csv \
-  --host 127.0.0.1 \
-  --port 7860 \
-  --n_envs 1 \
-  --total_timesteps 500000 \
+  --n_envs 4 \
+  --total_timesteps 1000000 \
   --wandb_mode online \
-  --run_name v0
+  --run_name v1

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import multiprocessing
 import sys
 from pathlib import Path
 
@@ -24,6 +25,10 @@ from obs.features_extractor import DinoFeaturesExtractor
 class SB3WandbCallback(BaseCallback):
     """Log SB3's internal metrics directly to wandb at each rollout end."""
 
+    def __init__(self, total_timesteps: int):
+        super().__init__()
+        self._total = total_timesteps
+
     def _on_step(self) -> bool:
         return True
 
@@ -31,6 +36,7 @@ class SB3WandbCallback(BaseCallback):
         metrics = {k: float(v) for k, v in self.logger.name_to_value.items()}
         if metrics:
             wandb.log(metrics, step=self.num_timesteps)
+        print(f"[{self.num_timesteps}/{self._total} steps]")
 
 
 def load_config(path: str) -> dict:
@@ -38,7 +44,7 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def build_env_factory(cfg: dict, segment_positions_path: str, host: str, port: int):
+def build_env_factory(cfg: dict, segment_positions_path: str):
     env_cfg = cfg["env"]
     obs_cfg = cfg["obs"]
 
@@ -57,18 +63,19 @@ def build_env_factory(cfg: dict, segment_positions_path: str, host: str, port: i
         success=env_cfg["reward_success"],
         noop_penalty=env_cfg["reward_noop_penalty"],
         noop_position_eps=env_cfg["noop_position_eps"],
+        z_shaping_coef=env_cfg.get("z_shaping_coef", 0.001),
     )
 
     def _make():
         return NGLGymEnv(
-            host=host,
-            port=port,
+            neurogym_config_path=env_cfg["neurogym_config_path"],
             segment_positions_path=segment_positions_path,
             action_spec=action_spec,
             reward_cfg=reward_cfg,
             max_episode_steps=env_cfg["max_episode_steps"],
             reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
             reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
+            headless=env_cfg.get("headless", True),
             dino_repo=obs_cfg["dino_repo"],
             dino_model=obs_cfg["dino_model"],
             dino_input_size=obs_cfg["dino_input_size"],
@@ -77,8 +84,8 @@ def build_env_factory(cfg: dict, segment_positions_path: str, host: str, port: i
     return _make
 
 
-def make_vec_env(cfg: dict, segment_positions_path: str, host: str, port: int, n_envs: int):
-    make_fn = build_env_factory(cfg, segment_positions_path, host, port)
+def make_vec_env(cfg: dict, segment_positions_path: str, n_envs: int):
+    make_fn = build_env_factory(cfg, segment_positions_path)
     if n_envs <= 1:
         return DummyVecEnv([make_fn])
     return SubprocVecEnv([make_fn for _ in range(n_envs)])
@@ -88,8 +95,6 @@ def main():
     parser = argparse.ArgumentParser(description="Train click-based PPO agent on neurogym.")
     parser.add_argument("--config", type=str, default=str(_THIS_DIR / "config" / "default.yaml"))
     parser.add_argument("--segment_positions", type=str, required=True, help="Path to segment_positions.csv.")
-    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host where NGLServer is listening.")
-    parser.add_argument("--port", type=int, default=7860, help="Port where NGLServer is listening.")
     parser.add_argument("--n_envs", type=int, default=None)
     parser.add_argument("--total_timesteps", type=int, default=None)
     parser.add_argument("--wandb_project", type=str, default=None)
@@ -117,7 +122,7 @@ def main():
         monitor_gym=False,
     )
 
-    vec_env = make_vec_env(cfg, args.segment_positions, args.host, args.port, n_envs)
+    vec_env = make_vec_env(cfg, args.segment_positions, n_envs)
 
     policy_kwargs = dict(
         features_extractor_class=DinoFeaturesExtractor,
@@ -155,7 +160,7 @@ def main():
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     callbacks = CallbackList(
         [
-            SB3WandbCallback(),
+            SB3WandbCallback(total_timesteps=total_timesteps),
             WandbCallback(
                 model_save_path=str(checkpoint_dir),
                 model_save_freq=log_cfg["checkpoint_freq"],
@@ -179,4 +184,5 @@ def main():
 
 
 if __name__ == "__main__":
+    multiprocessing.set_start_method("spawn", force=True)
     main()
