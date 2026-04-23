@@ -10,7 +10,7 @@
 #SBATCH --mail-type=end
 #SBATCH --mail-type=fail
 #SBATCH --mail-user=kp0374@princeton.edu
-#SBATCH --nodelist=sarekl16-8
+##SBATCH --nodelist=sarekl16-8
 
 uv run src/neurogym-agent/train.py \
   --segment_positions segment_positions.csv \
