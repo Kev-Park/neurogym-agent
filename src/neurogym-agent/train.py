@@ -88,7 +88,7 @@ def make_vec_env(cfg: dict, segment_positions_path: str, n_envs: int):
     make_fn = build_env_factory(cfg, segment_positions_path)
     if n_envs <= 1:
         return DummyVecEnv([make_fn])
-    return SubprocVecEnv([make_fn for _ in range(n_envs)])
+    return SubprocVecEnv([make_fn for _ in range(n_envs)], start_method="spawn")
 
 
 def main():
