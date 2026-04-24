@@ -18,4 +18,4 @@ xvfb-run -a --server-args="-screen 0 1920x1080x24" \
   --n_envs 12 \
   --total_timesteps 1000000 \
   --wandb_mode online \
-  --run_name v2
+  --run_name v3
