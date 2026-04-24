@@ -35,6 +35,7 @@ from pathlib import Path
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+from tqdm import tqdm
 
 RESOLUTION = [4.0, 4.0, 40.0]  # nm per voxel, x/y/z
 _SCHEMA = pa.schema([
@@ -119,7 +120,7 @@ def main() -> None:
 
     stats = {"processed": 0, "skipped": 0, "failed": 0}
 
-    for i, root_id in enumerate(queue):
+    for i, root_id in enumerate(tqdm(queue, desc="neurons", unit="neuron")):
         nodes: list[tuple[float, float, float]] | None = None
         attempt = 0
         while True:
