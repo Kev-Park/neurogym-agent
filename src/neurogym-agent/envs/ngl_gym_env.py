@@ -114,11 +114,9 @@ class NGLGymEnv(gym.Env):
 
         self._segment_data, self._segment_ids = _load_segment_positions(segment_positions_path)
 
-        self._neuro_env = Environment(
-            headless=headless,
-            config_path=neurogym_config_path,
-        )
-        self._neuro_env.options = {
+        self._neurogym_config_path = neurogym_config_path
+        self._headless = headless
+        self._neuro_env_options = {
             "euler_angles": True,
             "resize": False,
             "add_mouse": False,
@@ -127,6 +125,7 @@ class NGLGymEnv(gym.Env):
             "left_pane": left_pane,
             "right_pane": right_pane,
         }
+        self._neuro_env = self._make_neuro_env()
 
         pos_dim = 3 + 1 + 3 + 1
 
@@ -147,6 +146,18 @@ class NGLGymEnv(gym.Env):
         self._last_image = None
         self._z_max: float = float("inf")
         self._last_seg_id: str = ""
+
+    def _make_neuro_env(self) -> Environment:
+        env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
+        env.options = self._neuro_env_options
+        return env
+
+    def _restart_browser(self) -> None:
+        try:
+            self._neuro_env.end_session()
+        except Exception:
+            pass
+        self._neuro_env = self._make_neuro_env()
 
     def _flatten_pos_state(self, pos_state: list) -> np.ndarray:
         position, cs_scale, orientation_euler, proj_scale = pos_state
@@ -169,32 +180,52 @@ class NGLGymEnv(gym.Env):
             self._rng = np.random.default_rng(seed)
         self._step_count = 0
 
-        seg_id = random.choice(self._segment_ids)
-        self._last_seg_id = seg_id
-        self._z_max = max(pos[2] for pos in self._segment_data[seg_id])
-        url = _make_url(seg_id, self._segment_data)
-        self._neuro_env.reset(url=url)
+        for attempt in range(2):
+            try:
+                seg_id = random.choice(self._segment_ids)
+                self._last_seg_id = seg_id
+                self._z_max = max(pos[2] for pos in self._segment_data[seg_id])
+                url = _make_url(seg_id, self._segment_data)
+                self._neuro_env.reset(url=url)
 
-        perturb_vec = sample_reset_perturbation(
-            self._action_spec,
-            self._rng,
-            self._reset_rotation_perturb_rad,
-            self._reset_zoom_perturb_frac,
-        )
-        state, _reward, _done, _json = self._neuro_env.step(perturb_vec)
-
-        info = {
-            "segment_id": seg_id,
-            "z_max": self._z_max,
-            "z_now": float(state[0][0][2]),
-        }
-        return self._build_obs(state), info
+                perturb_vec = sample_reset_perturbation(
+                    self._action_spec,
+                    self._rng,
+                    self._reset_rotation_perturb_rad,
+                    self._reset_zoom_perturb_frac,
+                )
+                state, _reward, _done, _json = self._neuro_env.step(perturb_vec)
+                info = {
+                    "segment_id": seg_id,
+                    "z_max": self._z_max,
+                    "z_now": float(state[0][0][2]),
+                }
+                return self._build_obs(state), info
+            except Exception:
+                if attempt == 0:
+                    self._restart_browser()
+                else:
+                    raise
 
     def step(self, action):
         prev_state = self._neuro_env.prev_state
         vec, right_click_fired = decode(action, self._action_spec)
 
-        state, _default_reward, _default_done, _json = self._neuro_env.step(vec)
+        try:
+            state, _default_reward, _default_done, _json = self._neuro_env.step(vec)
+        except Exception:
+            self._restart_browser()
+            obs, _ = self.reset()
+            return obs, 0.0, False, True, {
+                "z_now": float("nan"),
+                "z_max": self._z_max,
+                "click_was_noop": False,
+                "right_click_fired": False,
+                "episode_success": False,
+                "step": self._step_count,
+                "browser_crash": True,
+            }
+
         self._step_count += 1
 
         reward, terminated, was_noop = compute_reward(
