@@ -14,6 +14,7 @@ if str(_THIS_DIR) not in sys.path:
 import wandb
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, CallbackList
+from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from envs.action_translator import ActionSpec
@@ -31,6 +32,17 @@ class SB3WandbCallback(BaseCallback):
         self._total = total_timesteps
 
     def _on_step(self) -> bool:
+        for info in self.locals.get("infos", []):
+            if info.get("browser_crash"):
+                wandb.log({"env/browser_crash": 1}, step=self.num_timesteps)
+            ep = info.get("episode")
+            if ep is not None:
+                wandb.log({
+                    "env/ep_reward": ep["r"],
+                    "env/ep_len": ep["l"],
+                    "env/episode_success": float(info.get("episode_success", False)),
+                    "env/z_now_final": info.get("z_now", float("nan")),
+                }, step=self.num_timesteps)
         return True
 
     def _on_rollout_end(self) -> None:
@@ -68,7 +80,7 @@ def build_env_factory(cfg: dict, segment_positions_path: str):
     )
 
     def _make():
-        return NGLGymEnv(
+        return Monitor(NGLGymEnv(
             neurogym_config_path=env_cfg["neurogym_config_path"],
             segment_positions_path=segment_positions_path,
             action_spec=action_spec,
@@ -77,7 +89,7 @@ def build_env_factory(cfg: dict, segment_positions_path: str):
             reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
             reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
             headless=env_cfg.get("headless", True),
-        )
+        ))
 
     return _make
 
