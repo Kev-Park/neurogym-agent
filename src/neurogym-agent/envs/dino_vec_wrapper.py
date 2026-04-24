@@ -62,4 +62,12 @@ class DinoVecWrapper(VecEnvWrapper):
 
     def step_wait(self) -> tuple:
         obs, rewards, dones, infos = self.venv.step_wait()
+        for info in infos:
+            if "terminal_observation" in info:
+                t = info["terminal_observation"]
+                feats = self._dino.encode([t["image"]])
+                info["terminal_observation"] = {
+                    "image_features": feats[0].astype(np.float32),
+                    "pos_state": t["pos_state"],
+                }
         return self._encode(obs), rewards, dones, infos
