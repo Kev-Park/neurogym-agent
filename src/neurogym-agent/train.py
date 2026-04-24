@@ -41,7 +41,6 @@ class SB3WandbCallback(BaseCallback):
                     "env/ep_reward": ep["r"],
                     "env/ep_len": ep["l"],
                     "env/episode_success": float(info.get("episode_success", False)),
-                    "env/z_now_final": info.get("z_now", float("nan")),
                 }, step=self.num_timesteps)
         return True
 

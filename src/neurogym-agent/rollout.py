@@ -97,7 +97,7 @@ def main():
     parser.add_argument(
         "--segment_positions",
         type=str,
-        default=str((_THIS_DIR / "../../segment_positions.csv").resolve()),
+        default=str((_THIS_DIR / "../../segment_positions.parquet").resolve()),
         help="Path to segment_positions.csv.",
     )
     parser.add_argument("--deterministic", action="store_true")

@@ -5,12 +5,15 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fafbseg>=3.0.0",
     "gymnasium>=1.2.3",
     "imageio[ffmpeg]>=2.34.0",
     "msgpack>=1.1.2",
     "ngllib",
     "numpy>=2.4.4",
+    "pandas>=2.0.0",
     "pillow>=12.2.0",
+    "pyarrow>=14.0.0",
     "pyyaml>=6.0.3",
     "scipy>=1.17.1",
     "selenium>=4.41.0",

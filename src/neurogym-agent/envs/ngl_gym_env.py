@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import math
 import random
@@ -11,6 +10,7 @@ from typing import Any
 
 import gymnasium as gym
 import numpy as np
+import pandas as pd
 from gymnasium import spaces
 
 _THIS_DIR = Path(__file__).resolve().parent
@@ -21,8 +21,6 @@ if str(_PKG_DIR) not in sys.path:
 from envs.action_translator import ActionSpec, decode, sample_reset_perturbation
 from envs.reward import RewardConfig, compute as compute_reward
 from ngllib import Environment
-
-csv.field_size_limit(2**31 - 1)
 
 _BASE_STATE = {
     "dimensions": {"x": [4e-9, "m"], "y": [4e-9, "m"], "z": [4e-8, "m"]},
@@ -52,18 +50,12 @@ _BASE_STATE = {
 
 
 def _load_segment_positions(path: str) -> tuple[dict[str, list[list[float]]], list[str]]:
-    """Load segment_positions.csv → ({root_id: [[x,y,z], ...]}, [root_id, ...])."""
-    segment_data: dict[str, list[list[float]]] = {}
-    with open(path, "r") as f:
-        reader = csv.reader(f)
-        next(reader)  # skip header
-        for row in reader:
-            rid = row[0]
-            coords: list[list[float]] = []
-            for pos in row[1].split("|"):
-                x, y, z = pos.split(";")
-                coords.append([float(x), float(y), float(z)])
-            segment_data[rid] = coords
+    """Load segment_positions.parquet → ({root_id: [[x,y,z], ...]}, [root_id, ...])."""
+    df = pd.read_parquet(path, columns=["root_id", "x", "y", "z"])
+    segment_data: dict[str, list[list[float]]] = {
+        str(rid): group[["x", "y", "z"]].values.tolist()
+        for rid, group in df.groupby("root_id", sort=False)
+    }
     return segment_data, list(segment_data.keys())
 
 
