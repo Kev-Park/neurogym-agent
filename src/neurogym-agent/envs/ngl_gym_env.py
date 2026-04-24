@@ -159,6 +159,21 @@ class NGLGymEnv(gym.Env):
             pass
         self._neuro_env = self._make_neuro_env()
 
+    def _webgl_healthy(self) -> bool:
+        """Return False if Chrome's GPU process has crashed and fallen back to SwiftShader."""
+        try:
+            return bool(self._neuro_env.page.evaluate(
+                "() => { const c = document.createElement('canvas');"
+                " const gl = c.getContext('webgl2') || c.getContext('webgl');"
+                " if (!gl) return false;"
+                " const dbg = gl.getExtension('WEBGL_debug_renderer_info');"
+                " if (!dbg) return true;"
+                " const renderer = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);"
+                " return !renderer.toLowerCase().includes('swiftshader'); }"
+            ))
+        except Exception:
+            return False
+
     def _flatten_pos_state(self, pos_state: list) -> np.ndarray:
         position, cs_scale, orientation_euler, proj_scale = pos_state
         return np.asarray(
@@ -186,6 +201,9 @@ class NGLGymEnv(gym.Env):
                 self._last_seg_id = seg_id
                 self._z_max = max(pos[2] for pos in self._segment_data[seg_id])
                 url = _make_url(seg_id, self._segment_data)
+                if not self._webgl_healthy():
+                    self._restart_browser()
+
                 self._neuro_env.reset(url=url)
 
                 perturb_vec = sample_reset_perturbation(
