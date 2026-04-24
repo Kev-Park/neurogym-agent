@@ -20,7 +20,6 @@ if str(_PKG_DIR) not in sys.path:
 
 from envs.action_translator import ActionSpec, decode, sample_reset_perturbation
 from envs.reward import RewardConfig, compute as compute_reward
-from obs.dino_encoder import DinoEncoder
 from ngllib import Environment
 
 csv.field_size_limit(2**31 - 1)
@@ -105,10 +104,6 @@ class NGLGymEnv(gym.Env):
         headless: bool = True,
         left_pane: bool = False,
         right_pane: bool = True,
-        dino_repo: str = "facebookresearch/dinov2",
-        dino_model: str = "dinov2_vits14",
-        dino_input_size: int = 224,
-        dino_device: str | None = None,
     ):
         super().__init__()
         self._action_spec = action_spec
@@ -133,20 +128,12 @@ class NGLGymEnv(gym.Env):
             "right_pane": right_pane,
         }
 
-        self._dino = DinoEncoder(
-            repo=dino_repo,
-            model_name=dino_model,
-            input_size=dino_input_size,
-            device=dino_device,
-        )
-
         pos_dim = 3 + 1 + 3 + 1
-        image_feature_dim = self._dino.feature_dim
 
         self.observation_space = spaces.Dict(
             {
-                "image_features": spaces.Box(
-                    low=-np.inf, high=np.inf, shape=(image_feature_dim,), dtype=np.float32
+                "image": spaces.Box(
+                    low=0, high=255, shape=(900, 900, 3), dtype=np.uint8
                 ),
                 "pos_state": spaces.Box(
                     low=-np.inf, high=np.inf, shape=(pos_dim,), dtype=np.float32
@@ -159,6 +146,7 @@ class NGLGymEnv(gym.Env):
         self._step_count = 0
         self._last_image = None
         self._z_max: float = float("inf")
+        self._last_seg_id: str = ""
 
     def _flatten_pos_state(self, pos_state: list) -> np.ndarray:
         position, cs_scale, orientation_euler, proj_scale = pos_state
@@ -167,15 +155,11 @@ class NGLGymEnv(gym.Env):
             dtype=np.float32,
         )
 
-    def _encode_image(self, image: np.ndarray) -> np.ndarray:
-        feats = self._dino.encode([image])
-        return feats.reshape(-1).astype(np.float32)
-
     def _build_obs(self, state) -> dict[str, np.ndarray]:
         pos_state, image = state
         self._last_image = image
         return {
-            "image_features": self._encode_image(image),
+            "image": image,
             "pos_state": self._flatten_pos_state(pos_state),
         }
 
@@ -186,6 +170,7 @@ class NGLGymEnv(gym.Env):
         self._step_count = 0
 
         seg_id = random.choice(self._segment_ids)
+        self._last_seg_id = seg_id
         self._z_max = max(pos[2] for pos in self._segment_data[seg_id])
         url = _make_url(seg_id, self._segment_data)
         self._neuro_env.reset(url=url)

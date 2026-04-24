@@ -17,6 +17,7 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback,
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from envs.action_translator import ActionSpec
+from envs.dino_vec_wrapper import DinoVecWrapper
 from envs.ngl_gym_env import NGLGymEnv
 from envs.reward import RewardConfig
 from obs.features_extractor import DinoFeaturesExtractor
@@ -76,19 +77,24 @@ def build_env_factory(cfg: dict, segment_positions_path: str):
             reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
             reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
             headless=env_cfg.get("headless", True),
-            dino_repo=obs_cfg["dino_repo"],
-            dino_model=obs_cfg["dino_model"],
-            dino_input_size=obs_cfg["dino_input_size"],
         )
 
     return _make
 
 
 def make_vec_env(cfg: dict, segment_positions_path: str, n_envs: int):
+    obs_cfg = cfg["obs"]
     make_fn = build_env_factory(cfg, segment_positions_path)
     if n_envs <= 1:
-        return DummyVecEnv([make_fn])
-    return SubprocVecEnv([make_fn for _ in range(n_envs)], start_method="spawn")
+        venv = DummyVecEnv([make_fn])
+    else:
+        venv = SubprocVecEnv([make_fn for _ in range(n_envs)], start_method="spawn")
+    return DinoVecWrapper(
+        venv,
+        repo=obs_cfg["dino_repo"],
+        model_name=obs_cfg["dino_model"],
+        input_size=obs_cfg["dino_input_size"],
+    )
 
 
 def main():

@@ -12,8 +12,10 @@ if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
 from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv
 
 from envs.action_translator import ActionSpec
+from envs.dino_vec_wrapper import DinoVecWrapper
 from envs.ngl_gym_env import NGLGymEnv
 from envs.reward import RewardConfig
 
@@ -23,7 +25,7 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def build_env(cfg: dict, segment_positions_path: str) -> NGLGymEnv:
+def build_env(cfg: dict, segment_positions_path: str) -> DinoVecWrapper:
     env_cfg = cfg["env"]
     obs_cfg = cfg["obs"]
     action_spec = ActionSpec(
@@ -43,18 +45,25 @@ def build_env(cfg: dict, segment_positions_path: str) -> NGLGymEnv:
         noop_position_eps=env_cfg["noop_position_eps"],
         z_shaping_coef=env_cfg.get("z_shaping_coef", 0.001),
     )
-    return NGLGymEnv(
-        neurogym_config_path=env_cfg["neurogym_config_path"],
-        segment_positions_path=segment_positions_path,
-        action_spec=action_spec,
-        reward_cfg=reward_cfg,
-        max_episode_steps=env_cfg["max_episode_steps"],
-        reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
-        reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
-        headless=env_cfg.get("headless", True),
-        dino_repo=obs_cfg["dino_repo"],
-        dino_model=obs_cfg["dino_model"],
-        dino_input_size=obs_cfg["dino_input_size"],
+
+    def _make():
+        return NGLGymEnv(
+            neurogym_config_path=env_cfg["neurogym_config_path"],
+            segment_positions_path=segment_positions_path,
+            action_spec=action_spec,
+            reward_cfg=reward_cfg,
+            max_episode_steps=env_cfg["max_episode_steps"],
+            reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
+            reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
+            headless=env_cfg.get("headless", True),
+        )
+
+    venv = DummyVecEnv([_make])
+    return DinoVecWrapper(
+        venv,
+        repo=obs_cfg["dino_repo"],
+        model_name=obs_cfg["dino_model"],
+        input_size=obs_cfg["dino_input_size"],
     )
 
 
@@ -78,24 +87,27 @@ def main():
 
     try:
         for ep in range(args.episodes):
-            obs, info = env.reset(seed=args.seed + ep)
-            seg_id = info["segment_id"]
+            obs = env.reset()
+            seg_id = env.get_attr("_last_seg_id")[0]
             total_reward = 0.0
             steps = 0
-            while True:
+            done = False
+            info: dict = {}
+            while not done:
                 action, _ = model.predict(obs, deterministic=args.deterministic)
-                obs, reward, terminated, truncated, info = env.step(action)
+                obs, rewards, dones, infos = env.step(action)
+                reward = float(rewards[0])
+                info = infos[0]
                 total_reward += reward
                 steps += 1
-                if terminated or truncated:
-                    break
-            success = bool(info["episode_success"])
+                done = bool(dones[0])
+            success = bool(info.get("episode_success", False))
             all_successes.append(success)
             all_returns.append(total_reward)
             all_steps.append(steps)
             print(
                 f"ep {ep:03d} seg={seg_id} success={success} "
-                f"return={total_reward:.3f} steps={steps} z_now={info['z_now']:.2f}"
+                f"return={total_reward:.3f} steps={steps} z_now={info.get('z_now', float('nan')):.2f}"
             )
     finally:
         env.close()
