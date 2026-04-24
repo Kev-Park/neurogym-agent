@@ -15,7 +15,7 @@
 xvfb-run -a --server-args="-screen 0 1920x1080x24" \
   uv run src/neurogym-agent/train.py \
   --segment_positions segment_positions.csv \
-  --n_envs 4 \
+  --n_envs 8 \
   --total_timesteps 1000000 \
   --wandb_mode online \
   --run_name v2
