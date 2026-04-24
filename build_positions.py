@@ -31,6 +31,7 @@ import json
 import time
 from pathlib import Path
 
+import queue as queue_module
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -142,10 +143,23 @@ def main() -> None:
     stats = {"processed": 0, "skipped": 0}
     lock = threading.Lock()
 
+    # Dedicated writer thread so parquet I/O never blocks API workers.
+    # Main thread enqueues row-list snapshots; None is the shutdown sentinel.
+    write_queue: queue_module.Queue = queue_module.Queue()
+
+    def _writer() -> None:
+        while True:
+            snapshot = write_queue.get()
+            if snapshot is None:
+                return
+            _flush(snapshot, output)
+            tqdm.write(f"flushed {len(snapshot):,} rows → {output}")
+
+    writer_thread = threading.Thread(target=_writer, daemon=True)
+    writer_thread.start()
+
     def _collect(root_id: str, nodes: list[tuple[float, float, float]], pbar: tqdm) -> None:
         """Called in the main thread under lock to update shared state."""
-        nonlocal rows
-
         if not nodes:
             tqdm.write(f"SKIP {root_id}: empty skeleton")
             skipped_set.add(root_id)
@@ -182,8 +196,7 @@ def main() -> None:
         pbar.update(1)
 
         if stats["processed"] % args.flush_every == 0:
-            _flush(rows, output)
-            tqdm.write(f"flushed {len(rows):,} rows → {output}  {stats}")
+            write_queue.put(list(rows))
 
     with tqdm(total=len(queue), desc="neurons", unit="neuron") as pbar:
         with ThreadPoolExecutor(max_workers=args.workers) as executor:
@@ -198,7 +211,11 @@ def main() -> None:
                 with lock:
                     _collect(root_id, nodes, pbar)
 
-    _flush(rows, output)
+    # Final flush: drain any pending write, then shut down the writer thread.
+    write_queue.put(list(rows))
+    write_queue.put(None)
+    writer_thread.join()
+
     print("\n=== done ===")
     print(f"  processed:    {stats['processed']}")
     print(f"  skipped:      {stats['skipped']}")
