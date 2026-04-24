@@ -20,9 +20,8 @@ Resume / retry
 Progress is checkpointed to build_positions_progress.json after every
 processed neuron. The output Parquet file is re-written every --flush_every
 neurons (default 500) from the in-memory accumulator so partial progress
-survives a crash. On restart, already-completed root_ids are skipped and
-any previously failed ids are retried up to --max_retries times with
-exponential backoff.
+survives a crash. On restart, already-completed root_ids are skipped.
+Retries are infinite with exponential backoff capped at --retry_max_delay.
 """
 
 from __future__ import annotations
@@ -31,6 +30,9 @@ import argparse
 import json
 import time
 from pathlib import Path
+
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import pyarrow as pa
@@ -58,6 +60,23 @@ def _fetch_nodes(root_id: str) -> list[tuple[float, float, float]]:
     return [_nm_to_voxel(r.x, r.y, r.z) for _, r in nodes.iterrows()]
 
 
+def _process_one(
+    root_id: str,
+    retry_base_delay: float,
+    retry_max_delay: float,
+) -> tuple[str, list[tuple[float, float, float]]]:
+    """Fetch with infinite retry. Runs in a worker thread."""
+    attempt = 0
+    while True:
+        try:
+            return root_id, _fetch_nodes(root_id)
+        except Exception as exc:
+            delay = min(retry_base_delay * (2 ** attempt), retry_max_delay)
+            tqdm.write(f"  attempt {attempt+1} failed for {root_id}: {exc}  retrying in {delay:.0f}s ...")
+            time.sleep(delay)
+            attempt += 1
+
+
 def _flush(rows: list[dict], output: Path) -> None:
     if not rows:
         return
@@ -81,6 +100,8 @@ def main() -> None:
     parser.add_argument("--retry_base_delay", type=float, default=5.0)
     parser.add_argument("--retry_max_delay", type=float, default=300.0,
                         help="Cap on exponential backoff delay in seconds (default 300).")
+    parser.add_argument("--workers", type=int, default=8,
+                        help="Number of parallel threads for CAVE queries (default 8).")
     args = parser.parse_args()
 
     output = Path(args.output)
@@ -118,42 +139,36 @@ def main() -> None:
     print(f"Done: {len(done_set)}  skipped: {len(skipped_set)}  "
           f"retry: {len(retry_ids)}  pending: {len(pending)}")
 
-    stats = {"processed": 0, "skipped": 0, "failed": 0}
+    stats = {"processed": 0, "skipped": 0}
+    lock = threading.Lock()
 
-    for i, root_id in enumerate(tqdm(queue, desc="neurons", unit="neuron")):
-        nodes: list[tuple[float, float, float]] | None = None
-        attempt = 0
-        while True:
-            try:
-                nodes = _fetch_nodes(root_id)
-                break
-            except Exception as exc:
-                delay = min(args.retry_base_delay * (2 ** attempt), args.retry_max_delay)
-                print(f"  attempt {attempt+1} failed for {root_id}: {exc}  retrying in {delay:.0f}s ...")
-                time.sleep(delay)
-                attempt += 1
+    def _collect(root_id: str, nodes: list[tuple[float, float, float]], pbar: tqdm) -> None:
+        """Called in the main thread under lock to update shared state."""
+        nonlocal rows
 
         if not nodes:
-            print(f"[{i+1}/{len(queue)}] SKIP {root_id}: empty skeleton")
+            tqdm.write(f"SKIP {root_id}: empty skeleton")
             skipped_set.add(root_id)
             failed_set.discard(root_id)
             progress["skipped"] = list(skipped_set)
             progress["failed"] = list(failed_set)
             progress_path.write_text(json.dumps(progress, indent=2))
             stats["skipped"] += 1
-            continue
+            pbar.update(1)
+            return
 
         z_vals = [n[2] for n in nodes]
         z_extent = max(z_vals) - min(z_vals)
         if z_extent < args.min_z_extent:
-            print(f"[{i+1}/{len(queue)}] SKIP {root_id}: z_extent={z_extent:.1f} vox < {args.min_z_extent}")
+            tqdm.write(f"SKIP {root_id}: z_extent={z_extent:.1f} vox < {args.min_z_extent}")
             skipped_set.add(root_id)
             failed_set.discard(root_id)
             progress["skipped"] = list(skipped_set)
             progress["failed"] = list(failed_set)
             progress_path.write_text(json.dumps(progress, indent=2))
             stats["skipped"] += 1
-            continue
+            pbar.update(1)
+            return
 
         for x, y, z in nodes:
             rows.append({"root_id": root_id, "x": x, "y": y, "z": z})
@@ -164,16 +179,29 @@ def main() -> None:
         progress["failed"] = list(failed_set)
         progress_path.write_text(json.dumps(progress, indent=2))
         stats["processed"] += 1
+        pbar.update(1)
 
         if stats["processed"] % args.flush_every == 0:
             _flush(rows, output)
-            print(f"[{i+1}/{len(queue)}] flushed {len(rows):,} rows → {output}  {stats}")
+            tqdm.write(f"flushed {len(rows):,} rows → {output}  {stats}")
+
+    with tqdm(total=len(queue), desc="neurons", unit="neuron") as pbar:
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            futures = {
+                executor.submit(
+                    _process_one, root_id, args.retry_base_delay, args.retry_max_delay
+                ): root_id
+                for root_id in queue
+            }
+            for future in as_completed(futures):
+                root_id, nodes = future.result()
+                with lock:
+                    _collect(root_id, nodes, pbar)
 
     _flush(rows, output)
     print("\n=== done ===")
     print(f"  processed:    {stats['processed']}")
     print(f"  skipped:      {stats['skipped']}")
-    print(f"  failed:       {stats['failed']}")
     print(f"  total rows:   {len(rows):,}")
     print(f"  output:       {output}  ({output.stat().st_size / 1e6:.1f} MB)")
 
