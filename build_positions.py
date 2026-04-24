@@ -31,9 +31,8 @@ import json
 import time
 from pathlib import Path
 
-import queue as queue_module
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import pyarrow as pa
@@ -143,23 +142,14 @@ def main() -> None:
     stats = {"processed": 0, "skipped": 0}
     lock = threading.Lock()
 
-    # Dedicated writer thread so parquet I/O never blocks API workers.
-    # Main thread enqueues row-list snapshots; None is the shutdown sentinel.
-    write_queue: queue_module.Queue = queue_module.Queue()
+    # Single-worker ProcessPoolExecutor for parquet writes — runs in a
+    # separate process so pandas/pyarrow serialization never contends the GIL
+    # with the network worker threads. submit() is called outside the lock so
+    # pickling the row snapshot doesn't block result collection either.
+    write_executor = ProcessPoolExecutor(max_workers=1)
 
-    def _writer() -> None:
-        while True:
-            snapshot = write_queue.get()
-            if snapshot is None:
-                return
-            _flush(snapshot, output)
-            tqdm.write(f"flushed {len(snapshot):,} rows → {output}")
-
-    writer_thread = threading.Thread(target=_writer, daemon=True)
-    writer_thread.start()
-
-    def _collect(root_id: str, nodes: list[tuple[float, float, float]], pbar: tqdm) -> None:
-        """Called in the main thread under lock to update shared state."""
+    def _collect(root_id: str, nodes: list[tuple[float, float, float]], pbar: tqdm) -> list[dict] | None:
+        """Called under lock. Returns a row snapshot if a flush is due, else None."""
         if not nodes:
             tqdm.write(f"SKIP {root_id}: empty skeleton")
             skipped_set.add(root_id)
@@ -169,7 +159,7 @@ def main() -> None:
             progress_path.write_text(json.dumps(progress, indent=2))
             stats["skipped"] += 1
             pbar.update(1)
-            return
+            return None
 
         z_vals = [n[2] for n in nodes]
         z_extent = max(z_vals) - min(z_vals)
@@ -182,7 +172,7 @@ def main() -> None:
             progress_path.write_text(json.dumps(progress, indent=2))
             stats["skipped"] += 1
             pbar.update(1)
-            return
+            return None
 
         for x, y, z in nodes:
             rows.append({"root_id": root_id, "x": x, "y": y, "z": z})
@@ -196,7 +186,8 @@ def main() -> None:
         pbar.update(1)
 
         if stats["processed"] % args.flush_every == 0:
-            write_queue.put(list(rows))
+            return list(rows)  # snapshot to be flushed outside the lock
+        return None
 
     with tqdm(total=len(queue), desc="neurons", unit="neuron") as pbar:
         with ThreadPoolExecutor(max_workers=args.workers) as executor:
@@ -209,12 +200,14 @@ def main() -> None:
             for future in as_completed(futures):
                 root_id, nodes = future.result()
                 with lock:
-                    _collect(root_id, nodes, pbar)
+                    snapshot = _collect(root_id, nodes, pbar)
+                if snapshot is not None:
+                    write_executor.submit(_flush, snapshot, output)
+                    tqdm.write(f"queued flush of {len(snapshot):,} rows → {output}")
 
-    # Final flush: drain any pending write, then shut down the writer thread.
-    write_queue.put(list(rows))
-    write_queue.put(None)
-    writer_thread.join()
+    # Final flush then shut down the write process (waits for pending writes).
+    write_executor.submit(_flush, list(rows), output)
+    write_executor.shutdown(wait=True)
 
     print("\n=== done ===")
     print(f"  processed:    {stats['processed']}")
