@@ -52,8 +52,9 @@ _BASE_STATE = {
 def _load_segment_positions(path: str) -> tuple[dict[str, list[list[float]]], list[str]]:
     """Load segment_positions.parquet → ({root_id: [[x,y,z], ...]}, [root_id, ...])."""
     df = pd.read_parquet(path, columns=["root_id", "x", "y", "z"])
-    segment_data: dict[str, list[list[float]]] = {
-        str(rid): group[["x", "y", "z"]].values.tolist()
+    # Keep as float32 numpy arrays (N,3) — ~300 MB total vs ~5 GB for Python lists.
+    segment_data: dict[str, np.ndarray] = {
+        str(rid): group[["x", "y", "z"]].values.astype(np.float32)
         for rid, group in df.groupby("root_id", sort=False)
     }
     return segment_data, list(segment_data.keys())
@@ -70,9 +71,10 @@ def _random_quaternion() -> list[float]:
     ]
 
 
-def _make_url(segment_id: str, segment_data: dict[str, list[list[float]]]) -> str:
+def _make_url(segment_id: str, segment_data: dict[str, np.ndarray]) -> str:
     """Build a Neuroglancer URL for a random position along the given segment."""
-    pos = random.choice(segment_data[segment_id])
+    positions = segment_data[segment_id]
+    pos = positions[random.randrange(len(positions))].tolist()
     orientation = _random_quaternion()
     state = json.loads(json.dumps(_BASE_STATE))
     state["layers"][1]["segments"] = [segment_id]
@@ -191,7 +193,7 @@ class NGLGymEnv(gym.Env):
             try:
                 seg_id = random.choice(self._segment_ids)
                 self._last_seg_id = seg_id
-                self._z_max = max(pos[2] for pos in self._segment_data[seg_id])
+                self._z_max = float(self._segment_data[seg_id][:, 2].max())
                 url = _make_url(seg_id, self._segment_data)
                 if not self._webgl_healthy():
                     self._restart_browser()
