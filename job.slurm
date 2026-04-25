@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16        # one per environment
-#SBATCH --mem=80G                # ~5G per Chrome env × 12 + DINO model + headroom
+#SBATCH --mem=120G               # ~5G per Chrome env × 12 + DINO model + segment data + headroom
 #SBATCH --gres=gpu:3090:1
 #SBATCH --time=48:00:00
 #SBATCH --mail-type=begin
