@@ -12,9 +12,8 @@
 #SBATCH --mail-user=kp0374@princeton.edu
 ##SBATCH --nodelist=sarekl16-8
 
-xvfb-run -a --server-args="-screen 0 1920x1080x24" \
-  uv run src/neurogym-agent/train.py \
-  --segment_positions segment_positions.csv \
+uv run src/neurogym-agent/train.py \
+  --segment_positions segment_positions.parquet \
   --n_envs 12 \
   --total_timesteps 1000000 \
   --wandb_mode online \
