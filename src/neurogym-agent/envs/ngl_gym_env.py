@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import signal
 import sys
 import urllib.parse
 from pathlib import Path
@@ -137,7 +138,6 @@ class NGLGymEnv(gym.Env):
 
         self._rng = np.random.default_rng()
         self._step_count = 0
-        self._episode_count = 0
         self._last_image = None
         self._z_max: float = float("inf")
         self._last_seg_id: str = ""
@@ -146,6 +146,18 @@ class NGLGymEnv(gym.Env):
         env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
         env.options = self._neuro_env_options
         return env
+
+    def _neuro_step(self, vec, timeout: int = 30):
+        """Call neuro_env.step with a SIGALRM timeout. Raises TimeoutError if Chrome hangs."""
+        def _handler(signum, frame):
+            raise TimeoutError(f"neuro_env.step timed out after {timeout}s")
+        old = signal.signal(signal.SIGALRM, _handler)
+        signal.alarm(timeout)
+        try:
+            return self._neuro_env.step(vec)
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old)
 
     def _restart_browser(self) -> None:
         try:
@@ -190,12 +202,6 @@ class NGLGymEnv(gym.Env):
             self._rng = np.random.default_rng(seed)
         self._step_count = 0
 
-        self._episode_count += 1
-        # Proactively restart Chrome every 50 episodes to prevent memory
-        # accumulation that causes silent hangs in step().
-        if self._episode_count % 50 == 0:
-            self._restart_browser()
-
         for attempt in range(2):
             try:
                 seg_id = random.choice(self._segment_ids)
@@ -213,7 +219,7 @@ class NGLGymEnv(gym.Env):
                     self._reset_rotation_perturb_rad,
                     self._reset_zoom_perturb_frac,
                 )
-                state, _reward, _done, _json = self._neuro_env.step(perturb_vec)
+                state, _reward, _done, _json = self._neuro_step(perturb_vec)
                 info = {
                     "segment_id": seg_id,
                     "z_max": self._z_max,
@@ -231,7 +237,7 @@ class NGLGymEnv(gym.Env):
         vec, right_click_fired = decode(action, self._action_spec)
 
         try:
-            state, _default_reward, _default_done, _json = self._neuro_env.step(vec)
+            state, _default_reward, _default_done, _json = self._neuro_step(vec)
         except Exception:
             self._restart_browser()
             obs, _ = self.reset()
