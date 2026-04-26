@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import random
-import signal
 import sys
+import threading
 import urllib.parse
 from pathlib import Path
 from typing import Any
+
+import psutil
 
 import gymnasium as gym
 import numpy as np
@@ -147,23 +150,49 @@ class NGLGymEnv(gym.Env):
         env.options = self._neuro_env_options
         return env
 
+    def _kill_chrome_children(self) -> None:
+        """Force-SIGKILL any Chrome/Chromium child processes of this worker process."""
+        try:
+            current = psutil.Process(os.getpid())
+            for child in current.children(recursive=True):
+                try:
+                    if "chrome" in child.name().lower():
+                        child.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception:
+            pass
+
     def _neuro_step(self, vec, timeout: int = 30):
-        """Call neuro_env.step with a SIGALRM timeout. Raises TimeoutError if Chrome hangs."""
-        def _handler(signum, frame):
-            raise TimeoutError(f"neuro_env.step timed out after {timeout}s")
-        old = signal.signal(signal.SIGALRM, _handler)
-        signal.alarm(timeout)
+        """Call neuro_env.step; if Chrome hangs, kill it via a watchdog thread and raise."""
+        watchdog = threading.Timer(timeout, self._kill_chrome_children)
+        watchdog.start()
         try:
             return self._neuro_env.step(vec)
         finally:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old)
+            watchdog.cancel()
 
     def _restart_browser(self) -> None:
+        """Tear down Playwright step-by-step, then force-kill any surviving Chrome, then respawn."""
         try:
-            self._neuro_env.end_session()
+            if getattr(self._neuro_env, "page", None):
+                try:
+                    self._neuro_env.page.close()
+                except Exception:
+                    pass
+            if getattr(self._neuro_env, "browser", None):
+                try:
+                    self._neuro_env.browser.close()
+                except Exception:
+                    pass
+            if getattr(self._neuro_env, "_playwright", None):
+                try:
+                    self._neuro_env._playwright.stop()
+                except Exception:
+                    pass
         except Exception:
             pass
+        self._kill_chrome_children()
         self._neuro_env = self._make_neuro_env()
 
     def _webgl_healthy(self) -> bool:
