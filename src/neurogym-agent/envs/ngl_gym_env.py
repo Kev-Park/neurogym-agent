@@ -137,6 +137,7 @@ class NGLGymEnv(gym.Env):
 
         self._rng = np.random.default_rng()
         self._step_count = 0
+        self._episode_count = 0
         self._last_image = None
         self._z_max: float = float("inf")
         self._last_seg_id: str = ""
@@ -188,6 +189,12 @@ class NGLGymEnv(gym.Env):
         if seed is not None:
             self._rng = np.random.default_rng(seed)
         self._step_count = 0
+
+        self._episode_count += 1
+        # Proactively restart Chrome every 50 episodes to prevent memory
+        # accumulation that causes silent hangs in step().
+        if self._episode_count % 50 == 0:
+            self._restart_browser()
 
         for attempt in range(2):
             try:
