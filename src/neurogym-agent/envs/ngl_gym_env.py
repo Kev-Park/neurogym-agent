@@ -163,6 +163,15 @@ class NGLGymEnv(gym.Env):
         except Exception:
             pass
 
+    def _neuro_reset(self, url: str, timeout: int = 60):
+        """Call neuro_env.reset; if Chrome hangs loading the URL, kill it and raise."""
+        watchdog = threading.Timer(timeout, self._kill_chrome_children)
+        watchdog.start()
+        try:
+            self._neuro_env.reset(url=url)
+        finally:
+            watchdog.cancel()
+
     def _neuro_step(self, vec, timeout: int = 30):
         """Call neuro_env.step; if Chrome hangs, kill it via a watchdog thread and raise."""
         watchdog = threading.Timer(timeout, self._kill_chrome_children)
@@ -240,7 +249,7 @@ class NGLGymEnv(gym.Env):
                 if not self._webgl_healthy():
                     self._restart_browser()
 
-                self._neuro_env.reset(url=url)
+                self._neuro_reset(url)
 
                 perturb_vec = sample_reset_perturbation(
                     self._action_spec,
