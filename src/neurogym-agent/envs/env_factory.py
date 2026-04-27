@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import multiprocessing
 import sys
 from pathlib import Path
 
 import gymnasium as gym
+import numpy as np
 
 _THIS_DIR = Path(__file__).resolve().parent
 _PKG_DIR = _THIS_DIR.parent
@@ -12,20 +12,23 @@ if str(_PKG_DIR) not in sys.path:
     sys.path.insert(0, str(_PKG_DIR))
 
 from envs.action_translator import ActionSpec
+from envs.browser_manager import BrowserManager
 from envs.ngl_gym_env import NGLGymEnv
 from envs.reward import RewardConfig
 
 
-def build_env_factory(cfg: dict, segment_positions_path: str):
+def build_env_factory(
+    cfg: dict,
+    segment_data: dict[str, np.ndarray],
+    segment_ids: list[str],
+    browser_manager: BrowserManager,
+):
     """Return a no-arg callable that creates a monitored NGLGymEnv.
 
-    Lives here rather than train.py so that SubprocVecEnv workers only import
-    gymnasium/numpy/ngllib when unpickling the factory — not torch or SB3.
-    Chrome is started lazily in the first reset() and serialized via a shared
-    semaphore so workers never hammer the GPU concurrently.
+    segment_data and browser_manager are shared across all worker threads in-process —
+    no pickling, no shared memory, no semaphores needed.
     """
     env_cfg = cfg["env"]
-    chrome_startup_sem = multiprocessing.Semaphore(1)
 
     action_spec = ActionSpec(
         grid_rows=env_cfg["click_grid_rows"],
@@ -48,14 +51,16 @@ def build_env_factory(cfg: dict, segment_positions_path: str):
     def _make():
         env = NGLGymEnv(
             neurogym_config_path=env_cfg["neurogym_config_path"],
-            segment_positions_path=segment_positions_path,
+            segment_data=segment_data,
+            segment_ids=segment_ids,
             action_spec=action_spec,
             reward_cfg=reward_cfg,
+            browser_manager=browser_manager,
             max_episode_steps=env_cfg["max_episode_steps"],
             reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
             reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
             headless=env_cfg.get("headless", True),
-            chrome_startup_sem=chrome_startup_sem,
+            reset_episode_fallback=env_cfg.get("reset_episode_fallback", 100),
         )
         return gym.wrappers.RecordEpisodeStatistics(env)
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import random
 import sys
 import threading
@@ -10,8 +9,6 @@ import time
 import urllib.parse
 from pathlib import Path
 from typing import Any
-
-import psutil
 
 import gymnasium as gym
 import numpy as np
@@ -24,6 +21,7 @@ if str(_PKG_DIR) not in sys.path:
     sys.path.insert(0, str(_PKG_DIR))
 
 from envs.action_translator import ActionSpec, decode, sample_reset_perturbation
+from envs.browser_manager import BrowserManager
 from envs.reward import RewardConfig, compute as compute_reward
 from ngllib import Environment
 
@@ -51,15 +49,17 @@ _BASE_STATE = {
     "showDefaultAnnotations": False,
     "selectedLayer": {"size": 350, "layer": "flywire_v141_m783"},
     "layout": "xy-3d",
-    "gpuMemoryLimit": 128 * 1024 * 1024,   # 128 MB — random nav makes old tiles worthless
-    "systemMemoryLimit": 256 * 1024 * 1024, # 256 MB CPU-side tile cache
+    "gpuMemoryLimit": 128 * 1024 * 1024,   # 128 MB per-context tile cache cap
+    "systemMemoryLimit": 256 * 1024 * 1024, # 256 MB CPU-side prefetch cap
 }
 
 
-def _load_segment_positions(path: str) -> tuple[dict[str, list[list[float]]], list[str]]:
-    """Load segment_positions.parquet → ({root_id: [[x,y,z], ...]}, [root_id, ...])."""
+def _load_segment_positions(path: str) -> tuple[dict[str, np.ndarray], list[str]]:
+    """Load segment_positions.parquet → ({root_id: [[x,y,z], ...]}, [root_id, ...]).
+
+    Call once in the main process; pass the returned dict to all NGLGymEnv workers.
+    """
     df = pd.read_parquet(path, columns=["root_id", "x", "y", "z"])
-    # Keep as float32 numpy arrays (N,3) — ~300 MB total vs ~5 GB for Python lists.
     segment_data: dict[str, np.ndarray] = {
         str(rid): group[["x", "y", "z"]].values.astype(np.float32)
         for rid, group in df.groupby("root_id", sort=False)
@@ -68,7 +68,6 @@ def _load_segment_positions(path: str) -> tuple[dict[str, list[list[float]]], li
 
 
 def _random_quaternion() -> list[float]:
-    """Generate a uniformly random unit quaternion [x, y, z, w]."""
     u1, u2, u3 = random.random(), random.random(), random.random()
     return [
         math.sqrt(1 - u1) * math.sin(2 * math.pi * u2),
@@ -79,7 +78,6 @@ def _random_quaternion() -> list[float]:
 
 
 def _make_url(segment_id: str, segment_data: dict[str, np.ndarray]) -> str:
-    """Build a Neuroglancer URL for a random position along the given segment."""
     positions = segment_data[segment_id]
     pos = positions[random.randrange(len(positions))].tolist()
     orientation = _random_quaternion()
@@ -96,16 +94,18 @@ class NGLGymEnv(gym.Env):
     def __init__(
         self,
         neurogym_config_path: str,
-        segment_positions_path: str,
+        segment_data: dict[str, np.ndarray],
+        segment_ids: list[str],
         action_spec: ActionSpec,
         reward_cfg: RewardConfig,
+        browser_manager: BrowserManager,
         max_episode_steps: int = 300,
         reset_rotation_perturb_rad: float = 0.5,
         reset_zoom_perturb_frac: float = 0.25,
         headless: bool = True,
         left_pane: bool = False,
         right_pane: bool = True,
-        chrome_startup_sem=None,
+        reset_episode_fallback: int = 100,
     ):
         super().__init__()
         self._action_spec = action_spec
@@ -113,9 +113,8 @@ class NGLGymEnv(gym.Env):
         self._max_episode_steps = max_episode_steps
         self._reset_rotation_perturb_rad = reset_rotation_perturb_rad
         self._reset_zoom_perturb_frac = reset_zoom_perturb_frac
-
-        self._segment_data, self._segment_ids = _load_segment_positions(segment_positions_path)
-
+        self._segment_data = segment_data
+        self._segment_ids = segment_ids
         self._neurogym_config_path = neurogym_config_path
         self._headless = headless
         self._neuro_env_options = {
@@ -127,13 +126,12 @@ class NGLGymEnv(gym.Env):
             "left_pane": left_pane,
             "right_pane": right_pane,
         }
-        self._chrome_startup_sem = chrome_startup_sem
-        # Chrome is started lazily on the first reset() to avoid all workers
-        # hammering the GPU simultaneously during SubprocVecEnv.__init__.
+        self._browser_manager = browser_manager
+        self._reset_episode_fallback = reset_episode_fallback
+
         self._neuro_env = None
 
         pos_dim = 3 + 1 + 3 + 1
-
         self.observation_space = spaces.Dict(
             {
                 "image": spaces.Box(
@@ -148,129 +146,87 @@ class NGLGymEnv(gym.Env):
 
         self._rng = np.random.default_rng()
         self._step_count = 0
-        # Random offset so workers with the same n_envs don't all hit the
-        # periodic _restart_browser() at the same time.
         self._episode_count = random.randint(0, 49)
         self._last_image = None
         self._z_max: float = float("inf")
         self._last_seg_id: str = ""
 
-        # Persistent watchdog: fires _kill_chrome_children if _watchdog_deadline is
-        # set and the current time exceeds it. Idle (deadline=inf) between calls.
+    # ------------------------------------------------------------------ browser / context
+
     def _make_neuro_env(self) -> Environment:
-        if self._chrome_startup_sem is not None:
-            self._chrome_startup_sem.acquire()
-        try:
-            env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
-            env.options = self._neuro_env_options
-            return env
-        finally:
-            if self._chrome_startup_sem is not None:
-                self._chrome_startup_sem.release()
-
-    def _chrome_rss_mb(self) -> float:
-        """Return total RSS in MB of all Chrome child processes of this worker."""
-        try:
-            total = 0
-            for child in psutil.Process(os.getpid()).children(recursive=True):
-                try:
-                    if "chrome" in child.name().lower():
-                        total += child.memory_info().rss
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-            return total / (1024 * 1024)
-        except Exception:
-            return 0.0
-
-    def _kill_chrome_children(self) -> None:
-        """Force-SIGKILL any Chrome/Chromium child processes of this worker process."""
-        try:
-            current = psutil.Process(os.getpid())
-            for child in current.children(recursive=True):
-                try:
-                    if "chrome" in child.name().lower():
-                        child.kill()
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-        except Exception:
-            pass
+        env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
+        env.options = self._neuro_env_options
+        self._browser_manager.wait_ready()
+        env.browser = self._browser_manager.browser  # inject shared browser; skip ngllib launch
+        return env
 
     def _new_context(self) -> None:
-        """Swap to a fresh browser context, discarding the cached tile data.
-        When page is None (Chrome just started, no URL yet) skip closing old context.
-        Raises if the browser is dead — caller should escalate to _restart_browser()."""
-        old_ctx = self._neuro_env.page.context if self._neuro_env.page is not None else None
-        new_ctx = self._neuro_env.browser.new_context()
-        self._neuro_env.page = new_ctx.new_page()
+        """Open a fresh BrowserContext+Page, clear HTTP cache via CDP, close the old context."""
+        self._browser_manager.wait_ready()
+        browser = self._browser_manager.browser
+        new_ctx = browser.new_context()
+        new_page = new_ctx.new_page()
+        try:
+            cdp = new_page.context.new_cdp_session(new_page)
+            cdp.send("Network.clearBrowserCache")
+            cdp.detach()
+        except Exception:
+            pass
+        old_ctx = (
+            self._neuro_env.page.context
+            if self._neuro_env is not None and self._neuro_env.page is not None
+            else None
+        )
+        self._neuro_env.browser = browser  # keep in sync after a potential browser restart
+        self._neuro_env.page = new_page
         if old_ctx is not None:
             try:
                 old_ctx.close()
             except Exception:
                 pass
 
-    def _neuro_reset(self, url: str, timeout: int = 60):
-        """Start Chrome lazily if needed, swap context, then navigate with a watchdog."""
+    def _restart_context(self) -> None:
+        """Close the dead context and open a fresh one.
+        If the browser itself is down, wait_ready() inside _new_context() blocks until
+        BrowserManager has relaunched it."""
+        try:
+            if self._neuro_env is not None and self._neuro_env.page is not None:
+                self._neuro_env.page.context.close()
+        except Exception:
+            pass
+        self._new_context()
+
+    def _watchdog_kill_context(self) -> None:
+        """Fired by a threading.Timer when a Playwright call hangs past its timeout.
+        Closing the context forces Playwright to raise, unblocking the caller."""
+        try:
+            self._neuro_env.page.context.close()
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------ neuro wrappers
+
+    def _neuro_reset(self, url: str, timeout: int = 60) -> None:
         if self._neuro_env is None:
             self._neuro_env = self._make_neuro_env()
-        if self._neuro_env.browser is not None:
-            self._new_context()  # raises if browser dead → reset()'s retry calls _restart_browser()
-        watchdog = threading.Timer(timeout, self._kill_chrome_children)
+        self._new_context()  # fresh context every episode; also clears HTTP cache
+        watchdog = threading.Timer(timeout, self._watchdog_kill_context)
         watchdog.start()
         try:
             self._neuro_env.reset(url=url)
+            self._neuro_env.page.evaluate("1", timeout=3000)  # post-nav health check
         finally:
             watchdog.cancel()
 
     def _neuro_step(self, vec, timeout: int = 30):
-        """Call neuro_env.step; if Chrome hangs, kill it via a watchdog thread and raise."""
-        watchdog = threading.Timer(timeout, self._kill_chrome_children)
+        watchdog = threading.Timer(timeout, self._watchdog_kill_context)
         watchdog.start()
         try:
             return self._neuro_env.step(vec)
         finally:
             watchdog.cancel()
 
-    def _restart_browser(self) -> None:
-        """Tear down Playwright step-by-step, then force-kill any surviving Chrome, then respawn."""
-        try:
-            if getattr(self._neuro_env, "page", None):
-                try:
-                    self._neuro_env.page.close()
-                except Exception:
-                    pass
-            if getattr(self._neuro_env, "browser", None):
-                try:
-                    self._neuro_env.browser.close()
-                except Exception:
-                    pass
-            if getattr(self._neuro_env, "_playwright", None):
-                try:
-                    self._neuro_env._playwright.stop()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        self._kill_chrome_children()
-        self._neuro_env = self._make_neuro_env()
-
-    def _webgl_healthy(self) -> bool:
-        """Return False if Chrome's GPU process has crashed and fallen back to SwiftShader."""
-        if self._neuro_env is None:
-            return True
-        if self._neuro_env.page is None:
-            return True  # Chrome not started yet — nothing to check
-        try:
-            return bool(self._neuro_env.page.evaluate(
-                "() => { const c = document.createElement('canvas');"
-                " const gl = c.getContext('webgl2') || c.getContext('webgl');"
-                " if (!gl) return false;"
-                " const dbg = gl.getExtension('WEBGL_debug_renderer_info');"
-                " if (!dbg) return true;"
-                " const renderer = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);"
-                " return !renderer.toLowerCase().includes('swiftshader'); }"
-            ))
-        except Exception:
-            return False
+    # ------------------------------------------------------------------ obs helpers
 
     def _flatten_pos_state(self, pos_state: list) -> np.ndarray:
         position, cs_scale, orientation_euler, proj_scale = pos_state
@@ -290,17 +246,27 @@ class NGLGymEnv(gym.Env):
             "pos_state": self._flatten_pos_state(pos_state),
         }
 
+    # ------------------------------------------------------------------ gym API
+
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
         super().reset(seed=seed)
         if seed is not None:
             self._rng = np.random.default_rng(seed)
         self._step_count = 0
         self._episode_count += 1
-        chrome_running = self._neuro_env is not None and self._neuro_env.browser is not None
-        if self._episode_count % 50 == 0 and chrome_running:
-            rss = self._chrome_rss_mb()
-            print(f"[chrome] ep {self._episode_count}: RSS={rss:.0f} MB pre-restart", flush=True)
-            self._restart_browser()
+
+        # Periodic context restart — clears renderer memory and resets HTTP cache
+        if (
+            self._neuro_env is not None
+            and self._episode_count % self._reset_episode_fallback == 0
+        ):
+            rss = self._browser_manager.chrome_rss_mb()
+            print(
+                f"[chrome] ep {self._episode_count}: total Chrome RSS={rss:.0f} MB"
+                f" — periodic context restart",
+                flush=True,
+            )
+            self._restart_context()
 
         for attempt in range(4):
             try:
@@ -308,11 +274,7 @@ class NGLGymEnv(gym.Env):
                 self._last_seg_id = seg_id
                 self._z_max = float(self._segment_data[seg_id][:, 2].max())
                 url = _make_url(seg_id, self._segment_data)
-                if not self._webgl_healthy():
-                    self._restart_browser()
-
                 self._neuro_reset(url)
-
                 perturb_vec = sample_reset_perturbation(
                     self._action_spec,
                     self._rng,
@@ -328,8 +290,8 @@ class NGLGymEnv(gym.Env):
                 return self._build_obs(state), info
             except Exception:
                 if attempt < 3:
-                    self._restart_browser()
-                    time.sleep(5 * (attempt + 1))  # 5s, 10s, 15s backoff
+                    self._restart_context()
+                    time.sleep(random.uniform(1, 5))
                 else:
                     raise
 
@@ -341,7 +303,7 @@ class NGLGymEnv(gym.Env):
             state, _default_reward, _default_done, _json = self._neuro_step(vec)
             obs = self._build_obs(state)
         except Exception:
-            self._restart_browser()
+            self._restart_context()
             obs, _ = self.reset()
             return obs, 0.0, False, True, {
                 "z_now": float("nan"),
@@ -378,7 +340,9 @@ class NGLGymEnv(gym.Env):
         return self._last_image
 
     def close(self):
+        # Close this worker's current context only — do NOT close the shared browser.
         try:
-            self._neuro_env.end_session()
+            if self._neuro_env is not None and self._neuro_env.page is not None:
+                self._neuro_env.page.context.close()
         except Exception:
             pass

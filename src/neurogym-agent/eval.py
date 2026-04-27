@@ -15,8 +15,9 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 from envs.action_translator import ActionSpec
+from envs.browser_manager import BrowserManager
 from envs.dino_vec_wrapper import DinoVecWrapper
-from envs.ngl_gym_env import NGLGymEnv
+from envs.ngl_gym_env import NGLGymEnv, _load_segment_positions
 from envs.reward import RewardConfig
 
 
@@ -25,7 +26,12 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def build_env(cfg: dict, segment_positions_path: str) -> DinoVecWrapper:
+def build_env(
+    cfg: dict,
+    segment_data: dict,
+    segment_ids: list,
+    browser_manager: BrowserManager,
+) -> DinoVecWrapper:
     env_cfg = cfg["env"]
     obs_cfg = cfg["obs"]
     action_spec = ActionSpec(
@@ -49,13 +55,16 @@ def build_env(cfg: dict, segment_positions_path: str) -> DinoVecWrapper:
     def _make():
         return NGLGymEnv(
             neurogym_config_path=env_cfg["neurogym_config_path"],
-            segment_positions_path=segment_positions_path,
+            segment_data=segment_data,
+            segment_ids=segment_ids,
             action_spec=action_spec,
             reward_cfg=reward_cfg,
+            browser_manager=browser_manager,
             max_episode_steps=env_cfg["max_episode_steps"],
             reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
             reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
             headless=env_cfg.get("headless", True),
+            reset_episode_fallback=env_cfg.get("reset_episode_fallback", 100),
         )
 
     venv = DummyVecEnv([_make])
@@ -70,7 +79,7 @@ def build_env(cfg: dict, segment_positions_path: str) -> DinoVecWrapper:
 def main():
     parser = argparse.ArgumentParser(description="Evaluate a trained PPO policy on neurogym.")
     parser.add_argument("--config", type=str, default=str(_THIS_DIR / "config" / "default.yaml"))
-    parser.add_argument("--segment_positions", type=str, required=True, help="Path to segment_positions.csv.")
+    parser.add_argument("--segment_positions", type=str, required=True, help="Path to segment_positions.parquet.")
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--deterministic", action="store_true")
@@ -78,39 +87,48 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    env = build_env(cfg, args.segment_positions)
+    segment_data, segment_ids = _load_segment_positions(args.segment_positions)
     model = PPO.load(args.checkpoint, device=cfg["train"]["device"])
 
-    all_successes: list[bool] = []
-    all_returns: list[float] = []
-    all_steps: list[int] = []
-
+    browser_manager = BrowserManager(
+        headless=cfg["env"].get("headless", True),
+        extra_args=cfg["env"].get("chrome_args", []),
+    )
     try:
-        for ep in range(args.episodes):
-            obs = env.reset()
-            seg_id = env.get_attr("_last_seg_id")[0]
-            total_reward = 0.0
-            steps = 0
-            done = False
-            info: dict = {}
-            while not done:
-                action, _ = model.predict(obs, deterministic=args.deterministic)
-                obs, rewards, dones, infos = env.step(action)
-                reward = float(rewards[0])
-                info = infos[0]
-                total_reward += reward
-                steps += 1
-                done = bool(dones[0])
-            success = bool(info.get("episode_success", False))
-            all_successes.append(success)
-            all_returns.append(total_reward)
-            all_steps.append(steps)
-            print(
-                f"ep {ep:03d} seg={seg_id} success={success} "
-                f"return={total_reward:.3f} steps={steps} z_now={info.get('z_now', float('nan')):.2f}"
-            )
+        env = build_env(cfg, segment_data, segment_ids, browser_manager)
+
+        all_successes: list[bool] = []
+        all_returns: list[float] = []
+        all_steps: list[int] = []
+
+        try:
+            for ep in range(args.episodes):
+                obs = env.reset()
+                seg_id = env.get_attr("_last_seg_id")[0]
+                total_reward = 0.0
+                steps = 0
+                done = False
+                info: dict = {}
+                while not done:
+                    action, _ = model.predict(obs, deterministic=args.deterministic)
+                    obs, rewards, dones, infos = env.step(action)
+                    reward = float(rewards[0])
+                    info = infos[0]
+                    total_reward += reward
+                    steps += 1
+                    done = bool(dones[0])
+                success = bool(info.get("episode_success", False))
+                all_successes.append(success)
+                all_returns.append(total_reward)
+                all_steps.append(steps)
+                print(
+                    f"ep {ep:03d} seg={seg_id} success={success} "
+                    f"return={total_reward:.3f} steps={steps} z_now={info.get('z_now', float('nan')):.2f}"
+                )
+        finally:
+            env.close()
     finally:
-        env.close()
+        browser_manager.close()
 
     print("\n=== aggregate ===")
     print(f"episodes:       {len(all_successes)}")

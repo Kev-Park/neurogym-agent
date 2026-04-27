@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import multiprocessing
 import sys
 from pathlib import Path
 
@@ -14,10 +13,13 @@ if str(_THIS_DIR) not in sys.path:
 import wandb
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, CallbackList
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv
 
+from envs.browser_manager import BrowserManager
 from envs.dino_vec_wrapper import DinoVecWrapper
 from envs.env_factory import build_env_factory
+from envs.ngl_gym_env import _load_segment_positions
+from envs.threaded_vec_env import ThreadedVecEnv
 from obs.features_extractor import DinoFeaturesExtractor
 
 
@@ -53,23 +55,19 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-_WORKER_INIT_STAGGER_S = 15.0  # stagger parquet loads; at most ~2 workers load simultaneously
-
-
-def make_vec_env(cfg: dict, segment_positions_path: str, n_envs: int):
+def make_vec_env(
+    cfg: dict,
+    segment_data: dict,
+    segment_ids: list,
+    browser_manager: BrowserManager,
+    n_envs: int,
+):
     obs_cfg = cfg["obs"]
-    make_fn = build_env_factory(cfg, segment_positions_path)
+    make_fn = build_env_factory(cfg, segment_data, segment_ids, browser_manager)
     if n_envs <= 1:
         venv = DummyVecEnv([make_fn])
     else:
-        def _staggered(fn, delay):
-            def _make():
-                import time
-                time.sleep(delay)
-                return fn()
-            return _make
-        fns = [_staggered(make_fn, i * _WORKER_INIT_STAGGER_S) for i in range(n_envs)]
-        venv = SubprocVecEnv(fns, start_method="spawn")
+        venv = ThreadedVecEnv([make_fn] * n_envs)
     return DinoVecWrapper(
         venv,
         repo=obs_cfg["dino_repo"],
@@ -81,7 +79,7 @@ def make_vec_env(cfg: dict, segment_positions_path: str, n_envs: int):
 def main():
     parser = argparse.ArgumentParser(description="Train click-based PPO agent on neurogym.")
     parser.add_argument("--config", type=str, default=str(_THIS_DIR / "config" / "default.yaml"))
-    parser.add_argument("--segment_positions", type=str, required=True, help="Path to segment_positions.csv.")
+    parser.add_argument("--segment_positions", type=str, required=True, help="Path to segment_positions.parquet.")
     parser.add_argument("--n_envs", type=int, default=None)
     parser.add_argument("--total_timesteps", type=int, default=None)
     parser.add_argument("--wandb_project", type=str, default=None)
@@ -109,67 +107,78 @@ def main():
         monitor_gym=False,
     )
 
-    vec_env = make_vec_env(cfg, args.segment_positions, n_envs)
+    # Load segment data once in the main process — all worker threads share this dict.
+    print("Loading segment positions...", flush=True)
+    segment_data, segment_ids = _load_segment_positions(args.segment_positions)
+    print(f"Loaded {len(segment_ids)} segments.", flush=True)
 
-    policy_kwargs = dict(
-        features_extractor_class=DinoFeaturesExtractor,
-        features_extractor_kwargs=dict(pos_hidden_dim=64),
-        net_arch=dict(pi=[128, 128], vf=[128, 128]),
+    browser_manager = BrowserManager(
+        headless=cfg["env"].get("headless", True),
+        extra_args=cfg["env"].get("chrome_args", []),
     )
-
-    if args.resume:
-        model = PPO.load(
-            args.resume,
-            env=vec_env,
-            device=train_cfg["device"],
-        )
-    else:
-        model = PPO(
-            policy="MultiInputPolicy",
-            env=vec_env,
-            policy_kwargs=policy_kwargs,
-            n_steps=train_cfg["n_steps"],
-            batch_size=train_cfg["batch_size"],
-            n_epochs=train_cfg["n_epochs"],
-            gamma=train_cfg["gamma"],
-            gae_lambda=train_cfg["gae_lambda"],
-            clip_range=train_cfg["clip_range"],
-            learning_rate=train_cfg["learning_rate"],
-            ent_coef=train_cfg["ent_coef"],
-            vf_coef=train_cfg["vf_coef"],
-            max_grad_norm=train_cfg["max_grad_norm"],
-            seed=train_cfg["seed"],
-            device=train_cfg["device"],
-            verbose=1,
-        )
-
-    checkpoint_dir = Path(log_cfg["checkpoint_dir"]) / wandb_run.id
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    callbacks = CallbackList(
-        [
-            SB3WandbCallback(total_timesteps=total_timesteps),
-            WandbCallback(
-                model_save_path=str(checkpoint_dir),
-                model_save_freq=log_cfg["checkpoint_freq"],
-                gradient_save_freq=0,
-                verbose=1,
-            ),
-            CheckpointCallback(
-                save_freq=log_cfg["checkpoint_freq"],
-                save_path=str(checkpoint_dir),
-                name_prefix="ppo_ngl",
-            ),
-        ]
-    )
-
     try:
-        model.learn(total_timesteps=total_timesteps, callback=callbacks)
+        vec_env = make_vec_env(cfg, segment_data, segment_ids, browser_manager, n_envs)
+
+        policy_kwargs = dict(
+            features_extractor_class=DinoFeaturesExtractor,
+            features_extractor_kwargs=dict(pos_hidden_dim=64),
+            net_arch=dict(pi=[128, 128], vf=[128, 128]),
+        )
+
+        if args.resume:
+            model = PPO.load(
+                args.resume,
+                env=vec_env,
+                device=train_cfg["device"],
+            )
+        else:
+            model = PPO(
+                policy="MultiInputPolicy",
+                env=vec_env,
+                policy_kwargs=policy_kwargs,
+                n_steps=train_cfg["n_steps"],
+                batch_size=train_cfg["batch_size"],
+                n_epochs=train_cfg["n_epochs"],
+                gamma=train_cfg["gamma"],
+                gae_lambda=train_cfg["gae_lambda"],
+                clip_range=train_cfg["clip_range"],
+                learning_rate=train_cfg["learning_rate"],
+                ent_coef=train_cfg["ent_coef"],
+                vf_coef=train_cfg["vf_coef"],
+                max_grad_norm=train_cfg["max_grad_norm"],
+                seed=train_cfg["seed"],
+                device=train_cfg["device"],
+                verbose=1,
+            )
+
+        checkpoint_dir = Path(log_cfg["checkpoint_dir"]) / wandb_run.id
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        callbacks = CallbackList(
+            [
+                SB3WandbCallback(total_timesteps=total_timesteps),
+                WandbCallback(
+                    model_save_path=str(checkpoint_dir),
+                    model_save_freq=log_cfg["checkpoint_freq"],
+                    gradient_save_freq=0,
+                    verbose=1,
+                ),
+                CheckpointCallback(
+                    save_freq=log_cfg["checkpoint_freq"],
+                    save_path=str(checkpoint_dir),
+                    name_prefix="ppo_ngl",
+                ),
+            ]
+        )
+
+        try:
+            model.learn(total_timesteps=total_timesteps, callback=callbacks)
+        finally:
+            model.save(str(checkpoint_dir / "final.zip"))
+            vec_env.close()
+            wandb_run.finish()
     finally:
-        model.save(str(checkpoint_dir / "final.zip"))
-        vec_env.close()
-        wandb_run.finish()
+        browser_manager.close()
 
 
 if __name__ == "__main__":
-    multiprocessing.set_start_method("spawn", force=True)
     main()
