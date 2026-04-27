@@ -14,7 +14,7 @@
 
 uv run src/neurogym-agent/train.py \
   --segment_positions segment_positions.parquet \
-  --n_envs 12 \
+  --n_envs 32 \
   --total_timesteps 1000000 \
   --wandb_mode online \
-  --run_name v9
+  --run_name v10

@@ -14,13 +14,10 @@ if str(_THIS_DIR) not in sys.path:
 import wandb
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, CallbackList
-from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
-from envs.action_translator import ActionSpec
 from envs.dino_vec_wrapper import DinoVecWrapper
-from envs.ngl_gym_env import NGLGymEnv
-from envs.reward import RewardConfig
+from envs.env_factory import build_env_factory
 from obs.features_extractor import DinoFeaturesExtractor
 
 
@@ -54,43 +51,6 @@ class SB3WandbCallback(BaseCallback):
 def load_config(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
-
-
-def build_env_factory(cfg: dict, segment_positions_path: str):
-    env_cfg = cfg["env"]
-    obs_cfg = cfg["obs"]
-
-    action_spec = ActionSpec(
-        grid_rows=env_cfg["click_grid_rows"],
-        grid_cols=env_cfg["click_grid_cols"],
-        pane_x0=env_cfg["pane_3d_bounds"][0],
-        pane_y0=env_cfg["pane_3d_bounds"][1],
-        pane_x1=env_cfg["pane_3d_bounds"][2],
-        pane_y1=env_cfg["pane_3d_bounds"][3],
-        rotation_bins_per_axis=env_cfg["rotation_bins_per_axis"],
-        rotation_step_rad=env_cfg["rotation_step_rad"],
-    )
-    reward_cfg = RewardConfig(
-        z_tolerance=env_cfg["z_tolerance"],
-        success=env_cfg["reward_success"],
-        noop_penalty=env_cfg["reward_noop_penalty"],
-        noop_position_eps=env_cfg["noop_position_eps"],
-        z_shaping_coef=env_cfg.get("z_shaping_coef", 0.001),
-    )
-
-    def _make():
-        return Monitor(NGLGymEnv(
-            neurogym_config_path=env_cfg["neurogym_config_path"],
-            segment_positions_path=segment_positions_path,
-            action_spec=action_spec,
-            reward_cfg=reward_cfg,
-            max_episode_steps=env_cfg["max_episode_steps"],
-            reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
-            reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
-            headless=env_cfg.get("headless", True),
-        ))
-
-    return _make
 
 
 def make_vec_env(cfg: dict, segment_positions_path: str, n_envs: int):

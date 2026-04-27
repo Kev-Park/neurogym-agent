@@ -146,6 +146,8 @@ class NGLGymEnv(gym.Env):
         self._z_max: float = float("inf")
         self._last_seg_id: str = ""
 
+        # Persistent watchdog: fires _kill_chrome_children if _watchdog_deadline is
+        # set and the current time exceeds it. Idle (deadline=inf) between calls.
     def _make_neuro_env(self) -> Environment:
         env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
         env.options = self._neuro_env_options
@@ -178,8 +180,20 @@ class NGLGymEnv(gym.Env):
         except Exception:
             pass
 
+    def _new_context(self) -> None:
+        """Swap to a fresh browser context, discarding the cached tile data.
+        Raises if the browser is dead — caller should escalate to _restart_browser()."""
+        old_ctx = self._neuro_env.page.context
+        new_ctx = self._neuro_env.browser.new_context()
+        self._neuro_env.page = new_ctx.new_page()
+        try:
+            old_ctx.close()
+        except Exception:
+            pass
+
     def _neuro_reset(self, url: str, timeout: int = 60):
-        """Call neuro_env.reset; if Chrome hangs loading the URL, kill it and raise."""
+        """Swap to a fresh context (clears tile cache), then navigate with a watchdog."""
+        self._new_context()  # raises if browser dead → reset()'s retry calls _restart_browser()
         watchdog = threading.Timer(timeout, self._kill_chrome_children)
         watchdog.start()
         try:
