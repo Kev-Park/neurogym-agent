@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16        # one per environment
-#SBATCH --mem=120G               # ~5G per Chrome env × 12 + DINO model + segment data + headroom
+#SBATCH --mem=200G               # Chrome grows ~8-10G/env over long runs; 120G was hitting SLURM cap
 #SBATCH --gres=gpu:3090:1
 #SBATCH --time=48:00:00
 #SBATCH --mail-type=begin
@@ -17,4 +17,4 @@ uv run src/neurogym-agent/train.py \
   --n_envs 12 \
   --total_timesteps 1000000 \
   --wandb_mode online \
-  --run_name v8
+  --run_name v9

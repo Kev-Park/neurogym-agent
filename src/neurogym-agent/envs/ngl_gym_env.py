@@ -141,6 +141,7 @@ class NGLGymEnv(gym.Env):
 
         self._rng = np.random.default_rng()
         self._step_count = 0
+        self._episode_count = 0
         self._last_image = None
         self._z_max: float = float("inf")
         self._last_seg_id: str = ""
@@ -149,6 +150,20 @@ class NGLGymEnv(gym.Env):
         env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
         env.options = self._neuro_env_options
         return env
+
+    def _chrome_rss_mb(self) -> float:
+        """Return total RSS in MB of all Chrome child processes of this worker."""
+        try:
+            total = 0
+            for child in psutil.Process(os.getpid()).children(recursive=True):
+                try:
+                    if "chrome" in child.name().lower():
+                        total += child.memory_info().rss
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            return total / (1024 * 1024)
+        except Exception:
+            return 0.0
 
     def _kill_chrome_children(self) -> None:
         """Force-SIGKILL any Chrome/Chromium child processes of this worker process."""
@@ -239,6 +254,11 @@ class NGLGymEnv(gym.Env):
         if seed is not None:
             self._rng = np.random.default_rng(seed)
         self._step_count = 0
+        self._episode_count += 1
+        if self._episode_count % 50 == 0:
+            rss = self._chrome_rss_mb()
+            print(f"[chrome] ep {self._episode_count}: RSS={rss:.0f} MB pre-restart", flush=True)
+            self._restart_browser()
 
         for attempt in range(2):
             try:
