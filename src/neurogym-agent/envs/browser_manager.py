@@ -5,25 +5,28 @@ import threading
 import time
 
 import psutil
-from playwright.sync_api import Browser, sync_playwright
+from playwright.sync_api import sync_playwright
 
 
 class BrowserManager:
     """Owns the single shared Chrome browser process.
 
-    Workers (threads) share the Browser object directly — no CDP connections needed.
-    On GPU/browser crash Playwright fires 'disconnected'; BrowserManager clears _ready,
-    kills any surviving Chrome children, relaunches, then sets _ready again.
-    Workers call wait_ready() before using the browser, so they block transparently
-    during restarts without any per-worker coordination logic.
+    Workers must NOT share this manager's Browser object — Playwright's sync API
+    is thread-affine (greenlet-based). Instead, each worker calls
+    connect_new() to get its own playwright+browser pair connected to the same
+    Chrome process via the WS endpoint.
+
+    On crash: clears _ready, kills Chrome, relaunches, sets _ready.
+    Workers call wait_ready() before reconnecting, so they block transparently.
     """
 
     def __init__(self, headless: bool = True, extra_args: list[str] | None = None):
         self._headless = headless
         self._extra_args = extra_args or []
         self._ready = threading.Event()
-        self._browser: Browser | None = None
+        self._ws_endpoint: str | None = None
         self._pw = sync_playwright().start()
+        self._browser = None
         self._launch()
 
     # ------------------------------------------------------------------
@@ -33,16 +36,18 @@ class BrowserManager:
             headless=self._headless,
             args=self._extra_args,
         )
+        self._ws_endpoint = self._browser.ws_endpoint
         self._browser.on("disconnected", self._on_disconnect)
         self._ready.set()
+        print(f"[BrowserManager] Chrome launched (ws={self._ws_endpoint})", flush=True)
 
     def _on_disconnect(self) -> None:
         """Playwright fires this on the event-loop thread — defer blocking work."""
+        print("[BrowserManager] browser disconnected — killing Chrome and relaunching", flush=True)
         self._ready.clear()
         threading.Thread(target=self._do_restart, daemon=True).start()
 
     def _do_restart(self) -> None:
-        print("[BrowserManager] browser disconnected — killing Chrome and relaunching", flush=True)
         self._kill_all_chrome()
         time.sleep(3)
         self._launch()
@@ -62,15 +67,16 @@ class BrowserManager:
     # ------------------------------------------------------------------
 
     @property
-    def browser(self) -> Browser:
-        return self._browser
+    def ws_endpoint(self) -> str:
+        """WebSocket endpoint of the current Chrome process. Does NOT block."""
+        return self._ws_endpoint
 
     def wait_ready(self, timeout: float = 120.0) -> None:
-        """Block until the browser is alive. Safe to call from any worker thread."""
+        """Block until Chrome is alive. Call before using ws_endpoint."""
         self._ready.wait(timeout=timeout)
 
     def chrome_rss_mb(self) -> float:
-        """Total RSS in MB of all Chrome child processes (all workers combined)."""
+        """Total RSS in MB of all Chrome child processes."""
         try:
             total = 0
             for child in psutil.Process(os.getpid()).children(recursive=True):
@@ -84,7 +90,7 @@ class BrowserManager:
             return 0.0
 
     def close(self) -> None:
-        """Call once from the main process after all worker threads have exited."""
+        """Call once from the main thread after all worker threads have exited."""
         try:
             self._browser.close()
         except Exception:

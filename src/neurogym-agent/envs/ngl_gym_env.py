@@ -14,6 +14,7 @@ import gymnasium as gym
 import numpy as np
 import pandas as pd
 from gymnasium import spaces
+from playwright.sync_api import sync_playwright
 
 _THIS_DIR = Path(__file__).resolve().parent
 _PKG_DIR = _THIS_DIR.parent
@@ -129,6 +130,10 @@ class NGLGymEnv(gym.Env):
         self._browser_manager = browser_manager
         self._reset_episode_fallback = reset_episode_fallback
 
+        # Each worker thread owns its own playwright + browser connection.
+        # These are created lazily on first use (in the worker thread, not the main thread).
+        self._pw = None
+        self._browser = None
         self._neuro_env = None
 
         pos_dim = 3 + 1 + 3 + 1
@@ -153,18 +158,38 @@ class NGLGymEnv(gym.Env):
 
     # ------------------------------------------------------------------ browser / context
 
+    def _reconnect(self) -> None:
+        """Create (or recreate) this worker's playwright session connected to the shared Chrome.
+
+        Must be called from the worker thread — sync_playwright is thread-affine.
+        Assumes browser_manager.wait_ready() has already been called.
+        """
+        if self._pw is not None:
+            try:
+                self._pw.stop()
+            except Exception:
+                pass
+        self._pw = sync_playwright().start()
+        self._browser = self._pw.chromium.connect(self._browser_manager.ws_endpoint)
+        if self._neuro_env is not None:
+            self._neuro_env.browser = self._browser
+
     def _make_neuro_env(self) -> Environment:
+        self._browser_manager.wait_ready()
+        self._reconnect()
         env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
         env.options = self._neuro_env_options
-        self._browser_manager.wait_ready()
-        env.browser = self._browser_manager.browser  # inject shared browser; skip ngllib launch
+        env.browser = self._browser  # inject — skips ngllib's own Chrome launch
         return env
 
     def _new_context(self) -> None:
-        """Open a fresh BrowserContext+Page, clear HTTP cache via CDP, close the old context."""
+        """Open a fresh BrowserContext+Page for this worker, clear HTTP cache via CDP."""
         self._browser_manager.wait_ready()
-        browser = self._browser_manager.browser
-        new_ctx = browser.new_context()
+        # Reconnect if this is the first call or if Chrome restarted since last time.
+        if self._browser is None or not self._browser.is_connected():
+            self._reconnect()
+
+        new_ctx = self._browser.new_context()
         new_page = new_ctx.new_page()
         try:
             cdp = new_page.context.new_cdp_session(new_page)
@@ -177,7 +202,7 @@ class NGLGymEnv(gym.Env):
             if self._neuro_env is not None and self._neuro_env.page is not None
             else None
         )
-        self._neuro_env.browser = browser  # keep in sync after a potential browser restart
+        self._neuro_env.browser = self._browser  # keep in sync after reconnect
         self._neuro_env.page = new_page
         if old_ctx is not None:
             try:
@@ -187,8 +212,8 @@ class NGLGymEnv(gym.Env):
 
     def _restart_context(self) -> None:
         """Close the dead context and open a fresh one.
-        If the browser itself is down, wait_ready() inside _new_context() blocks until
-        BrowserManager has relaunched it."""
+        If Chrome itself is down, wait_ready() inside _new_context() blocks until
+        BrowserManager has relaunched it, then _new_context() reconnects."""
         try:
             if self._neuro_env is not None and self._neuro_env.page is not None:
                 self._neuro_env.page.context.close()
@@ -340,9 +365,15 @@ class NGLGymEnv(gym.Env):
         return self._last_image
 
     def close(self):
-        # Close this worker's current context only — do NOT close the shared browser.
+        # Close this worker's context only — do NOT close the shared Chrome browser.
         try:
             if self._neuro_env is not None and self._neuro_env.page is not None:
                 self._neuro_env.page.context.close()
+        except Exception:
+            pass
+        # Stop this worker's playwright instance (disconnects from Chrome).
+        try:
+            if self._pw is not None:
+                self._pw.stop()
         except Exception:
             pass
