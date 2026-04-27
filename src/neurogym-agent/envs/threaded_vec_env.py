@@ -39,6 +39,10 @@ def _worker(env_fn: Callable, cmd_q: queue.Queue, res_q: queue.Queue) -> None:
                 name, args, kwargs = data
                 res_q.put(("ok", getattr(env, name)(*args, **kwargs)))
 
+            elif cmd == "is_wrapped":
+                from stable_baselines3.common import env_util
+                res_q.put(("ok", env_util.is_wrapped(env, data)))
+
             elif cmd == "close":
                 env.close()
                 res_q.put(("ok", None))
@@ -151,6 +155,12 @@ class ThreadedVecEnv(VecEnv):
         idxs = self._get_indices(indices)
         for i in idxs:
             self._cmd_qs[i].put(("env_method", (method_name, method_args, method_kwargs)))
+        return [self._res_qs[i].get()[1] for i in idxs]
+
+    def env_is_wrapped(self, wrapper_class, indices=None) -> list[bool]:
+        idxs = self._get_indices(indices)
+        for i in idxs:
+            self._cmd_qs[i].put(("is_wrapped", wrapper_class))
         return [self._res_qs[i].get()[1] for i in idxs]
 
     def seed(self, seed=None) -> list:
