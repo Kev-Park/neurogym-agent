@@ -209,7 +209,8 @@ class NGLGymEnv(gym.Env):
         """Start Chrome lazily if needed, swap context, then navigate with a watchdog."""
         if self._neuro_env is None:
             self._neuro_env = self._make_neuro_env()
-        self._new_context()  # raises if browser dead → reset()'s retry calls _restart_browser()
+        if self._neuro_env.browser is not None:
+            self._new_context()  # raises if browser dead → reset()'s retry calls _restart_browser()
         watchdog = threading.Timer(timeout, self._kill_chrome_children)
         watchdog.start()
         try:
