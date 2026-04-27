@@ -159,10 +159,10 @@ class NGLGymEnv(gym.Env):
     # ------------------------------------------------------------------ browser / context
 
     def _reconnect(self) -> None:
-        """Create (or recreate) this worker's playwright session connected to the shared Chrome.
+        """Launch (or relaunch) this worker's own Chrome instance.
 
         Must be called from the worker thread — sync_playwright is thread-affine.
-        Assumes browser_manager.wait_ready() has already been called.
+        Each worker owns its Chrome; no cross-thread browser sharing is attempted.
         """
         if self._pw is not None:
             try:
@@ -170,7 +170,10 @@ class NGLGymEnv(gym.Env):
             except Exception:
                 pass
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.connect_over_cdp(self._browser_manager.cdp_url)
+        self._browser = self._pw.chromium.launch(
+            headless=self._headless,
+            args=self._browser_manager.extra_args,
+        )
         if self._neuro_env is not None:
             self._neuro_env.browser = self._browser
 
