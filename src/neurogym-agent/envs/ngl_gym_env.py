@@ -6,6 +6,7 @@ import os
 import random
 import sys
 import threading
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -299,12 +300,13 @@ class NGLGymEnv(gym.Env):
             self._rng = np.random.default_rng(seed)
         self._step_count = 0
         self._episode_count += 1
-        if self._episode_count % 50 == 0:
+        chrome_running = self._neuro_env is not None and self._neuro_env.browser is not None
+        if self._episode_count % 50 == 0 and chrome_running:
             rss = self._chrome_rss_mb()
             print(f"[chrome] ep {self._episode_count}: RSS={rss:.0f} MB pre-restart", flush=True)
             self._restart_browser()
 
-        for attempt in range(2):
+        for attempt in range(4):
             try:
                 seg_id = random.choice(self._segment_ids)
                 self._last_seg_id = seg_id
@@ -329,8 +331,9 @@ class NGLGymEnv(gym.Env):
                 }
                 return self._build_obs(state), info
             except Exception:
-                if attempt == 0:
+                if attempt < 3:
                     self._restart_browser()
+                    time.sleep(5 * (attempt + 1))  # 5s, 10s, 15s backoff
                 else:
                     raise
 
