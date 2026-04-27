@@ -194,17 +194,21 @@ class NGLGymEnv(gym.Env):
 
     def _new_context(self) -> None:
         """Swap to a fresh browser context, discarding the cached tile data.
+        When page is None (Chrome just started, no URL yet) skip closing old context.
         Raises if the browser is dead — caller should escalate to _restart_browser()."""
-        old_ctx = self._neuro_env.page.context
+        old_ctx = self._neuro_env.page.context if self._neuro_env.page is not None else None
         new_ctx = self._neuro_env.browser.new_context()
         self._neuro_env.page = new_ctx.new_page()
-        try:
-            old_ctx.close()
-        except Exception:
-            pass
+        if old_ctx is not None:
+            try:
+                old_ctx.close()
+            except Exception:
+                pass
 
     def _neuro_reset(self, url: str, timeout: int = 60):
-        """Swap to a fresh context (clears tile cache), then navigate with a watchdog."""
+        """Start Chrome lazily if needed, swap context, then navigate with a watchdog."""
+        if self._neuro_env is None:
+            self._neuro_env = self._make_neuro_env()
         self._new_context()  # raises if browser dead → reset()'s retry calls _restart_browser()
         watchdog = threading.Timer(timeout, self._kill_chrome_children)
         watchdog.start()
