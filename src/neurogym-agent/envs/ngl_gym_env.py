@@ -141,7 +141,9 @@ class NGLGymEnv(gym.Env):
 
         self._rng = np.random.default_rng()
         self._step_count = 0
-        self._episode_count = 0
+        # Random offset so workers with the same n_envs don't all hit the
+        # periodic _restart_browser() at the same time.
+        self._episode_count = random.randint(0, 49)
         self._last_image = None
         self._z_max: float = float("inf")
         self._last_seg_id: str = ""
