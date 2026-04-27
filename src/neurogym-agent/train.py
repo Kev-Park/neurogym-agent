@@ -53,13 +53,23 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+_WORKER_INIT_STAGGER_S = 15.0  # stagger parquet loads; at most ~2 workers load simultaneously
+
+
 def make_vec_env(cfg: dict, segment_positions_path: str, n_envs: int):
     obs_cfg = cfg["obs"]
     make_fn = build_env_factory(cfg, segment_positions_path)
     if n_envs <= 1:
         venv = DummyVecEnv([make_fn])
     else:
-        venv = SubprocVecEnv([make_fn for _ in range(n_envs)], start_method="spawn")
+        def _staggered(fn, delay):
+            def _make():
+                import time
+                time.sleep(delay)
+                return fn()
+            return _make
+        fns = [_staggered(make_fn, i * _WORKER_INIT_STAGGER_S) for i in range(n_envs)]
+        venv = SubprocVecEnv(fns, start_method="spawn")
     return DinoVecWrapper(
         venv,
         repo=obs_cfg["dino_repo"],
