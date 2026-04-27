@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import multiprocessing
 import sys
 from pathlib import Path
 
@@ -20,8 +21,11 @@ def build_env_factory(cfg: dict, segment_positions_path: str):
 
     Lives here rather than train.py so that SubprocVecEnv workers only import
     gymnasium/numpy/ngllib when unpickling the factory — not torch or SB3.
+    Chrome is started lazily in the first reset() and serialized via a shared
+    semaphore so workers never hammer the GPU concurrently.
     """
     env_cfg = cfg["env"]
+    chrome_startup_sem = multiprocessing.Semaphore(1)
 
     action_spec = ActionSpec(
         grid_rows=env_cfg["click_grid_rows"],
@@ -51,6 +55,7 @@ def build_env_factory(cfg: dict, segment_positions_path: str):
             reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
             reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
             headless=env_cfg.get("headless", True),
+            chrome_startup_sem=chrome_startup_sem,
         )
         return gym.wrappers.RecordEpisodeStatistics(env)
 

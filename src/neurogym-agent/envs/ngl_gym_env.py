@@ -102,6 +102,7 @@ class NGLGymEnv(gym.Env):
         headless: bool = True,
         left_pane: bool = False,
         right_pane: bool = True,
+        chrome_startup_sem=None,
     ):
         super().__init__()
         self._action_spec = action_spec
@@ -123,7 +124,10 @@ class NGLGymEnv(gym.Env):
             "left_pane": left_pane,
             "right_pane": right_pane,
         }
-        self._neuro_env = self._make_neuro_env()
+        self._chrome_startup_sem = chrome_startup_sem
+        # Chrome is started lazily on the first reset() to avoid all workers
+        # hammering the GPU simultaneously during SubprocVecEnv.__init__.
+        self._neuro_env = None
 
         pos_dim = 3 + 1 + 3 + 1
 
@@ -151,9 +155,15 @@ class NGLGymEnv(gym.Env):
         # Persistent watchdog: fires _kill_chrome_children if _watchdog_deadline is
         # set and the current time exceeds it. Idle (deadline=inf) between calls.
     def _make_neuro_env(self) -> Environment:
-        env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
-        env.options = self._neuro_env_options
-        return env
+        if self._chrome_startup_sem is not None:
+            self._chrome_startup_sem.acquire()
+        try:
+            env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
+            env.options = self._neuro_env_options
+            return env
+        finally:
+            if self._chrome_startup_sem is not None:
+                self._chrome_startup_sem.release()
 
     def _chrome_rss_mb(self) -> float:
         """Return total RSS in MB of all Chrome child processes of this worker."""
@@ -237,6 +247,8 @@ class NGLGymEnv(gym.Env):
 
     def _webgl_healthy(self) -> bool:
         """Return False if Chrome's GPU process has crashed and fallen back to SwiftShader."""
+        if self._neuro_env is None:
+            return True
         try:
             return bool(self._neuro_env.page.evaluate(
                 "() => { const c = document.createElement('canvas');"
