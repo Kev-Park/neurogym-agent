@@ -170,7 +170,7 @@ class NGLGymEnv(gym.Env):
             except Exception:
                 pass
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.connect(self._browser_manager.ws_endpoint)
+        self._browser = self._pw.chromium.connect_over_cdp(self._browser_manager.cdp_url)
         if self._neuro_env is not None:
             self._neuro_env.browser = self._browser
 
