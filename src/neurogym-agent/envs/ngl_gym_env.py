@@ -51,6 +51,8 @@ _BASE_STATE = {
     "showDefaultAnnotations": False,
     "selectedLayer": {"size": 350, "layer": "flywire_v141_m783"},
     "layout": "xy-3d",
+    "gpuMemoryLimit": 128 * 1024 * 1024,   # 128 MB — random nav makes old tiles worthless
+    "systemMemoryLimit": 256 * 1024 * 1024, # 256 MB CPU-side tile cache
 }
 
 
@@ -156,9 +158,15 @@ class NGLGymEnv(gym.Env):
         # Persistent watchdog: fires _kill_chrome_children if _watchdog_deadline is
         # set and the current time exceeds it. Idle (deadline=inf) between calls.
     def _make_neuro_env(self) -> Environment:
-        env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
-        env.options = self._neuro_env_options
-        return env
+        if self._chrome_startup_sem is not None:
+            self._chrome_startup_sem.acquire()
+        try:
+            env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
+            env.options = self._neuro_env_options
+            return env
+        finally:
+            if self._chrome_startup_sem is not None:
+                self._chrome_startup_sem.release()
 
     def _chrome_rss_mb(self) -> float:
         """Return total RSS in MB of all Chrome child processes of this worker."""
@@ -201,29 +209,17 @@ class NGLGymEnv(gym.Env):
                 pass
 
     def _neuro_reset(self, url: str, timeout: int = 60):
-        """Start Chrome lazily if needed, swap context, then navigate with a watchdog.
-
-        The semaphore is held across the first env.reset() per browser lifecycle
-        (when Chrome actually starts and loads the first Neuroglancer page) to
-        prevent all workers from hammering memory simultaneously.
-        """
+        """Start Chrome lazily if needed, swap context, then navigate with a watchdog."""
         if self._neuro_env is None:
             self._neuro_env = self._make_neuro_env()
-        first_nav = self._neuro_env.browser is None
-        if not first_nav:
+        if self._neuro_env.browser is not None:
             self._new_context()  # raises if browser dead → reset()'s retry calls _restart_browser()
-        if first_nav and self._chrome_startup_sem is not None:
-            self._chrome_startup_sem.acquire()
+        watchdog = threading.Timer(timeout, self._kill_chrome_children)
+        watchdog.start()
         try:
-            watchdog = threading.Timer(timeout, self._kill_chrome_children)
-            watchdog.start()
-            try:
-                self._neuro_env.reset(url=url)
-            finally:
-                watchdog.cancel()
+            self._neuro_env.reset(url=url)
         finally:
-            if first_nav and self._chrome_startup_sem is not None:
-                self._chrome_startup_sem.release()
+            watchdog.cancel()
 
     def _neuro_step(self, vec, timeout: int = 30):
         """Call neuro_env.step; if Chrome hangs, kill it via a watchdog thread and raise."""
