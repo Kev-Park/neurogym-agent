@@ -254,6 +254,8 @@ class NGLGymEnv(gym.Env):
         """Return False if Chrome's GPU process has crashed and fallen back to SwiftShader."""
         if self._neuro_env is None:
             return True
+        if self._neuro_env.page is None:
+            return True  # Chrome not started yet — nothing to check
         try:
             return bool(self._neuro_env.page.evaluate(
                 "() => { const c = document.createElement('canvas');"
@@ -276,6 +278,9 @@ class NGLGymEnv(gym.Env):
 
     def _build_obs(self, state) -> dict[str, np.ndarray]:
         pos_state, image = state
+        expected = self.observation_space["image"].shape
+        if image.shape != expected:
+            raise RuntimeError(f"image shape {image.shape} != expected {expected}")
         self._last_image = image
         return {
             "image": image,
@@ -329,6 +334,7 @@ class NGLGymEnv(gym.Env):
 
         try:
             state, _default_reward, _default_done, _json = self._neuro_step(vec)
+            obs = self._build_obs(state)
         except Exception:
             self._restart_browser()
             obs, _ = self.reset()
@@ -361,7 +367,7 @@ class NGLGymEnv(gym.Env):
             "episode_success": terminated,
             "step": self._step_count,
         }
-        return self._build_obs(state), float(reward), bool(terminated), bool(truncated), info
+        return obs, float(reward), bool(terminated), bool(truncated), info
 
     def render(self):
         return self._last_image
