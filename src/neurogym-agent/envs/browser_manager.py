@@ -13,7 +13,7 @@ class BrowserManager:
 
     Workers must NOT share a Browser object — Playwright's sync API is thread-affine
     (greenlet-based). Instead each worker connects to the shared Chrome via the
-    WebSocket endpoint exposed by BrowserServer, creating its own lightweight proxy.
+    WebSocket endpoint from launch_server(), creating its own lightweight proxy.
 
     On crash: clears _ready, kills Chrome, relaunches, sets _ready.
     Workers call wait_ready() before reconnecting so they block transparently.
@@ -26,7 +26,7 @@ class BrowserManager:
         self._ws_endpoint: str | None = None
         self._pw = sync_playwright().start()
         self._server = None
-        self._monitor = None  # connected browser used only for crash detection
+        self._monitor = None  # connected proxy used only for crash detection
         self._launch()
 
     # ------------------------------------------------------------------
@@ -37,7 +37,6 @@ class BrowserManager:
             args=self._extra_args,
         )
         self._ws_endpoint = self._server.ws_endpoint
-        # Connect a lightweight monitor browser solely to receive "disconnected" events.
         self._monitor = self._pw.chromium.connect(self._ws_endpoint)
         self._monitor.on("disconnected", self._on_disconnect)
         self._ready.set()
