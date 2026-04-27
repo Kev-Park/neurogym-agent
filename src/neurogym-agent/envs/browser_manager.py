@@ -5,19 +5,18 @@ import threading
 import time
 
 import psutil
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import BrowserServer, sync_playwright
 
 
 class BrowserManager:
     """Owns the single shared Chrome browser process.
 
-    Workers must NOT share this manager's Browser object — Playwright's sync API
-    is thread-affine (greenlet-based). Instead, each worker calls
-    connect_new() to get its own playwright+browser pair connected to the same
-    Chrome process via the WS endpoint.
+    Workers must NOT share a Browser object — Playwright's sync API is thread-affine
+    (greenlet-based). Instead each worker connects to the shared Chrome via the
+    WebSocket endpoint exposed by BrowserServer, creating its own lightweight proxy.
 
     On crash: clears _ready, kills Chrome, relaunches, sets _ready.
-    Workers call wait_ready() before reconnecting, so they block transparently.
+    Workers call wait_ready() before reconnecting so they block transparently.
     """
 
     def __init__(self, headless: bool = True, extra_args: list[str] | None = None):
@@ -26,18 +25,21 @@ class BrowserManager:
         self._ready = threading.Event()
         self._ws_endpoint: str | None = None
         self._pw = sync_playwright().start()
-        self._browser = None
+        self._server: BrowserServer | None = None
+        self._monitor = None  # connected browser used only for crash detection
         self._launch()
 
     # ------------------------------------------------------------------
 
     def _launch(self) -> None:
-        self._browser = self._pw.chromium.launch(
+        self._server = self._pw.chromium.launch_server(
             headless=self._headless,
             args=self._extra_args,
         )
-        self._ws_endpoint = self._browser.ws_endpoint
-        self._browser.on("disconnected", self._on_disconnect)
+        self._ws_endpoint = self._server.ws_endpoint
+        # Connect a lightweight monitor browser solely to receive "disconnected" events.
+        self._monitor = self._pw.chromium.connect(self._ws_endpoint)
+        self._monitor.on("disconnected", self._on_disconnect)
         self._ready.set()
         print(f"[BrowserManager] Chrome launched (ws={self._ws_endpoint})", flush=True)
 
@@ -92,7 +94,11 @@ class BrowserManager:
     def close(self) -> None:
         """Call once from the main thread after all worker threads have exited."""
         try:
-            self._browser.close()
+            self._monitor.close()
+        except Exception:
+            pass
+        try:
+            self._server.close()
         except Exception:
             pass
         try:
