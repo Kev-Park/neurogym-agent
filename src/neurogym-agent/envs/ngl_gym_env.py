@@ -242,7 +242,7 @@ class NGLGymEnv(gym.Env):
         watchdog.start()
         try:
             self._neuro_env.reset(url=url)
-            self._neuro_env.page.evaluate("1", timeout=3000)  # post-nav health check
+            self._neuro_env.page.evaluate("1")  # post-nav health check
         finally:
             watchdog.cancel()
 
