@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from typing import Any, Callable
 
 import numpy as np
@@ -134,9 +135,13 @@ class ThreadedVecEnv(VecEnv):
 
     def close(self) -> None:
         self._send_all("close", [None] * self.num_envs)
-        self._recv_all()
+        # Don't use _recv_all() here — stale error results from a failed reset/step
+        # would be read before the "close" ack, causing a spurious RuntimeError.
+        # Workers are daemon threads; just join them with a generous deadline.
+        deadline = time.monotonic() + 300
         for t in self._threads:
-            t.join(timeout=30)
+            remaining = max(0.1, deadline - time.monotonic())
+            t.join(timeout=remaining)
 
     def get_attr(self, attr_name: str, indices=None) -> list:
         idxs = self._get_indices(indices)

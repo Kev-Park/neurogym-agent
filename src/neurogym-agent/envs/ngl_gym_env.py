@@ -25,6 +25,7 @@ from envs.action_translator import ActionSpec, decode, sample_reset_perturbation
 from envs.browser_manager import BrowserManager
 from envs.reward import RewardConfig, compute as compute_reward
 from ngllib import Environment
+from ngllib.utils.MouseActionHandler import MouseActionHandler
 
 _BASE_STATE = {
     "dimensions": {"x": [4e-9, "m"], "y": [4e-9, "m"], "z": [4e-8, "m"]},
@@ -155,6 +156,7 @@ class NGLGymEnv(gym.Env):
         self._last_image = None
         self._z_max: float = float("inf")
         self._last_seg_id: str = ""
+        self._chrome_started: bool = False  # True after first reset completes
 
     # ------------------------------------------------------------------ browser / context
 
@@ -193,7 +195,9 @@ class NGLGymEnv(gym.Env):
             self._reconnect()
 
         new_ctx = self._browser.new_context()
-        new_page = new_ctx.new_page()
+        new_page = new_ctx.new_page(
+            viewport={"width": self._neuro_env.window_width, "height": self._neuro_env.window_height}
+        )
         try:
             cdp = new_page.context.new_cdp_session(new_page)
             cdp.send("Network.clearBrowserCache")
@@ -207,6 +211,7 @@ class NGLGymEnv(gym.Env):
         )
         self._neuro_env.browser = self._browser  # keep in sync after reconnect
         self._neuro_env.page = new_page
+        self._neuro_env.action_handler = MouseActionHandler(new_page)
         if old_ctx is not None:
             try:
                 old_ctx.close()
@@ -234,7 +239,7 @@ class NGLGymEnv(gym.Env):
 
     # ------------------------------------------------------------------ neuro wrappers
 
-    def _neuro_reset(self, url: str, timeout: int = 60) -> None:
+    def _neuro_reset(self, url: str, timeout: int = 240) -> None:
         if self._neuro_env is None:
             self._neuro_env = self._make_neuro_env()
         self._new_context()  # fresh context every episode; also clears HTTP cache
@@ -296,13 +301,18 @@ class NGLGymEnv(gym.Env):
             )
             self._restart_context()
 
+        # First reset: all workers start Chrome simultaneously → heavy network load.
+        # Give extra time. After Chrome is warm, resets are typically < 10s.
+        reset_timeout = 240 if not self._chrome_started else 60
+
         for attempt in range(4):
             try:
                 seg_id = random.choice(self._segment_ids)
                 self._last_seg_id = seg_id
                 self._z_max = float(self._segment_data[seg_id][:, 2].max())
                 url = _make_url(seg_id, self._segment_data)
-                self._neuro_reset(url)
+                self._neuro_reset(url, timeout=reset_timeout)
+                self._chrome_started = True
                 perturb_vec = sample_reset_perturbation(
                     self._action_spec,
                     self._rng,
