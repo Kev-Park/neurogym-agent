@@ -172,9 +172,20 @@ class NGLGymEnv(gym.Env):
             except Exception:
                 pass
         self._pw = sync_playwright().start()
+        # Mirror ngllib's _build_launch_args for headless Linux GPU rendering.
+        # Without these flags Chrome falls back to SwiftShader (CPU software renderer).
+        _chrome_args = [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+            "--use-gl=angle",
+            "--use-angle=vulkan",
+            "--enable-features=Vulkan",
+            "--enable-unsafe-swiftshader",
+        ] + self._browser_manager.extra_args
         self._browser = self._pw.chromium.launch(
             headless=self._headless,
-            args=self._browser_manager.extra_args,
+            args=_chrome_args,
         )
         if self._neuro_env is not None:
             self._neuro_env.browser = self._browser
