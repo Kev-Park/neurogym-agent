@@ -194,10 +194,10 @@ class NGLGymEnv(gym.Env):
         if self._browser is None or not self._browser.is_connected():
             self._reconnect()
 
-        new_ctx = self._browser.new_context()
-        new_page = new_ctx.new_page(
+        new_ctx = self._browser.new_context(
             viewport={"width": self._neuro_env.window_width, "height": self._neuro_env.window_height}
         )
+        new_page = new_ctx.new_page()
         try:
             cdp = new_page.context.new_cdp_session(new_page)
             cdp.send("Network.clearBrowserCache")
