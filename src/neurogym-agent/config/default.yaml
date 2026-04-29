@@ -18,7 +18,6 @@ env:
   noop_position_eps: 0.5
   z_shaping_coef: 0.001
 
-  reset_episode_fallback: 100    # periodic context restart interval (episodes per worker)
   chrome_args: []                # extra Chrome launch flags passed to BrowserManager
 
 obs:

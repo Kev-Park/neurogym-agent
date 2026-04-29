@@ -66,7 +66,6 @@ def build_env(
             reset_rotation_perturb_rad=env_cfg["reset_rotation_perturb_rad"],
             reset_zoom_perturb_frac=env_cfg["reset_zoom_perturb_frac"],
             headless=env_cfg.get("headless", True),
-            reset_episode_fallback=env_cfg.get("reset_episode_fallback", 100),
         )
 
     venv = DummyVecEnv([_make])

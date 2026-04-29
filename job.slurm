@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=16        # one per environment
 #SBATCH --mem=200G               # Chrome grows ~8-10G/env over long runs; 120G was hitting SLURM cap
 #SBATCH --gres=gpu:3090:1
-#SBATCH --time=48:00:00
+#SBATCH --time=72:00:00
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
 #SBATCH --mail-type=fail
@@ -15,6 +15,6 @@
 uv run src/neurogym-agent/train.py \
   --segment_positions segment_positions.parquet \
   --n_envs 16 \
-  --total_timesteps 2000000 \
+  --total_timesteps 5000000 \
   --wandb_mode online \
   --run_name v11

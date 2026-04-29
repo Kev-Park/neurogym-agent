@@ -107,7 +107,6 @@ class NGLGymEnv(gym.Env):
         headless: bool = True,
         left_pane: bool = False,
         right_pane: bool = True,
-        reset_episode_fallback: int = 100,
     ):
         super().__init__()
         self._action_spec = action_spec
@@ -129,7 +128,6 @@ class NGLGymEnv(gym.Env):
             "right_pane": right_pane,
         }
         self._browser_manager = browser_manager
-        self._reset_episode_fallback = reset_episode_fallback
 
         # Each worker thread owns its own playwright + browser connection.
         # These are created lazily on first use (in the worker thread, not the main thread).
@@ -298,19 +296,6 @@ class NGLGymEnv(gym.Env):
             self._rng = np.random.default_rng(seed)
         self._step_count = 0
         self._episode_count += 1
-
-        # Periodic context restart — clears renderer memory and resets HTTP cache
-        if (
-            self._neuro_env is not None
-            and self._episode_count % self._reset_episode_fallback == 0
-        ):
-            rss = self._browser_manager.chrome_rss_mb()
-            print(
-                f"[chrome] ep {self._episode_count}: total Chrome RSS={rss:.0f} MB"
-                f" — periodic context restart",
-                flush=True,
-            )
-            self._restart_context()
 
         # First reset: all workers start Chrome simultaneously → heavy network load.
         # Give extra time. After Chrome is warm, resets are typically < 10s.
