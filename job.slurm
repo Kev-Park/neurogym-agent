@@ -17,4 +17,4 @@ uv run src/neurogym-agent/train.py \
   --n_envs 16 \
   --total_timesteps 5000000 \
   --wandb_mode online \
-  --run_name v11
+  --run_name v12
