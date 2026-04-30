@@ -18,4 +18,4 @@ uv run src/neurogym-agent/train.py \
   --total_timesteps 4000000 \
   --wandb_mode online \
   --run_name v12 \
-  --resume /scratch/kp0374/neurogym-agent/checkpoints/ppo_ngl_1120000_steps.zip
+  --resume /scratch/kp0374/neurogym-agent/checkpoints/ppo_ngl_1120000_steps
