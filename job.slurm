@@ -15,6 +15,7 @@
 uv run src/neurogym-agent/train.py \
   --segment_positions segment_positions.parquet \
   --n_envs 16 \
-  --total_timesteps 5000000 \
+  --total_timesteps 4000000 \
   --wandb_mode online \
-  --run_name v12
+  --run_name v12 \
+  --resume /scratch/kp0374/neurogym-agent/checkpoints/ppo_ngl_1120000_steps.zip
