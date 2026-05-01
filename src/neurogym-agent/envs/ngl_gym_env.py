@@ -107,6 +107,7 @@ class NGLGymEnv(gym.Env):
         headless: bool = True,
         left_pane: bool = False,
         right_pane: bool = True,
+        browser_restart_every: int = 90,
     ):
         super().__init__()
         self._action_spec = action_spec
@@ -128,6 +129,7 @@ class NGLGymEnv(gym.Env):
             "right_pane": right_pane,
         }
         self._browser_manager = browser_manager
+        self._browser_restart_every = browser_restart_every
 
         # Each worker thread owns its own playwright + browser connection.
         # These are created lazily on first use (in the worker thread, not the main thread).
@@ -150,7 +152,7 @@ class NGLGymEnv(gym.Env):
 
         self._rng = np.random.default_rng()
         self._step_count = 0
-        self._episode_count = random.randint(0, 49)
+        self._episode_count = 0
         self._last_image = None
         self._z_max: float = float("inf")
         self._last_seg_id: str = ""
@@ -296,6 +298,12 @@ class NGLGymEnv(gym.Env):
             self._rng = np.random.default_rng(seed)
         self._step_count = 0
         self._episode_count += 1
+
+        # Periodically restart the entire Chrome process to flush GPU-subprocess
+        # resource pools (Vulkan command buffers, etc.) that accumulate across episodes
+        # and aren't released by context-level resets.
+        if self._episode_count % self._browser_restart_every == 0:
+            self._reconnect()
 
         # First reset: all workers start Chrome simultaneously → heavy network load.
         # Give extra time. After Chrome is warm, resets are typically < 10s.
