@@ -15,6 +15,7 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 import pandas as pd
+import psutil
 from gymnasium import spaces
 from playwright.sync_api import sync_playwright
 
@@ -186,11 +187,25 @@ class NGLGymEnv(gym.Env):
             "--enable-features=Vulkan",
             "--enable-unsafe-swiftshader",
         ] + self._browser_manager.extra_args
+        _pre_launch = time.time()
         self._browser = self._pw.chromium.launch(
             headless=self._headless,
             args=_chrome_args,
         )
-        self._chrome_pid = self._browser.process.pid if self._browser.process else None
+        # browser.process is not exposed in Playwright Python; find the Chrome
+        # subprocess via psutil so the watchdog can kill it cross-thread safely.
+        self._chrome_pid = None
+        try:
+            for child in psutil.Process(os.getpid()).children(recursive=True):
+                try:
+                    name = child.name().lower()
+                    if ("chrome" in name or "chromium" in name) and child.create_time() >= _pre_launch - 1.0:
+                        self._chrome_pid = child.pid
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception:
+            pass
         if self._neuro_env is not None:
             self._neuro_env.browser = self._browser
 
@@ -242,7 +257,10 @@ class NGLGymEnv(gym.Env):
                 self._neuro_env.page.context.close()
         except Exception:
             pass
-        self._new_context()
+        # If _neuro_env was never created (e.g. _make_neuro_env failed), skip
+        # _new_context — the next _neuro_reset attempt will call _make_neuro_env again.
+        if self._neuro_env is not None:
+            self._new_context()
 
     def _watchdog_kill_context(self) -> None:
         """Fired by a threading.Timer when a Playwright call hangs past its timeout.
