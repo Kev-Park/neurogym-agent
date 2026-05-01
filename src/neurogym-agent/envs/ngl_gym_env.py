@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import random
+import signal
 import sys
 import threading
 import time
@@ -135,6 +137,7 @@ class NGLGymEnv(gym.Env):
         # These are created lazily on first use (in the worker thread, not the main thread).
         self._pw = None
         self._browser = None
+        self._chrome_pid: int | None = None
         self._neuro_env = None
 
         pos_dim = 3 + 1 + 3 + 1
@@ -187,6 +190,7 @@ class NGLGymEnv(gym.Env):
             headless=self._headless,
             args=_chrome_args,
         )
+        self._chrome_pid = self._browser.process.pid if self._browser.process else None
         if self._neuro_env is not None:
             self._neuro_env.browser = self._browser
 
@@ -242,11 +246,14 @@ class NGLGymEnv(gym.Env):
 
     def _watchdog_kill_context(self) -> None:
         """Fired by a threading.Timer when a Playwright call hangs past its timeout.
-        Closing the context forces Playwright to raise, unblocking the caller."""
-        try:
-            self._neuro_env.page.context.close()
-        except Exception:
-            pass
+        Kills the Chrome process directly — safe to call from any thread, unlike
+        Playwright's greenlet API which is thread-affine and would deadlock here."""
+        pid = self._chrome_pid
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
     # ------------------------------------------------------------------ neuro wrappers
 
