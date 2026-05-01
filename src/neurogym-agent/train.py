@@ -82,6 +82,7 @@ def main():
     parser.add_argument("--segment_positions", type=str, required=True, help="Path to segment_positions.parquet.")
     parser.add_argument("--n_envs", type=int, default=None)
     parser.add_argument("--total_timesteps", type=int, default=None)
+    parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--wandb_project", type=str, default=None)
     parser.add_argument("--wandb_mode", type=str, default=None, choices=["online", "offline", "disabled"])
     parser.add_argument("--resume", type=str, default=None, help="Path to an SB3 .zip checkpoint.")
@@ -94,6 +95,7 @@ def main():
 
     n_envs = args.n_envs if args.n_envs is not None else train_cfg["n_envs"]
     total_timesteps = args.total_timesteps if args.total_timesteps is not None else train_cfg["total_timesteps"]
+    batch_size = args.batch_size if args.batch_size is not None else train_cfg["batch_size"]
     wandb_project = args.wandb_project or log_cfg["wandb_project"]
     wandb_mode = args.wandb_mode or log_cfg["wandb_mode"]
 
@@ -137,7 +139,7 @@ def main():
                 env=vec_env,
                 policy_kwargs=policy_kwargs,
                 n_steps=train_cfg["n_steps"],
-                batch_size=train_cfg["batch_size"],
+                batch_size=batch_size,
                 n_epochs=train_cfg["n_epochs"],
                 gamma=train_cfg["gamma"],
                 gae_lambda=train_cfg["gae_lambda"],
