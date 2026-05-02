@@ -14,9 +14,9 @@
 
 uv run src/neurogym-agent/train.py \
   --segment_positions segment_positions.parquet \
-  --n_envs 32 \
+  --n_envs 64 \
   --total_timesteps 4000000 \
   --wandb_mode online \
-  --run_name v12.5 \
+  --run_name v12.5.1 \
   --resume /scratch/kp0374/neurogym-agent/checkpoints/z56taxfr/ppo_ngl_1120000_steps \
-  --batch_size 1024
+  --batch_size 2048
