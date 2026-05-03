@@ -18,5 +18,4 @@ uv run src/neurogym-agent/train.py \
   --total_timesteps 4000000 \
   --wandb_mode online \
   --run_name hierarchical_v1 \
-  --resume /scratch/kp0374/neurogym-agent/checkpoints/z56taxfr/ppo_ngl_1120000_steps \
   --batch_size 512
