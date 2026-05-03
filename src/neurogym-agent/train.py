@@ -120,7 +120,9 @@ def main():
         extra_args=cfg["env"].get("chrome_args", []),
     )
     try:
+        print("Building vec_env (DinoEncoder + worker threads)...", flush=True)
         vec_env = make_vec_env(cfg, segment_data, segment_ids, browser_manager, n_envs)
+        print("vec_env ready. Constructing PPO model...", flush=True)
 
         policy_kwargs = dict(
             features_extractor_class=DinoFeaturesExtractor,
@@ -155,6 +157,7 @@ def main():
                 verbose=1,
             )
 
+        print("PPO model ready. Starting training (first reset launches Chrome)...", flush=True)
         checkpoint_dir = Path(log_cfg["checkpoint_dir"]) / wandb_run.id
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         callbacks = CallbackList(

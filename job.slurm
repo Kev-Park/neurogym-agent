@@ -12,6 +12,8 @@
 #SBATCH --mail-user=kp0374@princeton.edu
 ##SBATCH --nodelist=sarekl16-8
 
+export PYTHONUNBUFFERED=1
+
 uv run src/neurogym-agent/train.py \
   --segment_positions segment_positions.parquet \
   --n_envs 16 \
