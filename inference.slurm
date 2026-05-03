@@ -13,5 +13,4 @@
 ##SBATCH --nodelist=sarekl16-8
 
 uv run src/neurogym-agent/rollout.py ./checkpoints/0hwtbu19 \
-  --rollouts 5 \
-  --deterministic
+  --rollouts 5 
