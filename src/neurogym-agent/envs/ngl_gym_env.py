@@ -182,10 +182,10 @@ class NGLGymEnv(gym.Env):
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-blink-features=AutomationControlled",
-            "--use-gl=angle",
-            "--use-angle=vulkan",
-            "--enable-features=Vulkan",
-            "--enable-unsafe-swiftshader",
+            "--use-gl=egl",
+            "--ignore-gpu-blocklist",
+            "--enable-gpu-rasterization",
+            "--enable-webgl",
         ] + self._browser_manager.extra_args
         print(f"[chrome] {threading.current_thread().name}: launching Chrome...", flush=True)
         _pre_launch = time.time()
