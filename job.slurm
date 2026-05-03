@@ -10,7 +10,7 @@
 #SBATCH --mail-type=end
 #SBATCH --mail-type=fail
 #SBATCH --mail-user=kp0374@princeton.edu
-##SBATCH --nodelist=sarekl16-8
+#SBATCH --exclude=sarekl15-3
 
 export PYTHONUNBUFFERED=1
 

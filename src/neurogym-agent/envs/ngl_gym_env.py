@@ -182,18 +182,15 @@ class NGLGymEnv(gym.Env):
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-blink-features=AutomationControlled",
-            "--use-gl=egl",
-            "--ignore-gpu-blocklist",
-            "--enable-gpu-rasterization",
-            "--enable-webgl",
+            "--use-gl=angle",
+            "--use-angle=vulkan",
+            "--enable-features=Vulkan",
+            "--enable-unsafe-swiftshader",
         ] + self._browser_manager.extra_args
-        print(f"[chrome] {threading.current_thread().name}: launching Chrome...", flush=True)
-        _pre_launch = time.time()
         self._browser = self._pw.chromium.launch(
             headless=self._headless,
             args=_chrome_args,
         )
-        print(f"[chrome] {threading.current_thread().name}: Chrome up in {time.time()-_pre_launch:.1f}s", flush=True)
         # browser.process is not exposed in Playwright Python; find the Chrome
         # subprocess via psutil so the watchdog can kill it cross-thread safely.
         self._chrome_pid = None
@@ -281,13 +278,11 @@ class NGLGymEnv(gym.Env):
         if self._neuro_env is None:
             self._neuro_env = self._make_neuro_env()
         self._new_context()  # fresh context every episode; also clears HTTP cache
-        print(f"[ngl] {threading.current_thread().name}: loading URL (timeout={timeout}s)...", flush=True)
         watchdog = threading.Timer(timeout, self._watchdog_kill_context)
         watchdog.start()
         try:
             self._neuro_env.reset(url=url)
             self._neuro_env.page.evaluate("1")  # post-nav health check
-            print(f"[ngl] {threading.current_thread().name}: URL loaded OK", flush=True)
         finally:
             watchdog.cancel()
 
