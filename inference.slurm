@@ -12,6 +12,6 @@
 #SBATCH --mail-user=kp0374@princeton.edu
 ##SBATCH --nodelist=sarekl16-8
 
-uv run src/neurogym-agent/rollout.py ./checkpoints/vq0nqg3h \
+uv run src/neurogym-agent/rollout.py ./checkpoints/0hwtbu19 \
   --rollouts 5 \
   --deterministic
