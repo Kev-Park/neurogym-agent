@@ -22,6 +22,7 @@ from envs.browser_manager import BrowserManager
 from envs.dino_vec_wrapper import DinoVecWrapper
 from envs.ngl_gym_env import NGLGymEnv, _load_segment_positions
 from envs.reward import RewardConfig
+from obs.hierarchical_policy import HierarchicalPolicy
 
 _FONT: ImageFont.ImageFont | None = None
 
@@ -208,7 +209,11 @@ def main():
     cfg["env"]["max_episode_steps"] = args.max_rollout_length
 
     segment_data, segment_ids = _load_segment_positions(args.segment_positions)
-    model = PPO.load(str(checkpoint), device=cfg["train"]["device"])
+    model = PPO.load(
+        str(checkpoint),
+        device=cfg["train"]["device"],
+        custom_objects={"policy_class": HierarchicalPolicy},
+    )
 
     browser_manager = BrowserManager(
         headless=cfg["env"].get("headless", True),

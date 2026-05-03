@@ -21,6 +21,7 @@ from envs.env_factory import build_env_factory
 from envs.ngl_gym_env import _load_segment_positions
 from envs.threaded_vec_env import ThreadedVecEnv
 from obs.features_extractor import DinoFeaturesExtractor
+from obs.hierarchical_policy import HierarchicalPolicy
 
 
 class SB3WandbCallback(BaseCallback):
@@ -132,10 +133,11 @@ def main():
                 args.resume,
                 env=vec_env,
                 device=train_cfg["device"],
+                custom_objects={"policy_class": HierarchicalPolicy},
             )
         else:
             model = PPO(
-                policy="MultiInputPolicy",
+                policy=HierarchicalPolicy,
                 env=vec_env,
                 policy_kwargs=policy_kwargs,
                 n_steps=train_cfg["n_steps"],

@@ -19,9 +19,12 @@ class ActionSpec:
         return self.grid_rows * self.grid_cols
 
     def multidiscrete_nvec(self) -> list[int]:
+        # dim 0: action_type — 0=noop, 1=click, 2=rotate
+        # dim 1: cell        — click target (only used when action_type==1)
+        # dim 2-4: rotation  — euler deltas (only used when action_type==2)
         return [
+            3,
             self.num_cells,
-            2,
             self.rotation_bins_per_axis,
             self.rotation_bins_per_axis,
             self.rotation_bins_per_axis,
@@ -48,38 +51,48 @@ def decode(md_action, spec: ActionSpec) -> tuple[list, bool]:
     Translate a MultiDiscrete sample into the full 17-element neurogym action vector
     (Euler-angle mode). Returns (action_vector, right_click_fired).
 
-    Index layout of the returned vector:
-        0 left_click (0)
-        1 right_click
-        2 double_click (0)
-        3 x
-        4 y
-        5 shift (0)
-        6 ctrl  (0)
-        7 alt   (0)
-        8 json_change (0)
-        9,10,11 delta_position_xyz (0)
-        12 delta_crossSectionScale (0)
-        13,14,15 delta_orientation_euler
-        16 delta_projectionScale (0)
-    """
-    cell, click_type, d_ex, d_ey, d_ez = (int(v) for v in md_action)
-    right_click = 1 if click_type == 1 else 0
-    x, y = cell_to_pixel(cell, spec)
+    md_action layout:
+        0  action_type  — 0=noop, 1=click, 2=rotate
+        1  cell         — click target grid cell (used only when action_type==1)
+        2  d_ex         — euler-x rotation bin   (used only when action_type==2)
+        3  d_ey         — euler-y rotation bin
+        4  d_ez         — euler-z rotation bin
 
-    dex = _bin_to_signed_magnitude(d_ex, spec.rotation_bins_per_axis, spec.rotation_step_rad)
-    dey = _bin_to_signed_magnitude(d_ey, spec.rotation_bins_per_axis, spec.rotation_step_rad)
-    dez = _bin_to_signed_magnitude(d_ez, spec.rotation_bins_per_axis, spec.rotation_step_rad)
+    Output vector index layout (ngllib euler-angle mode):
+        0  left_click          (always 0)
+        1  right_click
+        2  double_click        (always 0)
+        3  x mouse position
+        4  y mouse position
+        5-7 shift/ctrl/alt     (always 0)
+        8  json_change
+        9-11 delta_position_xyz (always 0)
+        12 delta_crossSectionScale (always 0)
+        13-15 delta_orientation_euler
+        16 delta_projectionScale   (always 0)
+    """
+    action_type, cell, d_ex, d_ey, d_ez = (int(v) for v in md_action)
+    is_click  = action_type == 1
+    is_rotate = action_type == 2
 
     vec = [0.0] * 17
-    vec[1] = float(right_click)
-    vec[3] = x
-    vec[4] = y
-    vec[8] = 1.0 if (right_click == 0 and (dex != 0 or dey != 0 or dez != 0)) else 0.0
-    vec[13] = dex
-    vec[14] = dey
-    vec[15] = dez
-    return vec, bool(right_click)
+    if is_click:
+        x, y = cell_to_pixel(cell, spec)
+        vec[1] = 1.0   # right_click
+        vec[3] = x
+        vec[4] = y
+    elif is_rotate:
+        dex = _bin_to_signed_magnitude(d_ex, spec.rotation_bins_per_axis, spec.rotation_step_rad)
+        dey = _bin_to_signed_magnitude(d_ey, spec.rotation_bins_per_axis, spec.rotation_step_rad)
+        dez = _bin_to_signed_magnitude(d_ez, spec.rotation_bins_per_axis, spec.rotation_step_rad)
+        if dex != 0 or dey != 0 or dez != 0:
+            vec[8]  = 1.0  # json_change
+            vec[13] = dex
+            vec[14] = dey
+            vec[15] = dez
+    # else noop: vec stays all zeros
+
+    return vec, is_click
 
 
 def sample_reset_perturbation(
