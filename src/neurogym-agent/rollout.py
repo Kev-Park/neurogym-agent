@@ -8,6 +8,7 @@ from pathlib import Path
 import imageio
 import numpy as np
 import yaml
+from PIL import Image, ImageDraw, ImageFont
 
 _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
@@ -16,11 +17,49 @@ if str(_THIS_DIR) not in sys.path:
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from envs.action_translator import ActionSpec
+from envs.action_translator import ActionSpec, cell_to_pixel
 from envs.browser_manager import BrowserManager
 from envs.dino_vec_wrapper import DinoVecWrapper
 from envs.ngl_gym_env import NGLGymEnv, _load_segment_positions
 from envs.reward import RewardConfig
+
+_FONT: ImageFont.ImageFont | None = None
+
+
+def _get_font(size: int = 20) -> ImageFont.ImageFont:
+    global _FONT
+    if _FONT is None:
+        try:
+            _FONT = ImageFont.load_default(size=size)
+        except TypeError:
+            _FONT = ImageFont.load_default()
+    return _FONT
+
+
+def annotate_frame(frame: np.ndarray, lines: list[str]) -> np.ndarray:
+    img = Image.fromarray(frame)
+    draw = ImageDraw.Draw(img)
+    font = _get_font(20)
+    pad = 6
+    line_h = 24
+    box_h = pad * 2 + line_h * len(lines)
+    box_w = max(draw.textlength(l, font=font) for l in lines) + pad * 2
+    draw.rectangle([0, 0, box_w, box_h], fill=(0, 0, 0, 180))
+    for i, line in enumerate(lines):
+        draw.text((pad, pad + i * line_h), line, fill=(255, 255, 0), font=font)
+    return np.array(img)
+
+
+def describe_action(md_action, spec: ActionSpec) -> str:
+    cell, click_type, d_ex, d_ey, d_ez = (int(v) for v in md_action)
+    x, y = cell_to_pixel(cell, spec)
+    half = spec.rotation_bins_per_axis // 2
+    dex = (d_ex - half) * spec.rotation_step_rad
+    dey = (d_ey - half) * spec.rotation_step_rad
+    dez = (d_ez - half) * spec.rotation_step_rad
+    click = "right_click" if click_type == 1 else "left_click"
+    rot = f"rot=({dex:+.3f},{dey:+.3f},{dez:+.3f})" if (dex or dey or dez) else "no_rot"
+    return f"{click} ({x:.0f},{y:.0f}) {rot}"
 
 
 def load_config(path: str) -> dict:
@@ -33,7 +72,7 @@ def build_env(
     segment_data: dict,
     segment_ids: list,
     browser_manager: BrowserManager,
-) -> DinoVecWrapper:
+) -> tuple[DinoVecWrapper, ActionSpec]:
     env_cfg = cfg["env"]
     obs_cfg = cfg["obs"]
     action_spec = ActionSpec(
@@ -74,7 +113,7 @@ def build_env(
         repo=obs_cfg["dino_repo"],
         model_name=obs_cfg["dino_model"],
         input_size=obs_cfg["dino_input_size"],
-    )
+    ), action_spec
 
 
 def find_latest_checkpoint(folder: Path) -> Path:
@@ -109,6 +148,7 @@ def main():
         help="Path to segment_positions.parquet.",
     )
     parser.add_argument("--deterministic", action="store_true")
+    parser.add_argument("--fps", type=int, default=2, help="Video frames per second (default 2 for readability).")
     args = parser.parse_args()
 
     checkpoint_folder = Path(args.checkpoint_folder).resolve()
@@ -126,7 +166,7 @@ def main():
         extra_args=cfg["env"].get("chrome_args", []),
     )
     try:
-        env = build_env(cfg, segment_data, segment_ids, browser_manager)
+        env, action_spec = build_env(cfg, segment_data, segment_ids, browser_manager)
 
         video_dir = checkpoint_folder / "videos"
         video_dir.mkdir(parents=True, exist_ok=True)
@@ -139,7 +179,9 @@ def main():
             for ep in range(args.rollouts):
                 obs = env.reset()
                 seg_id = env.get_attr("_last_seg_id")[0]
-                frames: list[np.ndarray] = [env.get_attr("_last_image")[0]]
+                raw_frames: list[np.ndarray] = [env.get_attr("_last_image")[0]]
+                # parallel list: annotation lines per frame (first frame is reset)
+                frame_labels: list[list[str]] = [["[reset]"]]
                 total_reward = 0.0
                 steps = 0
                 done = False
@@ -148,11 +190,18 @@ def main():
                 while not done:
                     action, _ = model.predict(obs, deterministic=args.deterministic)
                     obs, rewards, dones, infos = env.step(action)
-                    frames.append(env.get_attr("_last_image")[0])
-                    total_reward += float(rewards[0])
+                    reward = float(rewards[0])
+                    total_reward += reward
                     info = infos[0]
                     steps += 1
                     done = bool(dones[0])
+
+                    raw_frames.append(env.get_attr("_last_image")[0])
+                    frame_labels.append([
+                        f"step {steps:03d}  r={reward:+.3f}  ret={total_reward:.3f}",
+                        describe_action(action[0], action_spec),
+                        f"z={info.get('z_now', float('nan')):.2f}",
+                    ])
 
                 success = bool(info.get("episode_success", False))
                 all_successes.append(success)
@@ -161,9 +210,9 @@ def main():
 
                 outcome = "success" if success else "fail"
                 video_path = video_dir / f"rollout_{ep:03d}_{seg_id}_{outcome}.mp4"
-                with imageio.get_writer(str(video_path), fps=10, macro_block_size=1) as writer:
-                    for frame in frames:
-                        writer.append_data(frame)
+                with imageio.get_writer(str(video_path), fps=args.fps, macro_block_size=1) as writer:
+                    for frame, lines in zip(raw_frames, frame_labels):
+                        writer.append_data(annotate_frame(frame, lines))
 
                 print(
                     f"ep {ep:03d} seg={seg_id} success={success} "
