@@ -35,7 +35,8 @@ train:
   gae_lambda: 0.95
   clip_range: 0.2
   learning_rate: 3.0e-4
-  ent_coef: 0.01
+  ent_coef_initial: 0.05
+  ent_coef_final: 0.001
   vf_coef: 0.5
   max_grad_norm: 0.5
   device: "cuda"

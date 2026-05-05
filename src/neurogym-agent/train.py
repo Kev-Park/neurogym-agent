@@ -51,6 +51,12 @@ class SB3WandbCallback(BaseCallback):
         print(f"[{self.num_timesteps}/{self._total} steps]")
 
 
+def linear_schedule(initial: float, final: float):
+    def schedule(progress_remaining: float) -> float:
+        return final + progress_remaining * (initial - final)
+    return schedule
+
+
 def load_config(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
@@ -88,6 +94,18 @@ def main():
     parser.add_argument("--wandb_mode", type=str, default=None, choices=["online", "offline", "disabled"])
     parser.add_argument("--resume", type=str, default=None, help="Path to an SB3 .zip checkpoint.")
     parser.add_argument("--run_name", type=str, default=None)
+    parser.add_argument("--n_steps", type=int, default=None)
+    parser.add_argument("--n_epochs", type=int, default=None)
+    parser.add_argument("--gamma", type=float, default=None)
+    parser.add_argument("--gae_lambda", type=float, default=None)
+    parser.add_argument("--clip_range", type=float, default=None)
+    parser.add_argument("--learning_rate", type=float, default=None)
+    parser.add_argument("--ent_coef_initial", type=float, default=None)
+    parser.add_argument("--ent_coef_final", type=float, default=None)
+    parser.add_argument("--vf_coef", type=float, default=None)
+    parser.add_argument("--max_grad_norm", type=float, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--device", type=str, default=None)
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -97,6 +115,13 @@ def main():
     n_envs = args.n_envs if args.n_envs is not None else train_cfg["n_envs"]
     total_timesteps = args.total_timesteps if args.total_timesteps is not None else train_cfg["total_timesteps"]
     batch_size = args.batch_size if args.batch_size is not None else train_cfg["batch_size"]
+
+    for key in ("n_steps", "n_epochs", "gamma", "gae_lambda", "clip_range",
+                "learning_rate", "ent_coef_initial", "ent_coef_final",
+                "vf_coef", "max_grad_norm", "seed", "device"):
+        val = getattr(args, key)
+        if val is not None:
+            train_cfg[key] = val
     wandb_project = args.wandb_project or log_cfg["wandb_project"]
     wandb_mode = args.wandb_mode or log_cfg["wandb_mode"]
 
@@ -147,7 +172,10 @@ def main():
                 gae_lambda=train_cfg["gae_lambda"],
                 clip_range=train_cfg["clip_range"],
                 learning_rate=train_cfg["learning_rate"],
-                ent_coef=train_cfg["ent_coef"],
+                ent_coef=linear_schedule(
+                    train_cfg.get("ent_coef_initial", train_cfg.get("ent_coef", 0.01)),
+                    train_cfg.get("ent_coef_final", train_cfg.get("ent_coef", 0.01)),
+                ),
                 vf_coef=train_cfg["vf_coef"],
                 max_grad_norm=train_cfg["max_grad_norm"],
                 seed=train_cfg["seed"],
