@@ -2,7 +2,7 @@
 #SBATCH --job-name=ngl-train
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16        # one per environment
+#SBATCH --cpus-per-task=32        # one per environment
 #SBATCH --mem=200G               # Chrome grows ~8-10G/env over long runs; 120G was hitting SLURM cap
 #SBATCH --gres=gpu:3090:1
 #SBATCH --time=72:00:00
@@ -18,7 +18,7 @@ uv run src/neurogym-agent/train.py \
   --segment_positions segment_positions.parquet \
   --wandb_mode online \
   --run_name hierarchical_v2 \
-  --n_envs 16 \
+  --n_envs 32 \
   --total_timesteps 6000000 \
   --n_steps 2048 \
   --batch_size 32768 \
