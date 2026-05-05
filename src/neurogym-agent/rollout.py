@@ -101,15 +101,17 @@ def annotate_frame(
 
 
 def describe_action(md_action, spec: ActionSpec) -> str:
-    cell, click_type, d_ex, d_ey, d_ez = (int(v) for v in md_action)
-    x, y = cell_to_pixel(cell, spec)
+    action_type, cell, d_ex, d_ey, d_ez = (int(v) for v in md_action)
     half = spec.rotation_bins_per_axis // 2
     dex = (d_ex - half) * spec.rotation_step_rad
     dey = (d_ey - half) * spec.rotation_step_rad
     dez = (d_ez - half) * spec.rotation_step_rad
-    click = "right_click" if click_type == 1 else "left_click"
-    rot = f"rot=({dex:+.3f},{dey:+.3f},{dez:+.3f})" if (dex or dey or dez) else "no_rot"
-    return f"{click} ({x:.0f},{y:.0f}) {rot}"
+    if action_type == 0:
+        x, y = cell_to_pixel(cell, spec)
+        return f"right_click ({x:.0f},{y:.0f})"
+    else:
+        rot = f"rot=({dex:+.3f},{dey:+.3f},{dez:+.3f})" if (dex or dey or dez) else "no_rot"
+        return f"rotate {rot}"
 
 
 def load_config(path: str) -> dict:
@@ -250,14 +252,18 @@ def main():
                     steps += 1
                     done = bool(dones[0])
 
-                    cell, click_type = int(action[0][0]), int(action[0][1])
+                    action_type, cell = int(action[0][0]), int(action[0][1])
                     raw_frames.append(env.get_attr("_last_image")[0])
                     frame_labels.append([
                         f"step {steps:03d}  r={reward:+.3f}  ret={total_reward:.3f}",
                         describe_action(action[0], action_spec),
                         f"z={info.get('z_now', float('nan')):.2f}",
                     ])
-                    frame_clicks.append({"spec": action_spec, "cell": cell, "click_type": click_type})
+                    # Only show grid overlay on click actions; click_type=1 → right-click (blue)
+                    frame_clicks.append(
+                        {"spec": action_spec, "cell": cell, "click_type": 1}
+                        if action_type == 0 else None
+                    )
 
                 success = bool(info.get("episode_success", False))
                 all_successes.append(success)

@@ -8,13 +8,13 @@ from stable_baselines3.common.policies import MultiInputActorCriticPolicy
 class HierarchicalDistribution:
     """Two-level action distribution for the click+rotate task.
 
-    Level 1  action_type  ∈ {0=noop, 1=click, 2=rotate}
-    Level 2a cell         ∈ {0..1023}   — sampled only when action_type==1
-    Level 2b (d_ex, d_ey, d_ez) ∈ {0..8} each — sampled only when action_type==2
+    Level 1  action_type  ∈ {0=click, 1=rotate}
+    Level 2a cell         ∈ {0..1023}   — sampled only when action_type==0
+    Level 2b (d_ex, d_ey, d_ez) ∈ {0..8} each — sampled only when action_type==1
 
     log_prob = log P(action_type)
-             + I(click)  * log P(cell)
-             + I(rotate) * [log P(d_ex) + log P(d_ey) + log P(d_ez)]
+             + I(click)  * log P(cell)            [action_type==0]
+             + I(rotate) * [log P(d_ex) + log P(d_ey) + log P(d_ez)]  [action_type==1]
 
     entropy  = H(action_type)
              + p(click)  * H(cell)
@@ -65,8 +65,8 @@ class HierarchicalDistribution:
         d_ey = actions[..., 3].long()
         d_ez = actions[..., 4].long()
 
-        is_click  = (typ == 1).float()
-        is_rotate = (typ == 2).float()
+        is_click  = (typ == 0).float()
+        is_rotate = (typ == 1).float()
 
         return (
             self.type_dist.log_prob(typ)
@@ -79,8 +79,8 @@ class HierarchicalDistribution:
         )
 
     def entropy(self) -> torch.Tensor:
-        p_click  = self.type_dist.probs[..., 1]
-        p_rotate = self.type_dist.probs[..., 2]
+        p_click  = self.type_dist.probs[..., 0]
+        p_rotate = self.type_dist.probs[..., 1]
         return (
             self.type_dist.entropy()
             + p_click  * self.cell_dist.entropy()
@@ -93,12 +93,12 @@ class HierarchicalDistribution:
 
 
 # Logit slice boundaries — must match ActionSpec.multidiscrete_nvec() order:
-# [3, num_cells, rot_bins, rot_bins, rot_bins]
-_TYPE_END = 3
-_CELL_END = _TYPE_END + 1024   # 1027
-_EX_END   = _CELL_END + 9     # 1036
-_EY_END   = _EX_END   + 9     # 1045
-_EZ_END   = _EY_END   + 9     # 1054
+# [2, num_cells, rot_bins, rot_bins, rot_bins]
+_TYPE_END = 2
+_CELL_END = _TYPE_END + 1024   # 1026
+_EX_END   = _CELL_END + 9     # 1035
+_EY_END   = _EX_END   + 9     # 1044
+_EZ_END   = _EY_END   + 9     # 1053
 
 
 class HierarchicalPolicy(MultiInputActorCriticPolicy):

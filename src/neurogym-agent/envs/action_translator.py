@@ -19,11 +19,11 @@ class ActionSpec:
         return self.grid_rows * self.grid_cols
 
     def multidiscrete_nvec(self) -> list[int]:
-        # dim 0: action_type — 0=noop, 1=click, 2=rotate
-        # dim 1: cell        — click target (only used when action_type==1)
-        # dim 2-4: rotation  — euler deltas (only used when action_type==2)
+        # dim 0: action_type — 0=click, 1=rotate
+        # dim 1: cell        — click target (only used when action_type==0)
+        # dim 2-4: rotation  — euler deltas (only used when action_type==1)
         return [
-            3,
+            2,
             self.num_cells,
             self.rotation_bins_per_axis,
             self.rotation_bins_per_axis,
@@ -72,8 +72,8 @@ def decode(md_action, spec: ActionSpec) -> tuple[list, bool]:
         16 delta_projectionScale   (always 0)
     """
     action_type, cell, d_ex, d_ey, d_ez = (int(v) for v in md_action)
-    is_click  = action_type == 1
-    is_rotate = action_type == 2
+    is_click  = action_type == 0
+    is_rotate = action_type == 1
 
     vec = [0.0] * 17
     if is_click:
