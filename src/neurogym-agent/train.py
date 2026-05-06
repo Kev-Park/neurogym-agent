@@ -51,10 +51,18 @@ class SB3WandbCallback(BaseCallback):
         print(f"[{self.num_timesteps}/{self._total} steps]")
 
 
-def linear_schedule(initial: float, final: float):
-    def schedule(progress_remaining: float) -> float:
-        return final + progress_remaining * (initial - final)
-    return schedule
+class EntCoefScheduleCallback(BaseCallback):
+    def __init__(self, initial: float, final: float, total_timesteps: int):
+        super().__init__()
+        self._initial = initial
+        self._final = final
+        self._total = total_timesteps
+
+    def _on_rollout_end(self) -> None:
+        progress = 1.0 - self.num_timesteps / self._total
+        new_val = self._final + progress * (self._initial - self._final)
+        self.model.ent_coef = new_val
+        self.model.ent_coef_tensor.fill_(new_val)
 
 
 def load_config(path: str) -> dict:
@@ -172,10 +180,7 @@ def main():
                 gae_lambda=train_cfg["gae_lambda"],
                 clip_range=train_cfg["clip_range"],
                 learning_rate=train_cfg["learning_rate"],
-                ent_coef=linear_schedule(
-                    train_cfg.get("ent_coef_initial", train_cfg.get("ent_coef", 0.01)),
-                    train_cfg.get("ent_coef_final", train_cfg.get("ent_coef", 0.01)),
-                ),
+                ent_coef=train_cfg.get("ent_coef_initial", train_cfg.get("ent_coef", 0.01)),
                 vf_coef=train_cfg["vf_coef"],
                 max_grad_norm=train_cfg["max_grad_norm"],
                 seed=train_cfg["seed"],
@@ -185,8 +190,15 @@ def main():
 
         checkpoint_dir = Path(log_cfg["checkpoint_dir"]) / wandb_run.id
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        ent_coef_initial = train_cfg.get("ent_coef_initial", train_cfg.get("ent_coef", 0.01))
+        ent_coef_final = train_cfg.get("ent_coef_final", train_cfg.get("ent_coef", 0.01))
         callbacks = CallbackList(
             [
+                EntCoefScheduleCallback(
+                    initial=ent_coef_initial,
+                    final=ent_coef_final,
+                    total_timesteps=total_timesteps,
+                ),
                 SB3WandbCallback(total_timesteps=total_timesteps),
                 WandbCallback(
                     model_save_path=str(checkpoint_dir),
