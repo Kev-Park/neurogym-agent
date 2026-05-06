@@ -58,6 +58,9 @@ class EntCoefScheduleCallback(BaseCallback):
         self._final = final
         self._total = total_timesteps
 
+    def _on_step(self) -> bool:
+        return True
+
     def _on_rollout_end(self) -> None:
         progress = 1.0 - self.num_timesteps / self._total
         new_val = self._final + progress * (self._initial - self._final)
