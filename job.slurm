@@ -20,8 +20,8 @@ uv run src/neurogym-agent/train.py \
   --run_name hierarchical_v2 \
   --n_envs 32 \
   --total_timesteps 6000000 \
-  --n_steps 256 \
-  --batch_size 256 \
+  --n_steps 2048 \
+  --batch_size 32768 \
   --n_epochs 4 \
   --gamma 0.99 \
   --gae_lambda 0.95 \
