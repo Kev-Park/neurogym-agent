@@ -65,7 +65,6 @@ class EntCoefScheduleCallback(BaseCallback):
         progress = 1.0 - self.num_timesteps / self._total
         new_val = self._final + progress * (self._initial - self._final)
         self.model.ent_coef = new_val
-        self.model.ent_coef_tensor.fill_(new_val)
 
 
 def load_config(path: str) -> dict:
