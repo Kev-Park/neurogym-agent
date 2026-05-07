@@ -21,7 +21,7 @@ uv run src/neurogym-agent/train.py \
   --n_envs 32 \
   --total_timesteps 5000000 \
   --n_steps 2048 \
-  --batch_size 32768 \
+  --batch_size 65536 \
   --n_epochs 4 \
   --gamma 0.99 \
   --gae_lambda 0.95 \
