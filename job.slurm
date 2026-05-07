@@ -19,7 +19,7 @@ uv run src/neurogym-agent/train.py \
   --wandb_mode online \
   --run_name hierarchical_v2 \
   --n_envs 32 \
-  --total_timesteps 6000000 \
+  --total_timesteps 5000000 \
   --n_steps 2048 \
   --batch_size 32768 \
   --n_epochs 4 \
@@ -32,4 +32,5 @@ uv run src/neurogym-agent/train.py \
   --vf_coef 0.5 \
   --max_grad_norm 0.5 \
   --seed 0 \
-  --device cuda
+  --device cuda \
+  --resume checkpoints/8koy3zey
