@@ -33,4 +33,4 @@ uv run src/neurogym-agent/train.py \
   --max_grad_norm 0.5 \
   --seed 0 \
   --device cuda \
-  --resume checkpoints/8koy3zey
+  --resume checkpoints/8koy3zey/ppo_ngl_1280000_steps
