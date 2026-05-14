@@ -14,6 +14,12 @@
 
 export PYTHONUNBUFFERED=1
 
+LATEST_CKPT=$(ls -t checkpoints/yayv08u3/ppo_ngl_*_steps.zip 2>/dev/null | head -1)
+RESUME_ARG=""
+if [ -n "$LATEST_CKPT" ]; then
+    RESUME_ARG="--resume $LATEST_CKPT"
+fi
+
 uv run src/neurogym-agent/train.py \
   --segment_positions segment_positions.parquet \
   --wandb_mode online \
@@ -33,4 +39,4 @@ uv run src/neurogym-agent/train.py \
   --max_grad_norm 0.5 \
   --seed 0 \
   --device cuda \
-  --resume checkpoints/8koy3zey/ppo_ngl_1280000_steps
+  $RESUME_ARG
