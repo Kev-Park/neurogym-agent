@@ -14,7 +14,7 @@
 
 export PYTHONUNBUFFERED=1
 
-LATEST_CKPT=$(ls -t checkpoints/yayv08u3/ppo_ngl_*_steps.zip 2>/dev/null | head -1)
+LATEST_CKPT=$(ls -t checkpoints/yttrwru8/ppo_ngl_*_steps.zip 2>/dev/null | head -1)
 RESUME_ARG=""
 if [ -n "$LATEST_CKPT" ]; then
     RESUME_ARG="--resume $LATEST_CKPT"
@@ -23,7 +23,7 @@ fi
 uv run src/neurogym-agent/train.py \
   --segment_positions segment_positions.parquet \
   --wandb_mode online \
-  --run_name hierarchical_v2 \
+  --run_name hierarchical_v3 \
   --n_envs 32 \
   --total_timesteps 5000000 \
   --n_steps 2048 \

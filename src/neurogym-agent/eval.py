@@ -48,9 +48,8 @@ def build_env(
     reward_cfg = RewardConfig(
         z_tolerance=env_cfg["z_tolerance"],
         success=env_cfg["reward_success"],
-        noop_penalty=env_cfg["reward_noop_penalty"],
-        noop_position_eps=env_cfg["noop_position_eps"],
         z_shaping_coef=env_cfg.get("z_shaping_coef", 0.001),
+        step_penalty=env_cfg.get("step_penalty", 0.0),
     )
 
     def _make():

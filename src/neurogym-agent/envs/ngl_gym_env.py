@@ -374,7 +374,6 @@ class NGLGymEnv(gym.Env):
             return obs, 0.0, False, True, {
                 "z_now": float("nan"),
                 "z_max": self._z_max,
-                "click_was_noop": False,
                 "right_click_fired": False,
                 "episode_success": False,
                 "step": self._step_count,
@@ -383,10 +382,9 @@ class NGLGymEnv(gym.Env):
 
         self._step_count += 1
 
-        reward, terminated, was_noop = compute_reward(
+        reward, terminated = compute_reward(
             state,
             prev_state,
-            right_click_fired,
             self._z_max,
             self._reward_cfg,
         )
@@ -395,7 +393,6 @@ class NGLGymEnv(gym.Env):
         info = {
             "z_now": float(state[0][0][2]),
             "z_max": self._z_max,
-            "click_was_noop": was_noop,
             "right_click_fired": right_click_fired,
             "episode_success": terminated,
             "step": self._step_count,

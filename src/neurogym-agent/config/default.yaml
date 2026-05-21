@@ -12,11 +12,10 @@ env:
   reset_zoom_perturb_frac: 0.25
 
   max_episode_steps: 300
-  z_tolerance: 10.0
+  z_tolerance: 50.0
   reward_success: 1.0
-  reward_noop_penalty: 0.0
-  noop_position_eps: 0.5
   z_shaping_coef: 0.01
+  step_penalty: -0.005
 
   chrome_args: []                # extra Chrome launch flags passed to BrowserManager
 
