@@ -118,10 +118,10 @@ class MultiDiscreteActionWrapper:
         class _Impl(gym.ActionWrapper):
             def __init__(self, env, spec):
                 super().__init__(env)
-                self.spec = spec
+                self._action_spec = spec  # not `spec`: collides with Wrapper.spec (EnvSpec)
                 self.action_space = spaces.MultiDiscrete(spec.nvec())
 
             def action(self, action):
-                return decode(action, self.spec, orient_dim=3)
+                return decode(action, self._action_spec, orient_dim=3)
 
         return _Impl(env, spec)

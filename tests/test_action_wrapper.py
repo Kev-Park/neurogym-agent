@@ -63,3 +63,48 @@ def test_dtypes():
     assert act["mouse_xy"].dtype == np.float32
     assert act["delta_orient"].dtype == np.float32
     assert act["modifiers"].dtype == np.int8
+
+
+def test_wrapper_instantiation_and_decode():
+    # browser-free: wrap a stub euler env and check space + action() translation.
+    import gymnasium as gym
+    from gymnasium import spaces
+
+    from ngllib_agent.wrappers import MultiDiscreteActionWrapper
+
+    class _Stub(gym.Env):
+        orientation = "euler"
+
+        def __init__(self):
+            self.observation_space = spaces.Box(-1.0, 1.0, shape=(1,))
+            self.action_space = spaces.Dict({})
+
+        def reset(self, *a, **k):
+            return None, {}
+
+        def step(self, a):
+            return None, 0.0, False, False, {}
+
+    w = MultiDiscreteActionWrapper(_Stub(), SPEC)
+    assert list(w.action_space.nvec) == [3, 1024, 9, 9, 9, 9]
+    act = w.action([1, 0, 8, 0, 4, 0])  # rotate
+    assert act["action_type"] == 3
+    assert np.isclose(act["delta_orient"][0], 4 * SPEC.rotation_step_rad)
+
+
+def test_wrapper_rejects_quaternion():
+    import gymnasium as gym
+    from gymnasium import spaces
+    import pytest
+
+    from ngllib_agent.wrappers import MultiDiscreteActionWrapper
+
+    class _QStub(gym.Env):
+        orientation = "quaternion"
+
+        def __init__(self):
+            self.observation_space = spaces.Box(-1.0, 1.0, shape=(1,))
+            self.action_space = spaces.Dict({})
+
+    with pytest.raises(ValueError):
+        MultiDiscreteActionWrapper(_QStub(), SPEC)

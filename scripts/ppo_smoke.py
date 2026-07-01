@@ -86,7 +86,7 @@ def main() -> None:
             kl_target=pc.get("kl_target", 0.01),
         )
     )
-    algo = config.build_algo()
+    algo = config.build_algo() if hasattr(config, "build_algo") else config.build()
 
     for i in range(args.iters):
         result = algo.train()
