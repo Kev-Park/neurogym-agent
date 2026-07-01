@@ -15,8 +15,15 @@ Smoke simplifications (replaced in later milestones):
 from __future__ import annotations
 
 import argparse
+import os
 
 import numpy as np
+
+# Ray >=2.43 auto-ships the CWD as a runtime_env working_dir when launched under
+# `uv run`; here that's the 1.2GB repo (checkpoints/wandb/parquet) and it blows
+# past the 512MB limit. The smoke is single-process (0 remote actors), so disable
+# it. Multi-node milestones will set an explicit runtime_env / shared FS instead.
+os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
 
 
 def _pos_only_wrapper(env):
