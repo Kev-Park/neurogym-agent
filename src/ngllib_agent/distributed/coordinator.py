@@ -101,6 +101,9 @@ class Coordinator:
         self.respawns = {"learner": 0, "renderer": 0}
         self._teardown_done = False
         self._launch_counter = 0  # monotonic per-worker id for log naming
+        # Sliding-window log of respawn timestamps (monotonic seconds) for the
+        # per-hour circuit breaker. Any older entries are pruned each cycle.
+        self._respawn_times: list[float] = []
 
     # ------------------------------------------------------------------------
     # Public entry
@@ -232,10 +235,76 @@ class Coordinator:
                 break
 
             self._log_status(cycle)
+            self._handle_deaths(cycle)   # M4b
             self._write_state(cycle)
 
-            # M4a: monitor + report only. Respawn logic lands in M4b.
             time.sleep(self.args.ping_interval)
+
+    # ------------------------------------------------------------------------
+    # M4b: respawn dead processes (learner + renderers) with a circuit breaker.
+    # M4c (renderer->learner promotion on srun-immediate failure) is separate.
+    # ------------------------------------------------------------------------
+
+    def _handle_deaths(self, cycle: int) -> None:
+        # Prune respawn history to just the last hour.
+        now = time.monotonic()
+        self._respawn_times = [t for t in self._respawn_times if now - t < 3600]
+
+        if self.learner is not None and not self.learner.alive():
+            self._maybe_respawn_learner(cycle)
+
+        for i, r in enumerate(self.renderers):
+            if not r.alive():
+                self._maybe_respawn_renderer(cycle, i)
+
+    def _circuit_ok(self) -> bool:
+        """Return True if we're allowed another respawn under the per-hour cap."""
+        cap = self.args.max_respawn_per_hour
+        if cap <= 0:
+            return True
+        if len(self._respawn_times) >= cap:
+            logger.error(
+                "circuit breaker OPEN: %d respawns in the last hour "
+                "(cap=%d); refusing further respawns",
+                len(self._respawn_times), cap,
+            )
+            return False
+        return True
+
+    def _maybe_respawn_learner(self, cycle: int) -> None:
+        dead = self.learner
+        logger.warning(
+            "cycle %d: learner DEAD (exit=%s); respawning",
+            cycle, dead.returncode if dead else "?",
+        )
+        if not self._circuit_ok():
+            return
+        try:
+            self.learner = self._launch("learner", self.args.learner_cmd)
+        except OSError as e:
+            # Popen itself failed (rare — usually srun succeeds even if the
+            # target work later dies). Leave `self.learner` at the dead
+            # process for reporting and try again next cycle.
+            logger.error("srun failed while respawning learner: %s", e)
+            return
+        self.respawns["learner"] += 1
+        self._respawn_times.append(time.monotonic())
+
+    def _maybe_respawn_renderer(self, cycle: int, idx: int) -> None:
+        dead = self.renderers[idx]
+        logger.warning(
+            "cycle %d: renderer[%d] DEAD (exit=%s); respawning",
+            cycle, idx, dead.returncode,
+        )
+        if not self._circuit_ok():
+            return
+        try:
+            self.renderers[idx] = self._launch("renderer", self.args.renderer_cmd)
+        except OSError as e:
+            logger.error("srun failed while respawning renderer[%d]: %s", idx, e)
+            return
+        self.respawns["renderer"] += 1
+        self._respawn_times.append(time.monotonic())
 
     def _log_status(self, cycle: int) -> None:
         alive_learner = self.learner is not None and self.learner.alive()
@@ -364,6 +433,10 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="If set, route each srun's --output/--error to a "
                          "per-launch file under this directory. Otherwise "
                          "workers inherit the coordinator's stdout/stderr.")
+    ap.add_argument("--max-respawn-per-hour", type=int, default=20,
+                    help="Circuit breaker: refuse further respawns once this "
+                         "many have fired in a sliding 1-hour window. "
+                         "0 disables the cap.")
 
     return ap
 
