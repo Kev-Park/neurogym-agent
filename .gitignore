@@ -54,6 +54,10 @@ cover/
 # Milestone 0 probe output (empirical, machine-specific)
 scripts/cluster_probe_findings.md
 
+# SLURM logs live on the cluster, never synced back
+slurm_outputs/
+slurm-*.out
+
 # Translations
 *.mo
 *.pot

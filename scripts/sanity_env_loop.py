@@ -35,7 +35,7 @@ def main() -> None:
         rng = np.random.default_rng(args.seed)
         total = 0.0
         for t in range(args.steps):
-            action = env.action_space.sample() if False else _rng_action(env, rng)
+            action = _rng_action(env, rng)
             obs, reward, terminated, truncated, info = env.step(action)
             total += reward
             z = float(obs["position"][2])
