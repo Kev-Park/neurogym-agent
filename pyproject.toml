@@ -1,29 +1,24 @@
 [project]
-name = "tests"
+name = "ngllib-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "Distributed RL (RLlib PPO) for FlyWire neuron navigation in Neuroglancer, on top of ngllib 0.2."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fafbseg>=3.0.0",
-    "gymnasium>=1.2.3",
-    "imageio[ffmpeg]>=2.34.0",
-    "msgpack>=1.1.2",
-    "ngllib",
-    "numpy>=2.4.4",
-    "pandas>=2.0.0",
-    "psutil>=5.9.0",
-    "tqdm>=4.0.0",
-    "pillow>=12.2.0",
-    "pyarrow>=14.0.0",
-    "pyyaml>=6.0.3",
-    "scipy>=1.17.1",
-    "selenium>=4.41.0",
-    "stable-baselines3>=2.8.0",
+    "ngllib>=0.2,<0.3",
+    "ray[rllib]==2.9.*",
     "torch>=2.4.0",
     "torchvision>=0.19.0",
-    "wandb>=0.26.0",
+    "numpy>=1.26",
+    "pyarrow>=14.0.0",
+    "duckdb>=0.10",
+    "gymnasium",
+    "pyyaml>=6.0",
+    "wandb>=0.16",
 ]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
 
 [tool.uv.sources]
 ngllib = { path = "../neurogym", editable = true }
@@ -34,3 +29,10 @@ torchvision = { index = "pytorch-cu124" }
 name = "pytorch-cu124"
 url = "https://download.pytorch.org/whl/cu124"
 explicit = true
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

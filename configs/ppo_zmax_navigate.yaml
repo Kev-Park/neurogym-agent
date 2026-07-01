@@ -1,0 +1,37 @@
+# PPO Z-navigate config (Milestone 1 single-process smoke).
+# Multi-node / coordinator fields land in later milestones.
+
+env:
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  orientation: euler          # MultiDiscrete rotate bins map to delta_orient (dim 3)
+  headless: true
+  renderer: gpu               # needs a vulkan-capable node (CLAUDE.md "Node quirks")
+  left_pane: false
+  right_pane: true
+  image_size: [84, 84]        # downsized for RLlib's default CNN in the smoke; DINO/224 later
+  max_episode_steps: 300
+
+action:
+  grid_rows: 32
+  grid_cols: 32
+  pane_3d_bounds: [900, 0, 1800, 900]   # x0, y0, x1, y1
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  z_tolerance: 10.0
+  success: 1.0
+  z_shaping_coef: 0.001
+  step_penalty: 0.0
+
+ppo:
+  train_batch_size: 2000
+  sgd_minibatch_size: 256
+  num_sgd_iter: 4
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01

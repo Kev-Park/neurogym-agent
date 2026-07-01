@@ -51,6 +51,9 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Milestone 0 probe output (empirical, machine-specific)
+scripts/cluster_probe_findings.md
+
 # Translations
 *.mo
 *.pot
