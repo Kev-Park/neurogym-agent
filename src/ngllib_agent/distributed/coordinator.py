@@ -100,6 +100,7 @@ class Coordinator:
         self.stopped = False
         self.respawns = {"learner": 0, "renderer": 0}
         self._teardown_done = False
+        self._launch_counter = 0  # monotonic per-worker id for log naming
 
     # ------------------------------------------------------------------------
     # Public entry
@@ -169,6 +170,7 @@ class Coordinator:
     def _launch(
         self, role: str, cmd: str, node_hint: str = ""
     ) -> ManagedProcess:
+        self._launch_counter += 1
         srun = [
             "srun",
             f"--jobid={self.jobid}",
@@ -179,13 +181,23 @@ class Coordinator:
         ]
         if node_hint:
             srun += ["-w", node_hint]
+        # If a log dir is configured, route srun's task stdout+stderr to a
+        # unique file per launch attempt so we can inspect them post-hoc.
+        # Otherwise the coordinator inherits stdout (interleaved but visible).
+        stdout_target = None
+        stderr_target = None
+        if self.args.worker_log_dir:
+            log_dir = Path(self.args.worker_log_dir)
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / f"{role}-{self._launch_counter:03d}.log"
+            srun += [f"--output={log_path}", f"--error={log_path}"]
         # Wrap user cmd in a login shell so `uv run` etc. resolve on remote.
         full = srun + ["bash", "-lc", cmd]
-        logger.info("srun[%s]: %s", role, " ".join(full))
+        logger.info("srun[%s #%d]: %s", role, self._launch_counter, " ".join(full))
         p = subprocess.Popen(
             full,
-            stdout=subprocess.DEVNULL,   # srun's stdout is the worker's stdout;
-            stderr=subprocess.DEVNULL,   # captured in slurm-*.out on the worker node.
+            stdout=stdout_target,   # None -> inherit; or DEVNULL if --output pinned
+            stderr=stderr_target,
             stdin=subprocess.DEVNULL,
         )
         return ManagedProcess(
@@ -348,6 +360,10 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="Seconds between monitor cycles.")
     ap.add_argument("--max-cycles", type=int, default=0,
                     help="If >0, exit cleanly after this many cycles (for tests).")
+    ap.add_argument("--worker-log-dir", default="",
+                    help="If set, route each srun's --output/--error to a "
+                         "per-launch file under this directory. Otherwise "
+                         "workers inherit the coordinator's stdout/stderr.")
 
     return ap
 
