@@ -59,6 +59,7 @@ class ManagedProcess:
     node_hint: str  # "" if unpinned
     popen: subprocess.Popen  # the srun subprocess (parent of the actual work)
     started_at: str  # ISO timestamp, UTC
+    started_at_mono: float  # time.monotonic() at launch — used for quick-death detection
 
     def alive(self) -> bool:
         return self.popen.poll() is None
@@ -66,6 +67,17 @@ class ManagedProcess:
     @property
     def returncode(self) -> Optional[int]:
         return self.popen.returncode
+
+    def died_quickly(self, threshold_s: float) -> bool:
+        """True if the process is dead AND died within `threshold_s` of launch.
+
+        A common signature of `srun --immediate=N` failure: the srun subprocess
+        exits within roughly N seconds without ever running the workload.
+        """
+        return (
+            not self.alive()
+            and (time.monotonic() - self.started_at_mono) <= threshold_s
+        )
 
     def terminate(self, timeout: float = 5.0) -> None:
         """Best-effort SIGTERM + reap; escalate to SIGKILL after timeout."""
@@ -98,7 +110,7 @@ class Coordinator:
         self.learner: Optional[ManagedProcess] = None
         self.renderers: list[ManagedProcess] = []
         self.stopped = False
-        self.respawns = {"learner": 0, "renderer": 0}
+        self.respawns = {"learner": 0, "renderer": 0, "promoted_renderer_to_learner": 0}
         self._teardown_done = False
         self._launch_counter = 0  # monotonic per-worker id for log naming
         # Sliding-window log of respawn timestamps (monotonic seconds) for the
@@ -209,6 +221,7 @@ class Coordinator:
             node_hint=node_hint,
             popen=p,
             started_at=_utcnow(),
+            started_at_mono=time.monotonic(),
         )
 
     def _launch_all(self) -> None:
@@ -273,6 +286,22 @@ class Coordinator:
 
     def _maybe_respawn_learner(self, cycle: int) -> None:
         dead = self.learner
+        # If the *previous* learner (which is now dead) died within the
+        # srun-immediate window, that's the signature of srun --immediate=N
+        # denial: we couldn't get a slot in the allocation. Skip the naive
+        # respawn and go straight to renderer->learner promotion.
+        immediate_denial = dead is not None and dead.died_quickly(
+            self.args.srun_immediate_timeout + 10
+        )
+        if immediate_denial:
+            logger.warning(
+                "cycle %d: learner DEAD within srun-immediate window "
+                "(likely allocation full); attempting renderer promotion",
+                cycle,
+            )
+            self._promote_renderer_to_learner(cycle)
+            return
+
         logger.warning(
             "cycle %d: learner DEAD (exit=%s); respawning",
             cycle, dead.returncode if dead else "?",
@@ -282,13 +311,55 @@ class Coordinator:
         try:
             self.learner = self._launch("learner", self.args.learner_cmd)
         except OSError as e:
-            # Popen itself failed (rare — usually srun succeeds even if the
-            # target work later dies). Leave `self.learner` at the dead
-            # process for reporting and try again next cycle.
             logger.error("srun failed while respawning learner: %s", e)
             return
         self.respawns["learner"] += 1
         self._respawn_times.append(time.monotonic())
+
+    # ------------------------------------------------------------------------
+    # M4c: renderer -> learner promotion when the allocation is full.
+    # ------------------------------------------------------------------------
+
+    def _promote_renderer_to_learner(self, cycle: int) -> None:
+        """Kill the oldest live renderer, freeing its slot for a learner srun.
+
+        Precondition: previous learner death was inside srun --immediate window,
+        suggesting the allocation had no free node to accept a fresh learner.
+        Sacrifice a renderer to make room.
+        """
+        if not self._circuit_ok():
+            return
+        # Pick oldest ALIVE renderer (dead ones don't hold slots).
+        candidates = [(i, r) for i, r in enumerate(self.renderers) if r.alive()]
+        if not candidates:
+            logger.error(
+                "cycle %d: no live renderer to promote; learner stays dead this cycle",
+                cycle,
+            )
+            return
+        candidates.sort(key=lambda t: t[1].started_at_mono)  # oldest first
+        idx, victim = candidates[0]
+        logger.warning(
+            "cycle %d: promoting: killing renderer[%d] (started %s) to free slot for learner",
+            cycle, idx, victim.started_at,
+        )
+        victim.terminate()
+        # Give SLURM a moment to release the node before the learner srun tries
+        # to claim it.
+        time.sleep(self.args.promotion_slot_wait_s)
+
+        try:
+            self.learner = self._launch("learner", self.args.learner_cmd)
+        except OSError as e:
+            logger.error("srun failed while promoting to learner: %s", e)
+            return
+        self.respawns["learner"] += 1
+        self.respawns["promoted_renderer_to_learner"] += 1
+        self._respawn_times.append(time.monotonic())
+
+        # The renderer we killed leaves a dead slot in self.renderers[]; on the
+        # next cycle _handle_deaths will try to respawn it. That's the intended
+        # steady-state: pool tries to recover to N renderers whenever possible.
 
     def _maybe_respawn_renderer(self, cycle: int, idx: int) -> None:
         dead = self.renderers[idx]
@@ -437,6 +508,10 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="Circuit breaker: refuse further respawns once this "
                          "many have fired in a sliding 1-hour window. "
                          "0 disables the cap.")
+    ap.add_argument("--promotion-slot-wait-s", type=float, default=3.0,
+                    help="Seconds to wait after killing a renderer before "
+                         "srun-ing the learner into the freed slot. Gives "
+                         "SLURM time to reap the previous step allocation.")
 
     return ap
 
