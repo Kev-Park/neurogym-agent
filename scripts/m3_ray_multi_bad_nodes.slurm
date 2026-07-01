@@ -28,8 +28,11 @@ echo "nodes: ${NODES[*]}"
 echo "head : $HEAD_NODE ($HEAD_IP)"
 
 # Start head daemon on the first node. --block keeps the srun alive so the
-# daemon isn't reaped when srun exits; we background it and rely on `ray stop`.
-srun --nodes=1 --ntasks=1 -w "$HEAD_NODE" \
+# daemon isn't reaped when srun exits; backgrounded so we can launch workers.
+# --overlap on ALL subsequent sruns so they can share the same node allocations
+# (default srun steps are exclusive within a job — Ray blocks would otherwise
+# lock the nodes and any probe srun would fail with "Requested nodes are busy").
+srun --overlap --nodes=1 --ntasks=1 -w "$HEAD_NODE" \
     uv run --no-sync ray start --head \
         --node-ip-address="$HEAD_IP" \
         --port=6379 \
@@ -42,7 +45,7 @@ sleep 15
 # Start worker daemons on the other nodes.
 WORKER_PIDS=()
 for ((i=1; i<${#NODES[@]}; i++)); do
-    srun --nodes=1 --ntasks=1 -w "${NODES[$i]}" \
+    srun --overlap --nodes=1 --ntasks=1 -w "${NODES[$i]}" \
         uv run --no-sync ray start \
             --address="$HEAD_IP:6379" \
             --num-cpus=4 \
@@ -53,7 +56,7 @@ done
 sleep 15
 
 echo "=== running probe on head ==="
-srun --nodes=1 --ntasks=1 -w "$HEAD_NODE" \
+srun --overlap --nodes=1 --ntasks=1 -w "$HEAD_NODE" \
     uv run --no-sync python scripts/ray_multi_node_probe.py \
         --head-ip "$HEAD_IP" \
         --expected-nodes ${#NODES[@]}
@@ -61,7 +64,7 @@ PROBE_EXIT=$?
 
 echo "=== stopping ray on all nodes ==="
 for n in "${NODES[@]}"; do
-    srun --nodes=1 --ntasks=1 -w "$n" uv run --no-sync ray stop --force 2>&1 | tail -2 || true
+    srun --overlap --nodes=1 --ntasks=1 -w "$n" uv run --no-sync ray stop --force 2>&1 | tail -2 || true
 done
 
 # Reap the backgrounded ray-start sruns.
