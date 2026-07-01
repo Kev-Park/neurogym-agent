@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "ngllib>=0.2,<0.3",
-    "ray[rllib]==2.9.*",
+    "ray[rllib]>=2.40,<3",   # new API stack (RLModule/EnvRunner); py3.12 + gymnasium 1.x
     "torch>=2.4.0",
     "torchvision>=0.19.0",
     "numpy>=1.26",
