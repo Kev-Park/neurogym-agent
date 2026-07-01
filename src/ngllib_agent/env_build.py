@@ -32,8 +32,18 @@ def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
 def build_env(cfg: dict[str, Any]):
     """Construct `TimeLimit(MultiDiscreteActionWrapper(ngllib.Environment))`."""
     import gymnasium as gym
+    import logging
 
     from ngllib import Environment
+
+    # Configure basic logging so ngllib's INFO messages (browser restarts,
+    # navigation retries) surface in the driver log via Ray's log_to_driver=True.
+    # Idempotent if already configured.
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+        )
 
     ec, ac, rc = cfg["env"], cfg["action"], cfg["reward"]
 
@@ -46,7 +56,7 @@ def build_env(cfg: dict[str, Any]):
     )
 
     image_size = ec.get("image_size")
-    env = Environment(
+    env_kwargs = dict(
         headless=ec.get("headless", True),
         renderer=ec.get("renderer", "gpu"),
         orientation=ec.get("orientation", "euler"),
@@ -57,6 +67,14 @@ def build_env(cfg: dict[str, Any]):
         reward_factory=make_z_reward_factory(rcfg),
         termination_factory=make_z_termination_factory(rcfg),
     )
+    # Optional self-healing overrides — only pass if the config sets them, so
+    # ngllib's defaults (browser_restart_every=90, retry_on_reset=3) apply
+    # otherwise. Used by the extended smoke to force restart-mechanism firing.
+    if "browser_restart_every" in ec:
+        env_kwargs["browser_restart_every"] = ec["browser_restart_every"]
+    if "retry_on_reset" in ec:
+        env_kwargs["retry_on_reset"] = ec["retry_on_reset"]
+    env = Environment(**env_kwargs)
 
     env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
     env = ResilientStepWrapper(env)  # truncate on transient viewer/browser glitches

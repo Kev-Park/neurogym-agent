@@ -71,6 +71,14 @@ def main() -> None:
         default=0,
         help="0 = M1 (env in driver); >0 = M2 (N remote Ray-actor env runners, each with its own Chrome).",
     )
+    ap.add_argument(
+        "--browser-restart-every",
+        type=int,
+        default=None,
+        help="Override env.browser_restart_every (default in ngllib = 90). "
+             "Set to a small value (e.g. 5) in extended tests to exercise the "
+             "Playwright refresh mechanism.",
+    )
     args = ap.parse_args()
 
     import ray
@@ -80,6 +88,8 @@ def main() -> None:
     from ngllib_agent.env_build import build_env, load_config
 
     cfg = load_config(args.config)
+    if args.browser_restart_every is not None:
+        cfg["env"]["browser_restart_every"] = args.browser_restart_every
     pc = cfg.get("ppo", {})
 
     register_env("ngl-znav", lambda env_config: _pos_only_wrapper(build_env(cfg)))
