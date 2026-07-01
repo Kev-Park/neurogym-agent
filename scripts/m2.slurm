@@ -7,7 +7,9 @@
 #SBATCH --cpus-per-task=8          # driver + 2 remote env_runners × ~2 cpu each + headroom
 #SBATCH --mem=48G                  # 2 Chromes × ~10G + Ray + Python + margin
 #SBATCH --gres=gpu:3090:1
-#SBATCH --nodelist=sarekl15-4      # vulkan-capable; see CLAUDE.md "Node quirks"
+# Vulkan-capable allowlist (CLAUDE.md "Node quirks"); SLURM picks any free one.
+#SBATCH --nodelist=sarekl15-2,sarekl15-4,sarekl15-5,sarekl15-7,sarekl15-8,sarekl16-1,sarekl16-3,sarekl16-5,sarekl16-6,sarekl16-7,sarekl16-8
+#SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4    # known-bad (Mesa-only)
 #SBATCH --time=00:30:00
 #SBATCH --output=slurm_outputs/m2-multi-runner-%j.out
 
