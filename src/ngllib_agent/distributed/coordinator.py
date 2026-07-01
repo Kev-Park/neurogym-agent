@@ -111,6 +111,7 @@ class Coordinator:
         self.renderers: list[ManagedProcess] = []
         self.stopped = False
         self.respawns = {"learner": 0, "renderer": 0, "promoted_renderer_to_learner": 0}
+        self.salloc_resubmissions = 0
         self._teardown_done = False
         self._launch_counter = 0  # monotonic per-worker id for log naming
         # Sliding-window log of respawn timestamps (monotonic seconds) for the
@@ -247,8 +248,18 @@ class Coordinator:
                 logger.info("reached max_cycles=%d; exiting", self.args.max_cycles)
                 break
 
+            # M4d: check the salloc allocation is still alive; if not, re-request
+            # and relaunch all processes. Happens BEFORE _handle_deaths because
+            # a preempted allocation will have killed every managed process
+            # simultaneously and any respawn attempt would fail.
+            if self._salloc_lost():
+                self._resalloc_and_relaunch(cycle)
+                self._write_state(cycle)
+                time.sleep(self.args.ping_interval)
+                continue
+
             self._log_status(cycle)
-            self._handle_deaths(cycle)   # M4b
+            self._handle_deaths(cycle)   # M4b, M4c
             self._write_state(cycle)
 
             time.sleep(self.args.ping_interval)
@@ -317,8 +328,58 @@ class Coordinator:
         self._respawn_times.append(time.monotonic())
 
     # ------------------------------------------------------------------------
-    # M4c: renderer -> learner promotion when the allocation is full.
+    # M4d: detect salloc preemption/expiry and re-request the allocation.
     # ------------------------------------------------------------------------
+
+    def _salloc_lost(self) -> bool:
+        """Ask SLURM whether our JOBID is still known.
+
+        `squeue -j <id> -h` prints nothing when the job is gone (finished,
+        preempted, or requeued). If the entry is present we're still holding
+        (or waiting on) the allocation. If it's ABSENT the coordinator has to
+        re-request or accept the run has ended.
+        """
+        if self.jobid is None:
+            return True
+        try:
+            r = subprocess.run(
+                ["squeue", "-j", self.jobid, "-h", "-o", "%i %T"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning("squeue timed out; assuming allocation still up for now")
+            return False
+        return not r.stdout.strip()
+
+    def _resalloc_and_relaunch(self, cycle: int) -> None:
+        logger.warning(
+            "cycle %d: salloc JOBID=%s gone from squeue "
+            "(preempted/expired); re-requesting", cycle, self.jobid,
+        )
+        # Best-effort: terminate any lingering popen wrappers. Their
+        # underlying srun/task should already be dead but be defensive.
+        if self.learner:
+            self.learner.terminate()
+        for r in self.renderers:
+            r.terminate()
+
+        old_jobid = self.jobid
+        self.jobid = None
+        try:
+            self._salloc()
+        except Exception as e:
+            logger.error("re-salloc failed: %s (old JOBID=%s)", e, old_jobid)
+            # Nothing we can do; the next cycle will retry.
+            return
+
+        self.salloc_resubmissions += 1
+        # Rebuild the pool from scratch on the new allocation.
+        self.learner = None
+        self.renderers = []
+        try:
+            self._launch_all()
+        except OSError as e:
+            logger.error("relaunch after re-salloc failed: %s", e)
 
     def _promote_renderer_to_learner(self, cycle: int) -> None:
         """Kill the oldest live renderer, freeing its slot for a learner srun.
@@ -406,6 +467,7 @@ class Coordinator:
             "learner": self._pinfo(self.learner),
             "renderers": [self._pinfo(r) for r in self.renderers],
             "respawns": dict(self.respawns),
+            "salloc_resubmissions": self.salloc_resubmissions,
             "updated_at": _utcnow(),
         }
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
