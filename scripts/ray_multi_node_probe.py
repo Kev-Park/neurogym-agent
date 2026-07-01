@@ -45,8 +45,10 @@ def report_host_and_payload(size: int) -> tuple[str, int]:
 
 
 @ray.remote(num_cpus=1)
-def resolve_object(ref) -> tuple[str, int]:
-    payload = ray.get(ref)
+def resolve_object(payload) -> tuple[str, int]:
+    # Ray auto-dereferences ObjectRef args, so `payload` is already the
+    # underlying list (fetched cross-node from head's plasma store into this
+    # non-head worker's plasma). That fetch IS the cross-node object-store test.
     return socket.gethostname(), len(payload)
 
 
@@ -54,7 +56,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--head-ip", required=True, help="e.g. 10.32.15.3")
     ap.add_argument("--expected-nodes", type=int, default=2)
-    ap.add_argument("--payload-size", type=int, default=10_000)
+    # Large enough that Ray puts it in the object store instead of inlining
+    # into the task args (inlining bypasses the cross-node object-store path).
+    ap.add_argument("--payload-size", type=int, default=100_000)
     args = ap.parse_args()
 
     ray.init(address=f"{args.head_ip}:6379")
