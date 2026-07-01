@@ -10,7 +10,7 @@ from typing import Any
 
 from .providers import FlywireSkeletonProvider
 from .rewards import ZRewardConfig, make_z_reward_factory, make_z_termination_factory
-from .wrappers import ActionSpec, MultiDiscreteActionWrapper
+from .wrappers import ActionSpec, MultiDiscreteActionWrapper, ResilientStepWrapper
 
 
 def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
@@ -59,6 +59,7 @@ def build_env(cfg: dict[str, Any]):
     )
 
     env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
+    env = ResilientStepWrapper(env)  # truncate on transient viewer/browser glitches
     env = gym.wrappers.TimeLimit(env, max_episode_steps=ec.get("max_episode_steps", 300))
     return env
 
