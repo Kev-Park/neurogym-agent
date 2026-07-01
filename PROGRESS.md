@@ -1,6 +1,13 @@
 # neurogym-agent — training code progress
 
-Goal: train a PPO agent that right-clicks on a neuron mesh in Neuroglancer to navigate to the highest Z-position. Talks to `ngllib.Environment` in-process (one Chrome per `SubprocVecEnv` worker). Plan file: `C:\Users\kevy0\.claude\plans\giggly-popping-eagle.md`.
+> ⚠️ **SUPERSEDED** — this document describes the legacy SB3-based training code
+> on this repo's `main` branch as of mid-2026. That stack is being fully replaced
+> on the `dist-rl-rewrite` branch by a Ray RLlib + APPO/PPO distributed
+> architecture (multi-node, salloc-managed, ngllib 0.2 API). See
+> `../neurogym/agent_plan.md` for the current design. Do not use this file for
+> new work; it's kept for historical context only.
+
+Goal: train a PPO agent that right-clicks on a neuron mesh in Neuroglancer to navigate to the highest Z-position. Talks to `ngllib.Environment` in-process (one Chrome per `SubprocVecEnv` worker). Plan file: `../neurogym/agent_plan.md`.
 
 ## What's built
 
@@ -131,6 +138,6 @@ cd neurogym-agent
 
 ## Reference
 
-- Plan file (full design, open questions, critical-files list): `C:\Users\kevy0\.claude\plans\giggly-popping-eagle.md`
-- Env source of truth: [../neurogym/ngllib/environment.py](../neurogym/ngllib/environment.py)
-- Click dispatch: [../neurogym/ngllib/utils/MouseActionHandler.py](../neurogym/ngllib/utils/MouseActionHandler.py)
+- Current design (Ray RLlib rewrite): [../neurogym/agent_plan.md](../neurogym/agent_plan.md)
+- Env source of truth (ngllib 0.2 src-layout): [../neurogym/src/ngllib/environment.py](../neurogym/src/ngllib/environment.py)
+- Click dispatch: [../neurogym/src/ngllib/utils/MouseActionHandler.py](../neurogym/src/ngllib/utils/MouseActionHandler.py)
