@@ -1,11 +1,14 @@
-"""Milestone 1 single-process PPO smoke — Ray RLlib new API stack (>=2.40).
+"""PPO smoke — Ray RLlib new API stack (>=2.40).
 
-Confirms the wrapped ngllib env trains under PPO (loss moves) with a single local
-env runner. Needs a real browser -> run on a vulkan-capable GPU node under SLURM.
+Confirms the wrapped ngllib env trains under PPO (loss moves). Needs a real
+browser -> run on a vulkan-capable GPU node under SLURM.
 
-    uv run python scripts/ppo_smoke.py [--config ...] [--iters 3] [--train-batch-size 256]
+    # Milestone 1 (single-process, env in driver):
+    uv run python scripts/ppo_smoke.py --iters 2 --train-batch-size 128
+    # Milestone 2 (N remote env runners, each with its own Chrome):
+    uv run python scripts/ppo_smoke.py --iters 5 --train-batch-size 512 --num-env-runners 2
 
-Smoke simplifications (replaced in later milestones):
+Simplifications (replaced in later milestones):
 - Observation reduced to the pos-state vector (position/xs_scale/orientation/
   proj_scale) so PPO's default RLModule needs no CNN/Dict handling. DINO image
   obs comes later.
@@ -62,6 +65,12 @@ def main() -> None:
     ap.add_argument("--config", default="configs/ppo_zmax_navigate.yaml")
     ap.add_argument("--iters", type=int, default=3)
     ap.add_argument("--train-batch-size", type=int, default=256)
+    ap.add_argument(
+        "--num-env-runners",
+        type=int,
+        default=0,
+        help="0 = M1 (env in driver); >0 = M2 (N remote Ray-actor env runners, each with its own Chrome).",
+    )
     args = ap.parse_args()
 
     import ray
@@ -80,7 +89,14 @@ def main() -> None:
         PPOConfig()
         .environment("ngl-znav")
         .framework("torch")
-        .env_runners(num_env_runners=0, rollout_fragment_length="auto")
+        .env_runners(
+            num_env_runners=args.num_env_runners,
+            rollout_fragment_length="auto",
+            # Chrome renders via Vulkan (ICD), not CUDA, so remote runners
+            # don't need a Ray GPU allocation to run the browser. Learner
+            # (still in driver) doesn't need CUDA either at this stage.
+            num_gpus_per_env_runner=0,
+        )
         .learners(num_learners=0)  # learner in the driver process (CPU)
         .training(
             train_batch_size=args.train_batch_size,
