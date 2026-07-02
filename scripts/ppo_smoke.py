@@ -79,6 +79,24 @@ def main() -> None:
              "Set to a small value (e.g. 5) in extended tests to exercise the "
              "Playwright refresh mechanism.",
     )
+    ap.add_argument(
+        "--sample-timeout-s",
+        type=float,
+        default=600.0,
+        help="Max seconds RLlib waits for a rollout fragment before giving up "
+             "(reported as 'No samples returned from remote workers' and produces "
+             "nan iter metrics). Browser stepping is ~0.5s/step, so a 256-step "
+             "fragment needs ~128s ideal; 4-5x headroom accommodates env glitches. "
+             "Default 600s is deliberately generous — reduce for faster failure "
+             "detection when tuning.",
+    )
+    ap.add_argument(
+        "--rollout-fragment-length",
+        default="auto",
+        help="Per-worker per-fragment sample count. 'auto' = train_batch_size / "
+             "num_env_runners. Small integer values (e.g. 64) trade throughput "
+             "for lower per-fragment latency (helps under high glitch rate).",
+    )
     args = ap.parse_args()
 
     import ray
@@ -101,11 +119,21 @@ def main() -> None:
         .framework("torch")
         .env_runners(
             num_env_runners=args.num_env_runners,
-            rollout_fragment_length="auto",
+            rollout_fragment_length=(
+                int(args.rollout_fragment_length)
+                if str(args.rollout_fragment_length).isdigit()
+                else args.rollout_fragment_length
+            ),
             # Chrome renders via Vulkan (ICD), not CUDA, so remote runners
             # don't need a Ray GPU allocation to run the browser. Learner
             # (still in driver) doesn't need CUDA either at this stage.
             num_gpus_per_env_runner=0,
+            # Browser stepping (~0.5s/step) makes even short rollout fragments
+            # slower than RLlib's default sample_timeout_s (60s). Without this
+            # override every iter reports nan for the full training window
+            # after the first ~30 min (see stress test 2026-07-02 for the
+            # symptom pattern). Generous 600s default; tune down when needed.
+            sample_timeout_s=args.sample_timeout_s,
         )
         .learners(num_learners=0)  # learner in the driver process (CPU)
         .training(
