@@ -332,12 +332,16 @@ class Coordinator:
     # ------------------------------------------------------------------------
 
     def _salloc_lost(self) -> bool:
-        """Ask SLURM whether our JOBID is still known.
+        """Ask SLURM whether our allocation is still LIVE (JOBID present AND
+        RUNNING). Returns True if we've lost the slot in either sense:
 
-        `squeue -j <id> -h` prints nothing when the job is gone (finished,
-        preempted, or requeued). If the entry is present we're still holding
-        (or waiting on) the allocation. If it's ABSENT the coordinator has to
-        re-request or accept the run has ended.
+          - JOBID gone from squeue: job was scanceled/completed/killed for good.
+          - JOBID present but state != RUNNING (PENDING, REQUEUED, SUSPENDED,
+            CONFIGURING, ...): common preempt/requeue case on `preempt` partition,
+            where SLURM sets `PreemptMode=REQUEUE` — the sruns still die but the
+            JOBID sticks around waiting for another slot.
+
+        Both mean we can't launch new steps against $JOBID and must respond.
         """
         if self.jobid is None:
             return True
@@ -349,12 +353,21 @@ class Coordinator:
         except subprocess.TimeoutExpired:
             logger.warning("squeue timed out; assuming allocation still up for now")
             return False
-        return not r.stdout.strip()
+        out = r.stdout.strip()
+        if not out:
+            logger.warning("salloc lost: JOBID=%s absent from squeue", self.jobid)
+            return True
+        # Format: "JOBID STATE"
+        parts = out.split()
+        state = parts[1] if len(parts) >= 2 else ""
+        if state and state != "RUNNING":
+            logger.warning("salloc lost: JOBID=%s state=%s (not RUNNING)", self.jobid, state)
+            return True
+        return False
 
     def _resalloc_and_relaunch(self, cycle: int) -> None:
         logger.warning(
-            "cycle %d: salloc JOBID=%s gone from squeue "
-            "(preempted/expired); re-requesting", cycle, self.jobid,
+            "cycle %d: re-requesting salloc (old JOBID=%s)", cycle, self.jobid,
         )
         # Best-effort: terminate any lingering popen wrappers. Their
         # underlying srun/task should already be dead but be defensive.
@@ -364,6 +377,14 @@ class Coordinator:
             r.terminate()
 
         old_jobid = self.jobid
+        # If the OLD JOBID is still around (e.g. REQUEUED / PENDING after a
+        # preempt), scancel it before re-requesting so it doesn't come back
+        # later, hold nodes we don't want, and compete with the fresh salloc.
+        if old_jobid:
+            subprocess.run(
+                ["scancel", old_jobid], check=False,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
         self.jobid = None
         try:
             self._salloc()
