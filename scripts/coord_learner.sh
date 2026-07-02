@@ -32,6 +32,10 @@ ENDPOINT_FILE=${RAY_HEAD_ENDPOINT_FILE:-/scratch/kp0374/coord-state/ray_head_end
 NUM_RENDERERS=${NUM_RENDERERS:-1}
 NUM_ITERS=${NUM_ITERS:-3}
 TRAIN_BATCH=${TRAIN_BATCH:-512}
+# Rollout / sample tuning (see scripts/ppo_smoke.py comments): these avoid the
+# "No samples returned from remote workers" nan cascade at ~0.5s/step.
+SAMPLE_TIMEOUT_S=${SAMPLE_TIMEOUT_S:-600}
+ROLLOUT_FRAGMENT_LENGTH=${ROLLOUT_FRAGMENT_LENGTH:-auto}
 EXPECTED_NODES=$((NUM_RENDERERS + 1))
 
 HEAD_IP=$(hostname -I | awk '{print $1}')
@@ -72,6 +76,8 @@ PPO_ARGS=(
     --num-env-runners "$NUM_RENDERERS"
     --iters "$NUM_ITERS"
     --train-batch-size "$TRAIN_BATCH"
+    --sample-timeout-s "$SAMPLE_TIMEOUT_S"
+    --rollout-fragment-length "$ROLLOUT_FRAGMENT_LENGTH"
 )
 if [ -n "${BROWSER_RESTART_EVERY:-}" ]; then
     PPO_ARGS+=(--browser-restart-every "$BROWSER_RESTART_EVERY")
