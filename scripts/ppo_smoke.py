@@ -103,7 +103,7 @@ def main() -> None:
     from ray.rllib.algorithms.ppo import PPOConfig
     from ray.tune.registry import register_env
 
-    from ngllib_agent.env_build import build_env, load_config
+    from ngllib_agent.env_build import load_config, make_env_creator
 
     cfg = load_config(args.config)
     if args.browser_restart_every is not None:
@@ -118,22 +118,7 @@ def main() -> None:
     if vectorize_mode == "auto":
         vectorize_mode = "sync" if args.num_envs_per_env_runner <= 1 else "vector_entry_point"
 
-    def _env_creator(env_config=None):
-        env_config = env_config or {}
-        num_envs = int(env_config.get("num_envs") or 0)
-        if num_envs > 1:
-            # vector_entry_point path: build the vector env ourselves with a
-            # SPAWN context. Each env gets a fresh interpreter (own CUDA context
-            # for DINO, own Chrome); gymnasium cloudpickles the factories.
-            import gymnasium as gym
-
-            return gym.vector.AsyncVectorEnv(
-                [(lambda: build_env(cfg)) for _ in range(num_envs)],
-                context="spawn",
-            )
-        return build_env(cfg)
-
-    register_env("ngl-znav", _env_creator)
+    register_env("ngl-znav", make_env_creator(cfg))
 
     ray.init(include_dashboard=False, log_to_driver=True)
     config = (

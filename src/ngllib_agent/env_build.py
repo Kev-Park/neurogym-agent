@@ -115,6 +115,31 @@ def build_env(cfg: dict[str, Any]):
     return env
 
 
+def make_env_creator(cfg: dict[str, Any]):
+    """RLlib env creator supporting the vector_entry_point path.
+
+    RLlib registers callable envs with a vector entry point that passes
+    `num_envs` in env_config. For M>1 we build the vector env ourselves with a
+    SPAWN context — gym's plain 'async' mode forks, and forked env subprocesses
+    inherit torch/CUDA/playwright state and deadlock in reset (diagnosed
+    2026-07-03). Use with `gym_env_vectorize_mode="vector_entry_point"`.
+    """
+
+    def _creator(env_config: dict[str, Any] | None = None):
+        env_config = env_config or {}
+        num_envs = int(env_config.get("num_envs") or 0)
+        if num_envs > 1:
+            import gymnasium as gym
+
+            return gym.vector.AsyncVectorEnv(
+                [(lambda: build_env(cfg)) for _ in range(num_envs)],
+                context="spawn",  # fresh interpreter per env (own CUDA + Chrome)
+            )
+        return build_env(cfg)
+
+    return _creator
+
+
 def load_config(path: str) -> dict[str, Any]:
     import yaml
 

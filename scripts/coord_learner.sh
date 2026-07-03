@@ -83,9 +83,16 @@ if [ -n "${BROWSER_RESTART_EVERY:-}" ]; then
     PPO_ARGS+=(--browser-restart-every "$BROWSER_RESTART_EVERY")
 fi
 
-echo "[learner] running ppo_smoke.py ${PPO_ARGS[*]}"
-uv run --no-sync python scripts/ppo_smoke.py "${PPO_ARGS[@]}" \
-    || echo "[learner] WARN: ppo_smoke exited $?"
+if [ -n "${WORKLOAD_CMD:-}" ]; then
+    # Real-training path: run the given command verbatim (e.g. ngllib_agent.train).
+    # Inherits RAY_ADDRESS and connects to the cluster built above.
+    echo "[learner] running workload: $WORKLOAD_CMD"
+    bash -c "$WORKLOAD_CMD" || echo "[learner] WARN: workload exited $?"
+else
+    echo "[learner] running ppo_smoke.py ${PPO_ARGS[*]}"
+    uv run --no-sync python scripts/ppo_smoke.py "${PPO_ARGS[@]}" \
+        || echo "[learner] WARN: ppo_smoke exited $?"
+fi
 
 echo "[learner] PPO complete; sleeping until coordinator SIGTERM"
 # Do NOT ray stop — coord's teardown will scancel the allocation, which
