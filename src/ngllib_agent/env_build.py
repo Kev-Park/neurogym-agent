@@ -10,7 +10,13 @@ from typing import Any
 
 from .providers import FlywireSkeletonProvider
 from .rewards import ZRewardConfig, make_z_reward_factory, make_z_termination_factory
-from .wrappers import ActionSpec, MultiDiscreteActionWrapper, ResilientStepWrapper
+from .wrappers import (
+    ActionSpec,
+    DinoObservationWrapper,
+    MultiDiscreteActionWrapper,
+    PosStateWrapper,
+    ResilientStepWrapper,
+)
 
 
 def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
@@ -46,6 +52,14 @@ def build_env(cfg: dict[str, Any]):
         )
 
     ec, ac, rc = cfg["env"], cfg["action"], cfg["reward"]
+    oc = cfg.get("obs", {})
+    obs_mode = oc.get("mode", "raw")  # raw | pos | dino
+
+    # DINO obs needs the full two-pane render at native resolution (the wrapper
+    # splits EM|3D and resizes per pane) — derive these env settings from the mode
+    # rather than trusting per-key config to stay consistent.
+    if obs_mode == "dino":
+        ec = {**ec, "left_pane": True, "right_pane": True, "image_size": None}
 
     provider = FlywireSkeletonProvider(ec["parquet_path"])
     rcfg = ZRewardConfig(
@@ -77,6 +91,25 @@ def build_env(cfg: dict[str, Any]):
     env = Environment(**env_kwargs)
 
     env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
+
+    # Observation mode (agent_plan.md §10/Round 8). Applied under the resilient
+    # wrapper so glitch-truncation returns an already-transformed obs.
+    scale = oc.get("pos_state_scale")
+    if obs_mode == "dino":
+        from .obs import get_dino_encoder  # torch import stays lazy
+
+        dc = oc.get("dino", {})
+        encoder = get_dino_encoder(
+            model_name=dc.get("model_name", "dinov2_vits14"),
+            input_size=dc.get("input_size", 224),
+            device=dc.get("device"),
+        )
+        env = DinoObservationWrapper(env, encoder, pos_state_scale=scale)
+    elif obs_mode == "pos":
+        env = PosStateWrapper(env, pos_state_scale=scale)
+    elif obs_mode != "raw":
+        raise ValueError(f"obs.mode must be raw|pos|dino; got {obs_mode!r}")
+
     env = ResilientStepWrapper(env)  # truncate on transient viewer/browser glitches
     env = gym.wrappers.TimeLimit(env, max_episode_steps=ec.get("max_episode_steps", 300))
     return env

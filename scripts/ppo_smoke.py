@@ -8,11 +8,12 @@ browser -> run on a vulkan-capable GPU node under SLURM.
     # Milestone 2 (N remote env runners, each with its own Chrome):
     uv run python scripts/ppo_smoke.py --iters 5 --train-batch-size 512 --num-env-runners 2
 
-Simplifications (replaced in later milestones):
-- Observation reduced to the pos-state vector (position/xs_scale/orientation/
-  proj_scale) so PPO's default RLModule needs no CNN/Dict handling. DINO image
-  obs comes later.
-- Learner on CPU (tiny MLP); the browser still uses the GPU for rendering.
+Observation modes (--obs, see configs `obs:` section):
+- pos  — scaled pos-state vector + RLlib default MLP module (infra smoke).
+- dino — env-side frozen DINO split-pane features + HierarchicalPPOModule
+         (real observation/policy). Pass --num-gpus-per-env-runner 0.25 so the
+         runner actor gets CUDA for the encoder.
+Learner stays on CPU (small MLPs either way); the browser uses the GPU via Vulkan.
 """
 
 from __future__ import annotations
@@ -20,44 +21,11 @@ from __future__ import annotations
 import argparse
 import os
 
-import numpy as np
-
 # Ray >=2.43 auto-ships the CWD as a runtime_env working_dir when launched under
 # `uv run`; here that's the 1.2GB repo (checkpoints/wandb/parquet) and it blows
 # past the 512MB limit. The smoke is single-process (0 remote actors), so disable
 # it. Multi-node milestones will set an explicit runtime_env / shared FS instead.
 os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
-
-
-def _pos_only_wrapper(env):
-    """Dict obs -> flat Box(pos_state). Keeps sanity_env_loop on the real Dict."""
-    import gymnasium as gym
-    from gymnasium import spaces
-
-    space = env.observation_space
-    dim = sum(
-        int(np.prod(space[k].shape))
-        for k in ("position", "xs_scale", "orientation", "proj_scale")
-    )
-
-    class _PosOnly(gym.ObservationWrapper):
-        def __init__(self, env):
-            super().__init__(env)
-            self.observation_space = spaces.Box(
-                -np.inf, np.inf, shape=(dim,), dtype=np.float32
-            )
-
-        def observation(self, obs):
-            return np.concatenate(
-                [
-                    np.asarray(obs["position"], np.float32).ravel(),
-                    np.asarray(obs["xs_scale"], np.float32).ravel(),
-                    np.asarray(obs["orientation"], np.float32).ravel(),
-                    np.asarray(obs["proj_scale"], np.float32).ravel(),
-                ]
-            ).astype(np.float32)
-
-    return _PosOnly(env)
 
 
 def main() -> None:
@@ -97,6 +65,22 @@ def main() -> None:
              "num_env_runners. Small integer values (e.g. 64) trade throughput "
              "for lower per-fragment latency (helps under high glitch rate).",
     )
+    ap.add_argument(
+        "--obs",
+        choices=["pos", "dino"],
+        default=None,
+        help="Override config obs.mode. 'dino' = env-side frozen DINO features + "
+             "HierarchicalPPOModule (real observation/policy); 'pos' = pos-state "
+             "vector + default RLModule (infra smoke).",
+    )
+    ap.add_argument(
+        "--num-gpus-per-env-runner",
+        type=float,
+        default=0.0,
+        help="Ray GPU share per env runner. Needed >0 in dino mode so the runner "
+             "actor gets CUDA visibility for the env-side DINO encoder (e.g. 0.25). "
+             "Chrome's Vulkan rendering works regardless of Ray's GPU accounting.",
+    )
     args = ap.parse_args()
 
     import ray
@@ -108,9 +92,13 @@ def main() -> None:
     cfg = load_config(args.config)
     if args.browser_restart_every is not None:
         cfg["env"]["browser_restart_every"] = args.browser_restart_every
+    cfg.setdefault("obs", {}).setdefault("mode", "pos")  # this script never uses raw
+    if args.obs is not None:
+        cfg["obs"]["mode"] = args.obs
+    obs_mode = cfg["obs"]["mode"]
     pc = cfg.get("ppo", {})
 
-    register_env("ngl-znav", lambda env_config: _pos_only_wrapper(build_env(cfg)))
+    register_env("ngl-znav", lambda env_config: build_env(cfg))
 
     ray.init(include_dashboard=False, log_to_driver=True)
     config = (
@@ -124,10 +112,9 @@ def main() -> None:
                 if str(args.rollout_fragment_length).isdigit()
                 else args.rollout_fragment_length
             ),
-            # Chrome renders via Vulkan (ICD), not CUDA, so remote runners
-            # don't need a Ray GPU allocation to run the browser. Learner
-            # (still in driver) doesn't need CUDA either at this stage.
-            num_gpus_per_env_runner=0,
+            # Chrome renders via Vulkan (ICD), not CUDA — a Ray GPU share is only
+            # needed for the env-side DINO encoder (dino mode; pass e.g. 0.25).
+            num_gpus_per_env_runner=args.num_gpus_per_env_runner,
             # Browser stepping (~0.5s/step) makes even short rollout fragments
             # slower than RLlib's default sample_timeout_s (60s). Without this
             # override every iter reports nan for the full training window
@@ -147,6 +134,18 @@ def main() -> None:
             kl_target=pc.get("kl_target", 0.01),
         )
     )
+    if obs_mode == "dino":
+        # Real observation/policy: gated hierarchical RLModule over DINO features.
+        from ray.rllib.core.rl_module.rl_module import RLModuleSpec
+
+        from ngllib_agent.policies import HierarchicalPPOModule
+
+        config = config.rl_module(
+            rl_module_spec=RLModuleSpec(
+                module_class=HierarchicalPPOModule,
+                model_config=cfg.get("model", {}),
+            )
+        )
     algo = config.build_algo() if hasattr(config, "build_algo") else config.build()
 
     for i in range(args.iters):

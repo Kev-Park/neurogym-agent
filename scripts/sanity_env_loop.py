@@ -24,6 +24,7 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args.config)
+    cfg.setdefault("obs", {})["mode"] = "raw"  # this loop introspects the raw Dict obs
     env = build_env(cfg)
     try:
         obs, info = env.reset(seed=args.seed)

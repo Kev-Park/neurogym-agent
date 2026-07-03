@@ -11,6 +11,25 @@ env:
   image_size: [84, 84]        # downsized for RLlib's default CNN in the smoke; DINO/224 later
   max_episode_steps: 300
 
+# Observation pipeline (agent_plan.md §10/Round 8).
+#   raw  — ngllib Dict obs untouched (sanity_env_loop)
+#   pos  — scaled 8-dim pos_state only (infra smokes; default RLModule MLP)
+#   dino — env-side frozen DINO split-pane features + pos_state (real training;
+#          forces left+right panes at native res; pair with HierarchicalPPOModule)
+obs:
+  mode: pos
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+  # pos_state_scale: static divisors for [pos_xyz, xs_scale, euler_xyz, proj_scale];
+  # raw viewer coords are ~1e5 / ~1e4 (legacy fed them unscaled — deliberate deviation).
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+# HierarchicalPPOModule (used when obs.mode == dino)
+model:
+  pos_hidden_dim: 64        # legacy DinoFeaturesExtractor default
+  trunk_hiddens: [256, 256]
+
 action:
   grid_rows: 32
   grid_cols: 32
