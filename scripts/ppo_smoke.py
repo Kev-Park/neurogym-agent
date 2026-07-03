@@ -90,11 +90,12 @@ def main() -> None:
     )
     ap.add_argument(
         "--vectorize-mode",
-        choices=["sync", "async"],
-        default="sync",
-        help="gymnasium vectorization. 'sync' steps envs sequentially in-process "
-             "(fine for M=1); 'async' = one subprocess per env, parallel stepping "
-             "(required for M>1 with slow browser envs).",
+        choices=["auto", "sync", "async", "vector_entry_point"],
+        default="auto",
+        help="gymnasium vectorization. 'auto' = sync for M=1, else "
+             "vector_entry_point (our own AsyncVectorEnv with spawn context — "
+             "plain 'async' forks, and forked children inherit torch/CUDA/"
+             "playwright state and deadlock in reset; diagnosed 2026-07-03).",
     )
     args = ap.parse_args()
 
@@ -113,7 +114,26 @@ def main() -> None:
     obs_mode = cfg["obs"]["mode"]
     pc = cfg.get("ppo", {})
 
-    register_env("ngl-znav", lambda env_config: build_env(cfg))
+    vectorize_mode = args.vectorize_mode
+    if vectorize_mode == "auto":
+        vectorize_mode = "sync" if args.num_envs_per_env_runner <= 1 else "vector_entry_point"
+
+    def _env_creator(env_config=None):
+        env_config = env_config or {}
+        num_envs = int(env_config.get("num_envs") or 0)
+        if num_envs > 1:
+            # vector_entry_point path: build the vector env ourselves with a
+            # SPAWN context. Each env gets a fresh interpreter (own CUDA context
+            # for DINO, own Chrome); gymnasium cloudpickles the factories.
+            import gymnasium as gym
+
+            return gym.vector.AsyncVectorEnv(
+                [(lambda: build_env(cfg)) for _ in range(num_envs)],
+                context="spawn",
+            )
+        return build_env(cfg)
+
+    register_env("ngl-znav", _env_creator)
 
     ray.init(include_dashboard=False, log_to_driver=True)
     config = (
@@ -123,7 +143,7 @@ def main() -> None:
         .env_runners(
             num_env_runners=args.num_env_runners,
             num_envs_per_env_runner=args.num_envs_per_env_runner,
-            gym_env_vectorize_mode=args.vectorize_mode,
+            gym_env_vectorize_mode=vectorize_mode,
             rollout_fragment_length=(
                 int(args.rollout_fragment_length)
                 if str(args.rollout_fragment_length).isdigit()
