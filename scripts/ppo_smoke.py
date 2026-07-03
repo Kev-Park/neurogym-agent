@@ -81,6 +81,21 @@ def main() -> None:
              "actor gets CUDA visibility for the env-side DINO encoder (e.g. 0.25). "
              "Chrome's Vulkan rendering works regardless of Ray's GPU accounting.",
     )
+    ap.add_argument(
+        "--num-envs-per-env-runner",
+        type=int,
+        default=1,
+        help="M Chrome envs per env runner (plan §14b). Pair with "
+             "--vectorize-mode async so the M envs step in parallel subprocesses.",
+    )
+    ap.add_argument(
+        "--vectorize-mode",
+        choices=["sync", "async"],
+        default="sync",
+        help="gymnasium vectorization. 'sync' steps envs sequentially in-process "
+             "(fine for M=1); 'async' = one subprocess per env, parallel stepping "
+             "(required for M>1 with slow browser envs).",
+    )
     args = ap.parse_args()
 
     import ray
@@ -107,6 +122,8 @@ def main() -> None:
         .framework("torch")
         .env_runners(
             num_env_runners=args.num_env_runners,
+            num_envs_per_env_runner=args.num_envs_per_env_runner,
+            gym_env_vectorize_mode=args.vectorize_mode,
             rollout_fragment_length=(
                 int(args.rollout_fragment_length)
                 if str(args.rollout_fragment_length).isdigit()
@@ -155,10 +172,15 @@ def main() -> None:
         er = result.get("env_runners", {}) or {}
         learners = result.get("learners", {}) or {}
         pol = learners.get("default_policy", {}) or {}
+        t_iter = result.get("time_this_iter_s")
+        n_steps = er.get("num_env_steps_sampled")
+        sps = (n_steps / t_iter) if (t_iter and n_steps) else None
         print(
             f"iter {i}: "
             f"episode_return_mean={er.get('episode_return_mean')} "
-            f"num_steps={er.get('num_env_steps_sampled')} "
+            f"num_steps={n_steps} "
+            f"time_s={t_iter and round(t_iter, 1)} "
+            f"steps_per_s={sps and round(sps, 2)} "
             f"total_loss={pol.get('total_loss')} "
             f"policy_loss={pol.get('policy_loss')}"
         )
