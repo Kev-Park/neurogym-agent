@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
+
+# Under `uv run`, ray.init auto-ships the CWD (1.2GB repo) as a runtime_env and
+# fails on the 512MB cap — same fix as ppo_smoke.py.
+os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
 
 torch = pytest.importorskip("torch")
 ray = pytest.importorskip("ray")

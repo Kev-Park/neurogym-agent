@@ -82,11 +82,21 @@ def test_kl_self_zero_and_gating():
     other = DistCls.from_logits(logits.clone())
     assert torch.allclose(dist.kl(other), torch.zeros(4), atol=1e-5)
 
-    # Perturb only rotate heads: KL weighted by p(rotate) < full component KL
+    # Perturb ONE rotate-x bin (a constant shift over a whole head is a no-op —
+    # softmax is shift-invariant): gated KL must be positive but smaller than
+    # the ungated component KL (weighted by p(rotate) < 1).
     perturbed = logits.clone()
-    perturbed[:, NVEC[0] + NVEC[1]: NVEC[0] + NVEC[1] + 27] += 1.0
+    rot_x0 = NVEC[0] + NVEC[1]
+    perturbed[:, rot_x0] += 2.0
     kl = dist.kl(DistCls.from_logits(perturbed))
-    assert (kl >= 0).all()
+    assert (kl >= -1e-6).all()
+    assert (kl > 1e-5).all()
+
+    p_rotate = torch.softmax(logits[:, : NVEC[0]], -1)[:, 1]
+    lp_a = torch.log_softmax(logits[:, rot_x0: rot_x0 + 9], -1)
+    lp_b = torch.log_softmax(perturbed[:, rot_x0: rot_x0 + 9], -1)
+    kl_x = (lp_a.exp() * (lp_a - lp_b)).sum(-1)
+    assert torch.allclose(kl, p_rotate * kl_x, atol=1e-5)
 
 
 def test_to_deterministic_is_per_head_argmax():
