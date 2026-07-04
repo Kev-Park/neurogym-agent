@@ -118,6 +118,8 @@ def main(argv=None) -> int:
             clip_param=pc.get("clip_param", 0.2),
             lr=pc.get("lr", 3.0e-4),
             kl_target=pc.get("kl_target", 0.01),
+            # float or [[timestep, value], ...] schedule (see config comment)
+            entropy_coeff=pc.get("entropy_coeff", 0.0),
         )
     )
     if args.obs == "dino":

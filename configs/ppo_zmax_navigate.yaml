@@ -49,6 +49,9 @@ ppo:
   train_batch_size: 2000
   sgd_minibatch_size: 256
   num_sgd_iter: 4
+  # Legacy ent-coef schedule (0.05 -> 0.001); RLlib's default is ~0, which
+  # leaves the 1024-way click head with no exploration pressure.
+  entropy_coeff: [[0, 0.05], [900000, 0.001]]
   gamma: 0.99
   lambda: 0.95
   clip_param: 0.2
