@@ -118,6 +118,48 @@ class CheckpointPolicy:
         return self.algo.compute_single_action(obs, explore=False)
 
 
+class StatePklPolicy:
+    """Policy from a `ngllib_agent.train` state pickle (`ckpt_*.pkl`).
+
+    Rebuilds HierarchicalPPOModule with the env's spaces, loads the module
+    slice of the pickled Algorithm state, and acts deterministically
+    (per-head argmax) via forward_inference.
+    """
+
+    def __init__(self, pkl_path: str, env, model_config: dict):
+        import torch
+
+        from ngllib_agent.distributed.checkpoint import load_checkpoint
+        from ngllib_agent.policies import HierarchicalPPOModule
+
+        self._torch = torch
+        # inference_only=False so the state (which includes the vf head) maps 1:1.
+        self.module = HierarchicalPPOModule(
+            observation_space=env.observation_space,
+            action_space=env.action_space,
+            model_config=model_config,
+        )
+        state = load_checkpoint(pkl_path)
+        module_state = state["learner_group"]["learner"]["rl_module"]["default_policy"]
+        self.module.set_state(module_state)
+        self.dist_cls = self.module.get_inference_action_dist_cls()
+
+    def act(self, obs):
+        torch = self._torch
+        from ray.rllib.core.columns import Columns
+
+        batch = {
+            Columns.OBS: {
+                k: torch.from_numpy(np.asarray(v, np.float32)).unsqueeze(0)
+                for k, v in obs.items()
+            }
+        }
+        with torch.no_grad():
+            out = self.module.forward_inference(batch)
+        dist = self.dist_cls.from_logits(out[Columns.ACTION_DIST_INPUTS])
+        return dist.to_deterministic().sample().squeeze(0).cpu().numpy()
+
+
 # ============================================================================
 # Main
 # ============================================================================
@@ -136,8 +178,11 @@ def main() -> int:
                     help="Where to write the JSON results.")
     grp = ap.add_mutually_exclusive_group(required=True)
     grp.add_argument("--checkpoint", help="RLlib checkpoint dir.")
+    grp.add_argument("--state-pkl", help="ngllib_agent.train state pickle (ckpt_*.pkl).")
     grp.add_argument("--random-policy", action="store_true",
                      help="Sample env.action_space each step (for infra tests).")
+    ap.add_argument("--obs", choices=["raw", "pos", "dino"], default=None,
+                    help="Override config obs.mode (use the mode the policy was trained with).")
     ap.add_argument("--limit", type=int, default=0,
                     help="If >0, only run this many pairs (for smoke tests).")
     args = ap.parse_args()
@@ -145,6 +190,8 @@ def main() -> int:
     # Build env same shape as training.
     from ngllib_agent.env_build import build_env, load_config
     cfg = load_config(args.config)
+    if args.obs is not None:
+        cfg.setdefault("obs", {})["mode"] = args.obs
     env = build_env(cfg)
 
     # Load eval pairs.
@@ -158,6 +205,10 @@ def main() -> int:
     if args.random_policy:
         policy = RandomPolicy(env.action_space)
         print("[eval] policy: RandomPolicy (uniform action_space sample)", flush=True)
+    elif args.state_pkl:
+        print(f"[eval] policy: loading state pickle {args.state_pkl}", flush=True)
+        policy = StatePklPolicy(args.state_pkl, env, cfg.get("model", {}))
+        print("[eval] policy: module state loaded", flush=True)
     else:
         print(f"[eval] policy: loading checkpoint {args.checkpoint}", flush=True)
         policy = CheckpointPolicy(args.checkpoint)
@@ -242,7 +293,11 @@ def main() -> int:
         "n_pairs": n,
         "overall_success_rate": overall,
         "quartiles": per_quartile,
-        "policy": "random" if args.random_policy else f"checkpoint:{args.checkpoint}",
+        "policy": (
+            "random" if args.random_policy
+            else f"state_pkl:{args.state_pkl}" if args.state_pkl
+            else f"checkpoint:{args.checkpoint}"
+        ),
         "config": args.config,
         "eval_d0": args.eval_d0,
         "elapsed_s": round(time.monotonic() - t_start, 1),
