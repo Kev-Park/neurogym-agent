@@ -116,3 +116,13 @@ resume. Make it deliberate + cover the promotion branch.
   `--vector threads`; default stays spawn pending hardware A/B.
   Benchmark queued (job 837477: threads-vs-spawn M=8 + threaded M=16/24 sweep
   w/ VRAM maxima). [decide]-threads-default resolves on its numbers.
+- 2026-07-07: first bench attempt failed — stale `/tmp/ray/ray_current_cluster`
+  markers made plain ray.init() join a dead head and hang. Fix `54c7807`:
+  `RAY_ADDRESS=local` setdefault in ppo_smoke/train + full-log tee + per-GPU
+  VRAM sampling. Verified on the poisoned node.
+- 2026-07-07: **R4 bench DONE (job 837608)**: threads M=8 = 17.9-18.6 sps /
+  5.9GB (loses to spawn at low M — thread tax); spawn M=8 = 25.7-26.3 / 9.3GB;
+  **threads M=16 = 29.7-31.0 sps / 10.7GB ≈ legacy sustained parity**;
+  threads M=24 = 26.9-27.5 / 16.0GB (past the knee at 24 cpus). VRAM saving
+  vs spawn confirmed (~0.43GB/env). Soak (837609, M=16) + ceiling probe
+  (837856, M=20/24 @ 32c) queued.
