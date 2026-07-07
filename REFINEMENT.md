@@ -109,3 +109,10 @@ resume. Make it deliberate + cover the promotion branch.
 - 2026-07-06: file created. R1/R2 designs locked (iteration-based completion;
   watchdog 30s step / 240s reset). d0 eval of dist-rl-v2 ckpt_000360 pending
   in queue (job 837471).
+- 2026-07-06: **R1 DONE** (`6d5d2b8`) — meta.json heartbeat + coordinator
+  `--target-iterations`; unit-tested. R3 step-0 done: account CAN submit highpri.
+- 2026-07-06: **R4 phase 1 DONE** (`6d7914c`) — ThreadedVectorEnv (sticky
+  thread per env, SyncVectorEnv-equivalent semantics, 51/51 tests) behind
+  `--vector threads`; default stays spawn pending hardware A/B.
+  Benchmark queued (job 837477: threads-vs-spawn M=8 + threaded M=16/24 sweep
+  w/ VRAM maxima). [decide]-threads-default resolves on its numbers.
