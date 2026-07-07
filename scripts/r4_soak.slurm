@@ -29,17 +29,17 @@ M=${SOAK_M:-16}
 ITERS=${SOAK_ITERS:-150}
 echo "=== r4-soak: M=$M iters=$ITERS node=$(hostname) ==="
 
+FULL=slurm_outputs/r4-soak-$SLURM_JOB_ID.full.log
 uv run --no-sync python scripts/ppo_smoke.py \
     --obs dino --num-env-runners 1 --num-gpus-per-env-runner 0.6 \
     --num-envs-per-env-runner "$M" --vector threads \
     --iters "$ITERS" --train-batch-size $((128 * M)) \
     --rollout-fragment-length 128 \
     --browser-restart-every 10 \
-  2>&1 | grep -E "iter [0-9]+:|glitch|Traceback|browser restart|complete" \
-  | tee /tmp/soak_iters.txt | grep -vE "glitch" | tail -40
+  2>&1 | tee "$FULL" | grep -E "iter [0-9]+:|complete" | tail -40
 
 echo "########## SOAK SUMMARY ##########"
-grep -E "iter [0-9]+:" /tmp/soak_iters.txt | \
+grep -E "iter [0-9]+:" "$FULL" | \
 awk -v target=30 '
   {for(i=1;i<=NF;i++) if($i ~ /^steps_per_s=/){split($i,a,"="); sps[++n]=a[2]}}
   END{
@@ -51,6 +51,6 @@ awk -v target=30 '
     print (l >= f*0.85) ? "FLATNESS: PASS (last10 >= 85% of first10)" : "FLATNESS: FAIL"
     print (all >= target) ? "THROUGHPUT: PASS (mean >= " target ")" : "THROUGHPUT: FAIL (mean < " target ")"
   }'
-echo "glitch_total=$(grep -c glitch /tmp/soak_iters.txt || true)"
-echo "restart_total=$(grep -c "browser restart" /tmp/soak_iters.txt || true)"
+echo "glitch_total=$(grep -c glitch "$FULL" || true)"
+echo "restart_total=$(grep -c "browser restart" "$FULL" || true)"
 echo "=== r4-soak done ==="

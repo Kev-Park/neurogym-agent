@@ -26,6 +26,11 @@ import os
 # past the 512MB limit. The smoke is single-process (0 remote actors), so disable
 # it. Multi-node milestones will set an explicit runtime_env / shared FS instead.
 os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
+# Force a fresh local cluster unless a real cluster address is given: nodes
+# that hosted prior runs keep a stale /tmp/ray/ray_current_cluster marker
+# (coordinator teardown scancels daemons without `ray stop`), and a plain
+# ray.init() would try to join the dead head and hang (diagnosed 2026-07-07).
+os.environ.setdefault("RAY_ADDRESS", "local")
 
 
 def main() -> None:

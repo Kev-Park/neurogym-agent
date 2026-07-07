@@ -20,21 +20,24 @@ export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 
 VRAM_LOG=slurm_outputs/r4-vram-$SLURM_JOB_ID.log
+GPU_ID="${CUDA_VISIBLE_DEVICES%%,*}"   # OUR gpu only — nodes are shared
 ( while true; do
-    echo "$(date +%H:%M:%S) $(nvidia-smi --query-gpu=memory.used --format=csv,noheader)" >> "$VRAM_LOG"
+    echo "$(date +%H:%M:%S) $(nvidia-smi --id="$GPU_ID" --query-gpu=memory.used --format=csv,noheader)" >> "$VRAM_LOG"
     sleep 10
   done ) &
 VRAM_PID=$!
 
 run_phase() {
   local label=$1 vector=$2 m=$3
+  local full=slurm_outputs/r4-bench-$SLURM_JOB_ID-$label.full.log
   echo "########## PHASE $label (vector=$vector M=$m) ##########"
   echo "PHASE $label start" >> "$VRAM_LOG"
+  # tee the FULL output — filtered pipes ate the tracebacks on 2026-07-07.
   uv run --no-sync python scripts/ppo_smoke.py \
       --obs dino --num-env-runners 1 --num-gpus-per-env-runner 0.6 \
       --num-envs-per-env-runner "$m" --vector "$vector" \
       --iters 3 --train-batch-size $((128 * m)) --rollout-fragment-length 128 \
-    2>&1 | grep -E "iter [0-9]+:|Traceback|glitch|complete" | tail -8
+    2>&1 | tee "$full" | grep -E "iter [0-9]+:|Traceback|glitch|complete" | tail -8
   echo "PHASE $label end" >> "$VRAM_LOG"
 }
 

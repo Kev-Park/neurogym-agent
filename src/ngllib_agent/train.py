@@ -25,6 +25,10 @@ import time
 # Ray auto-ships the CWD as a runtime_env under `uv run` (1.2GB repo) — see
 # ppo_smoke.py. Must be set before ray is imported.
 os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
+# Fresh local cluster unless the coordinator/caller supplies a real address —
+# stale /tmp/ray/ray_current_cluster markers on previously-used nodes make a
+# plain ray.init() join a dead head and hang (see ppo_smoke.py, 2026-07-07).
+os.environ.setdefault("RAY_ADDRESS", "local")
 
 
 def build_argparser() -> argparse.ArgumentParser:
