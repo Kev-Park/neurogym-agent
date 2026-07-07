@@ -37,6 +37,8 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--num-env-runners", type=int, default=0)
     ap.add_argument("--num-envs-per-env-runner", type=int, default=1)
     ap.add_argument("--num-gpus-per-env-runner", type=float, default=0.0)
+    ap.add_argument("--vector", choices=["spawn", "threads"], default="spawn",
+                    help="M>1 topology: process-per-env vs ThreadedVectorEnv (R4).")
     # Sampling
     ap.add_argument("--train-batch-size", type=int, default=None,
                     help="Defaults to config ppo.train_batch_size.")
@@ -86,7 +88,7 @@ def main(argv=None) -> int:
     train_batch = args.train_batch_size or pc.get("train_batch_size", 2000)
     ckpt_dir = args.checkpoint_dir or os.path.join("checkpoints", args.run_name)
 
-    register_env("ngl-znav", make_env_creator(cfg))
+    register_env("ngl-znav", make_env_creator(cfg, vector_mode=args.vector))
 
     ray.init(include_dashboard=False, log_to_driver=True, ignore_reinit_error=True)
 

@@ -97,6 +97,14 @@ def main() -> None:
              "plain 'async' forks, and forked children inherit torch/CUDA/"
              "playwright state and deadlock in reset; diagnosed 2026-07-03).",
     )
+    ap.add_argument(
+        "--vector",
+        choices=["spawn", "threads"],
+        default="spawn",
+        help="M>1 vector topology: 'spawn' = process per env (isolated CUDA "
+             "contexts); 'threads' = ThreadedVectorEnv, one process + one CUDA "
+             "context + shared DINO (R4 density mode).",
+    )
     args = ap.parse_args()
 
     import ray
@@ -118,7 +126,7 @@ def main() -> None:
     if vectorize_mode == "auto":
         vectorize_mode = "sync" if args.num_envs_per_env_runner <= 1 else "vector_entry_point"
 
-    register_env("ngl-znav", make_env_creator(cfg))
+    register_env("ngl-znav", make_env_creator(cfg, vector_mode=args.vector))
 
     ray.init(include_dashboard=False, log_to_driver=True)
     config = (

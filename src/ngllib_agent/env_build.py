@@ -115,26 +115,35 @@ def build_env(cfg: dict[str, Any]):
     return env
 
 
-def make_env_creator(cfg: dict[str, Any]):
+def make_env_creator(cfg: dict[str, Any], vector_mode: str = "spawn"):
     """RLlib env creator supporting the vector_entry_point path.
 
     RLlib registers callable envs with a vector entry point that passes
-    `num_envs` in env_config. For M>1 we build the vector env ourselves with a
-    SPAWN context — gym's plain 'async' mode forks, and forked env subprocesses
-    inherit torch/CUDA/playwright state and deadlock in reset (diagnosed
-    2026-07-03). Use with `gym_env_vectorize_mode="vector_entry_point"`.
+    `num_envs` in env_config. For M>1 we build the vector env ourselves; use
+    with `gym_env_vectorize_mode="vector_entry_point"`.
+
+    vector_mode:
+      "spawn"   — AsyncVectorEnv, fresh interpreter per env (own CUDA context +
+                  Chrome). Gym's plain 'async' FORKS: forked children inherit
+                  torch/CUDA/playwright state and deadlock in reset (2026-07-03).
+      "threads" — ThreadedVectorEnv (R4): one process, M browser threads, ONE
+                  CUDA context + ONE shared DINO. Density-oriented topology.
     """
+    if vector_mode not in ("spawn", "threads"):
+        raise ValueError(f"vector_mode must be spawn|threads; got {vector_mode!r}")
 
     def _creator(env_config: dict[str, Any] | None = None):
         env_config = env_config or {}
         num_envs = int(env_config.get("num_envs") or 0)
         if num_envs > 1:
+            fns = [(lambda: build_env(cfg)) for _ in range(num_envs)]
+            if vector_mode == "threads":
+                from .vector_env import ThreadedVectorEnv
+
+                return ThreadedVectorEnv(fns)
             import gymnasium as gym
 
-            return gym.vector.AsyncVectorEnv(
-                [(lambda: build_env(cfg)) for _ in range(num_envs)],
-                context="spawn",  # fresh interpreter per env (own CUDA + Chrome)
-            )
+            return gym.vector.AsyncVectorEnv(fns, context="spawn")
         return build_env(cfg)
 
     return _creator
