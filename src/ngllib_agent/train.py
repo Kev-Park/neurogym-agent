@@ -74,6 +74,7 @@ def main(argv=None) -> int:
 
     from .distributed.checkpoint import (
         AsyncCheckpointer,
+        atomic_json,
         latest_checkpoint,
         load_checkpoint,
     )
@@ -178,7 +179,13 @@ def main(argv=None) -> int:
                 "perf/steps_per_s": (n_steps / t_iter) if (t_iter and n_steps) else None,
             }
             wandb.log({k: v for k, v in metrics.items() if v is not None}, step=it)
-            checkpointer.maybe_save(algo, it, meta={"wandb_id": run.id, "run_name": args.run_name})
+            # Progress heartbeat every iteration — the coordinator's
+            # --target-iterations completion check reads this (REFINEMENT R1).
+            atomic_json(
+                {"iteration": it, "wandb_id": run.id, "run_name": args.run_name},
+                os.path.join(ckpt_dir, "meta.json"),
+            )
+            checkpointer.maybe_save(algo, it)
             print(
                 f"iter {it}: return_mean={er.get('episode_return_mean')} "
                 f"steps={n_steps} t={t_iter and round(t_iter, 1)}s "

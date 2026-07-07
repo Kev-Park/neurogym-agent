@@ -114,6 +114,7 @@ class Coordinator:
         self.salloc_resubmissions = 0
         self._teardown_done = False
         self._launch_counter = 0  # monotonic per-worker id for log naming
+        self._last_progress: Optional[int] = None  # last iteration seen in progress file
         # Sliding-window log of respawn timestamps (monotonic seconds) for the
         # per-hour circuit breaker. Any older entries are pruned each cycle.
         self._respawn_times: list[float] = []
@@ -257,6 +258,15 @@ class Coordinator:
                 self._write_state(cycle)
                 time.sleep(self.args.ping_interval)
                 continue
+
+            # R1: iteration-based completion — training progress is the
+            # RL-native "done" measure. train.py heartbeats meta.json each iter.
+            if self._target_reached():
+                logger.info(
+                    "target iterations reached (%d >= %d); tearing down",
+                    self._last_progress or -1, self.args.target_iterations,
+                )
+                break
 
             self._log_status(cycle)
             self._handle_deaths(cycle)   # M4b, M4c
@@ -459,6 +469,14 @@ class Coordinator:
         self.respawns["renderer"] += 1
         self._respawn_times.append(time.monotonic())
 
+    def _target_reached(self) -> bool:
+        if self.args.target_iterations <= 0 or not self.args.progress_file:
+            return False
+        it = read_progress_iteration(self.args.progress_file)
+        if it is not None:
+            self._last_progress = it
+        return it is not None and it >= self.args.target_iterations
+
     def _log_status(self, cycle: int) -> None:
         alive_learner = self.learner is not None and self.learner.alive()
         alive_r = sum(1 for r in self.renderers if r.alive())
@@ -542,6 +560,16 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def read_progress_iteration(path: str | Path) -> Optional[int]:
+    """Best-effort `iteration` from a train.py meta.json. None if unreadable
+    (missing file, partial write, no key) — callers treat that as 'no data'."""
+    try:
+        with open(path) as f:
+            return int(json.load(f)["iteration"])
+    except Exception:
+        return None
+
+
 # ============================================================================
 # CLI
 # ============================================================================
@@ -583,6 +611,11 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="Seconds between monitor cycles.")
     ap.add_argument("--max-cycles", type=int, default=0,
                     help="If >0, exit cleanly after this many cycles (for tests).")
+    ap.add_argument("--target-iterations", type=int, default=0,
+                    help="If >0, tear down once --progress-file shows "
+                         "iteration >= this (RL-native completion; R1).")
+    ap.add_argument("--progress-file", default="",
+                    help="Path to train.py's meta.json (heartbeated every iter).")
     ap.add_argument("--worker-log-dir", default="",
                     help="If set, route each srun's --output/--error to a "
                          "per-launch file under this directory. Otherwise "
