@@ -66,8 +66,13 @@ Throughput parity reached at M=8/node; legacy density (32/node) untested.
 Process-per-env costs ~0.3–0.5GB VRAM CUDA context + DINO copy per env →
 caps M well below 32 on a 24GB 3090.
 
-- [ ] M-sweep benchmark at M = 8 / 12 / 16 (mem 120→200G, cpus 16→32 as
-      needed): steps/s, VRAM, RAM. Find the knee.
+- [x] M-sweep benchmark: threads knee ≈ M=16 @ 24c (31 sps, legacy parity);
+      M=24 @ 24c regressed — CPU-starvation vs GIL disambiguation below.
+- [ ] **Degradation-curve sweep (job 837857)**: threads M = 20/24/28/32 at
+      32 cpus / 200G — find where sps peaks and where it degrades; M=32 is the
+      VRAM-safe ceiling (~0.6GB Vulkan per Chrome ⇒ ~21GB at 32). Answers
+      whether the M=24@24c dip was CPU-bound and whether we can beat legacy
+      peak (32-36 sps).
 - [ ] **[decide] ThreadedVectorEnv port** (the density endgame): custom
       `gym.vector.VectorEnv` via our existing `vector_entry_point` hook —
       one process/node, M browser threads (legacy-proven I/O-bound pattern),
