@@ -54,3 +54,17 @@ def test_target_disabled_by_default(tmp_path):
     assert c._target_reached() is False
     c2 = _coord(tmp_path, ["--target-iterations", "10"])  # no progress file
     assert c2._target_reached() is False
+
+
+def test_force_promotion_once_routes_to_promotion(tmp_path, monkeypatch):
+    c = _coord(tmp_path, ["--force-promotion-once"])
+    promoted, launched = [], []
+    monkeypatch.setattr(c, "_promote_renderer_to_learner", lambda cyc: promoted.append(cyc))
+    monkeypatch.setattr(c, "_launch", lambda *a, **k: launched.append(a) or object())
+
+    c._maybe_respawn_learner(1)          # first death -> forced promotion
+    assert promoted == [1] and launched == []
+    assert c._promotion_forced is True
+
+    c._maybe_respawn_learner(2)          # second death -> normal respawn path
+    assert promoted == [1] and len(launched) == 1

@@ -115,6 +115,7 @@ class Coordinator:
         self._teardown_done = False
         self._launch_counter = 0  # monotonic per-worker id for log naming
         self._last_progress: Optional[int] = None  # last iteration seen in progress file
+        self._promotion_forced = False  # --force-promotion-once fired yet?
         # Sliding-window log of respawn timestamps (monotonic seconds) for the
         # per-hour circuit breaker. Any older entries are pruned each cycle.
         self._respawn_times: list[float] = []
@@ -307,6 +308,16 @@ class Coordinator:
 
     def _maybe_respawn_learner(self, cycle: int) -> None:
         dead = self.learner
+        # TEST HOOK (R5): force the promotion branch once, deterministically —
+        # genuine srun --immediate denial is hard to stage under --overlap.
+        if self.args.force_promotion_once and not self._promotion_forced:
+            self._promotion_forced = True
+            logger.warning(
+                "cycle %d: TEST HOOK force-promotion-once: skipping respawn, "
+                "exercising renderer->learner promotion", cycle,
+            )
+            self._promote_renderer_to_learner(cycle)
+            return
         # If the *previous* learner (which is now dead) died within the
         # srun-immediate window, that's the signature of srun --immediate=N
         # denial: we couldn't get a slot in the allocation. Skip the naive
@@ -616,6 +627,9 @@ def build_argparser() -> argparse.ArgumentParser:
                          "iteration >= this (RL-native completion; R1).")
     ap.add_argument("--progress-file", default="",
                     help="Path to train.py's meta.json (heartbeated every iter).")
+    ap.add_argument("--force-promotion-once", action="store_true",
+                    help="TEST ONLY: on the first learner death, skip respawn "
+                         "and exercise the renderer->learner promotion branch.")
     ap.add_argument("--worker-log-dir", default="",
                     help="If set, route each srun's --output/--error to a "
                          "per-launch file under this directory. Otherwise "
