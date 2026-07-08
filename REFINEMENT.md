@@ -68,11 +68,15 @@ caps M well below 32 on a 24GB 3090.
 
 - [x] M-sweep benchmark: threads knee ≈ M=16 @ 24c (31 sps, legacy parity);
       M=24 @ 24c regressed — CPU-starvation vs GIL disambiguation below.
-- [ ] **Degradation-curve sweep (job 837857)**: threads M = 20/24/28/32 at
-      32 cpus / 200G — find where sps peaks and where it degrades; M=32 is the
-      VRAM-safe ceiling (~0.6GB Vulkan per Chrome ⇒ ~21GB at 32). Answers
-      whether the M=24@24c dip was CPU-bound and whether we can beat legacy
-      peak (32-36 sps).
+- [ ] **Degradation-curve sweep (job 837858)**: threads M = 20/24/28/32/**36**
+      at 32 cpus / 200G — where sps peaks/degrades; M=32 is the VRAM-safe
+      ceiling (~0.6GB Vulkan per Chrome ⇒ ~21GB; cgroup isolation pins all
+      Chromes to the one allocated GPU). **M=36 is a deliberate over-the-edge
+      probe**: does VRAM exhaustion fail loudly (Vulkan errors → sick-browser
+      escalation) or silently (SwiftShader fallback)? Phase grep watches for
+      SwiftShader markers. Beyond-one-GPU note: nodes have 8x3090; 2 runners
+      in separate srun steps (own device cgroups) could steer 2xM Chromes onto
+      2 GPUs — the ceiling-raiser if the curve is still rising at 32.
 - [ ] **[decide] ThreadedVectorEnv port** (the density endgame): custom
       `gym.vector.VectorEnv` via our existing `vector_entry_point` hook —
       one process/node, M browser threads (legacy-proven I/O-bound pattern),
