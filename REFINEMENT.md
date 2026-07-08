@@ -129,6 +129,18 @@ resume. Make it deliberate + cover the promotion branch.
   markers made plain ray.init() join a dead head and hang. Fix `54c7807`:
   `RAY_ADDRESS=local` setdefault in ppo_smoke/train + full-log tee + per-GPU
   VRAM sampling. Verified on the poisoned node.
+- 2026-07-08: GPU pool saturated by a 55-job highpri campaign (SLURM ETA for
+  our jobs: 07-13/14). Pivoted to CPU-side validations:
+  **R1 CLUSTER-VALIDATED** (dummy run: meta progressed → "target iterations
+  reached (5 >= 5)" → clean scancel). **R5 promotion branch VALIDATED** via
+  --force-promotion-once (sacrifice → learner into slot → pool re-healed) —
+  and exposed a false-positive loop: died_quickly alone treats a fast-CRASHING
+  learner as srun denial, serially sacrificing renderers. Fixed (`5243078`):
+  promotion additionally requires workload_ran() is not True (srun denial
+  leaves no workload output in the launch log). 54/54 tests.
+  Still GPU-blocked: soak, curve sweep, real-workload learner-kill.
+  Side observation: the soak was preempted+REQUEUEd once by the highpri
+  campaign — first in-the-wild PreemptMode=REQUEUE datapoint for R3.
 - 2026-07-07: **R4 bench DONE (job 837608)**: threads M=8 = 17.9-18.6 sps /
   5.9GB (loses to spawn at low M — thread tax); spawn M=8 = 25.7-26.3 / 9.3GB;
   **threads M=16 = 29.7-31.0 sps / 10.7GB ≈ legacy sustained parity**;
