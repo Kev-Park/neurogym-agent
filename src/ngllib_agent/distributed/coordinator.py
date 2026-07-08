@@ -60,6 +60,7 @@ class ManagedProcess:
     popen: subprocess.Popen  # the srun subprocess (parent of the actual work)
     started_at: str  # ISO timestamp, UTC
     started_at_mono: float  # time.monotonic() at launch — used for quick-death detection
+    log_path: Optional[Path] = None  # srun --output target, if worker_log_dir set
 
     def alive(self) -> bool:
         return self.popen.poll() is None
@@ -78,6 +79,21 @@ class ManagedProcess:
             not self.alive()
             and (time.monotonic() - self.started_at_mono) <= threshold_s
         )
+
+    def workload_ran(self) -> Optional[bool]:
+        """Did the actual workload produce output (vs srun never placing it)?
+
+        Disambiguates quick deaths: srun-denial leaves the log absent/empty or
+        containing only `srun:` lines; a fast-crashing workload writes real
+        output. None if unknown (no log configured).
+        """
+        if self.log_path is None:
+            return None
+        try:
+            with open(self.log_path) as f:
+                return any(line.strip() and not line.startswith("srun:") for line in f)
+        except OSError:
+            return False
 
     def terminate(self, timeout: float = 5.0) -> None:
         """Best-effort SIGTERM + reap; escalate to SIGKILL after timeout."""
@@ -204,6 +220,7 @@ class Coordinator:
         # Otherwise the coordinator inherits stdout (interleaved but visible).
         stdout_target = None
         stderr_target = None
+        log_path: Optional[Path] = None
         if self.args.worker_log_dir:
             log_dir = Path(self.args.worker_log_dir)
             log_dir.mkdir(parents=True, exist_ok=True)
@@ -225,6 +242,7 @@ class Coordinator:
             popen=p,
             started_at=_utcnow(),
             started_at_mono=time.monotonic(),
+            log_path=log_path,
         )
 
     def _launch_all(self) -> None:
@@ -319,11 +337,16 @@ class Coordinator:
             self._promote_renderer_to_learner(cycle)
             return
         # If the *previous* learner (which is now dead) died within the
-        # srun-immediate window, that's the signature of srun --immediate=N
-        # denial: we couldn't get a slot in the allocation. Skip the naive
-        # respawn and go straight to renderer->learner promotion.
-        immediate_denial = dead is not None and dead.died_quickly(
-            self.args.srun_immediate_timeout + 10
+        # srun-immediate window AND its workload never produced output, that's
+        # the signature of srun --immediate=N denial: no slot in the allocation.
+        # A fast-CRASHING workload also dies quickly but leaves real log output
+        # — that must go down the normal respawn path, or we'd serially
+        # sacrifice healthy renderers for a learner that can't run (observed
+        # in the R5 dummy test, 2026-07-08).
+        immediate_denial = (
+            dead is not None
+            and dead.died_quickly(self.args.srun_immediate_timeout + 10)
+            and dead.workload_ran() is not True
         )
         if immediate_denial:
             logger.warning(

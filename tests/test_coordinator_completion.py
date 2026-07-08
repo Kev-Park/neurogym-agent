@@ -56,6 +56,56 @@ def test_target_disabled_by_default(tmp_path):
     assert c2._target_reached() is False
 
 
+class _DeadPopen:
+    returncode = 1
+
+    def poll(self):
+        return 1
+
+
+def _dead_learner(log_path=None):
+    import time as _t
+
+    from ngllib_agent.distributed.coordinator import ManagedProcess
+
+    return ManagedProcess(
+        role="learner", cmd="x", node_hint="", popen=_DeadPopen(),
+        started_at="t", started_at_mono=_t.monotonic(), log_path=log_path,
+    )
+
+
+def test_workload_ran_discriminator(tmp_path):
+    log = tmp_path / "learner-001.log"
+    mp = _dead_learner(log)
+    assert mp.workload_ran() is False                      # log absent
+    log.write_text("srun: error: Unable to allocate resources\n")
+    assert mp.workload_ran() is False                      # srun noise only
+    log.write_text("srun: launching\n[node] learner pid=1 START\n")
+    assert mp.workload_ran() is True                       # real output
+    assert _dead_learner(None).workload_ran() is None      # no log configured
+
+
+def test_fast_crash_respawns_instead_of_promoting(tmp_path, monkeypatch):
+    # Quick death WITH workload output = crash -> respawn; empty log = srun
+    # denial -> promotion. (The R5 dummy test showed the old heuristic serially
+    # sacrificing renderers for a fast-crashing learner.)
+    c = _coord(tmp_path)
+    promoted, launched = [], []
+    monkeypatch.setattr(c, "_promote_renderer_to_learner", lambda cyc: promoted.append(cyc))
+    monkeypatch.setattr(c, "_launch", lambda *a, **k: launched.append(a) or object())
+
+    crash_log = tmp_path / "crash.log"
+    crash_log.write_text("[node] learner pid=9 START\nTraceback ...\n")
+    c.learner = _dead_learner(crash_log)
+    c._maybe_respawn_learner(1)
+    assert launched and not promoted                       # crash -> respawn
+
+    denial_log = tmp_path / "denial.log"                   # never created
+    c.learner = _dead_learner(denial_log)
+    c._maybe_respawn_learner(2)
+    assert promoted == [2]                                 # denial -> promote
+
+
 def test_force_promotion_once_routes_to_promotion(tmp_path, monkeypatch):
     c = _coord(tmp_path, ["--force-promotion-once"])
     promoted, launched = [], []
