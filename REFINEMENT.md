@@ -40,10 +40,19 @@ Design (env-internal, in ngllib `Environment`):
   constructor kwargs. Adds `psutil` dep to ngllib.
 
 Tests:
-- [ ] unit (browser-free): timer fires → kill callable invoked; cancelled on
-      normal completion.
-- [ ] cluster: SIGSTOP a Chrome process mid-run (simulated zombie) → watchdog
-      kills it → episode truncates → next reset relaunches → run continues.
+- [x] **Implemented 2026-07-08** (ngllib `ed292bf`): `_BrowserWatchdog` timer +
+      psutil PID capture at launch; step fires → BrowserError → sick-browser
+      escalation; navigate fires → retryable error → browser-restart retry
+      path. step 30s / reset 240s kwargs. 58/58 tests incl. timer semantics.
+      **PROVISIONAL** — code + unit level only.
+- [ ] GPU confirmation: SIGSTOP a real Chrome mid-run (simulated zombie) →
+      watchdog kills → truncate → relaunch → run continues. Queue when pool
+      frees (can piggyback on the soak node before teardown).
+
+> **GPU-first principle (2026-07-08):** CPU-only / dummy-worker validations are
+> **provisional** — the gold-standard test is always the full env (browsers,
+> DINO, GPU) at scale. Each provisional item below carries a GPU-confirmation
+> step that runs when the pool frees.
 
 ## R3. Real-preemption chaos test
 
@@ -52,12 +61,22 @@ v2 validated re-salloc on *expiry* (COMPLETING). Real preemption unobserved;
 (REQUEUE only applies to batch) — both coordinator branches exist, neither
 ground-truthed.
 
-- [ ] Step 0: privilege check — can this account submit to `highpri`?
-      (`sbatch -p highpri -A pni -t 00:02:00 --wrap hostname`)
-- [ ] Coordinator + dummy workers pinned to 2 nodes (`-w`), then highpri job
-      onto the same nodes. Record: signal/grace observed, requeue vs cancel,
-      coordinator detection branch, recovery time, resume correctness.
-- [ ] Fallback if no highpri access: `scancel` / `scontrol requeue` simulation.
+- [x] Step 0: privilege check — account CAN submit to `highpri` (2026-07-06).
+- [x] **DONE 2026-07-08 — with a major finding.** Squeeze test (coordinator
+      salloc on sarekl15-2/4, then highpri job pinned + sized to require
+      eviction): **SLURM never preempted the salloc** — the highpri job queued
+      with a ~6-day ETA instead (5-min observation window; PreemptExemptTime
+      NONE). Meanwhile the r4-soak — a BATCH job — WAS preempted+REQUEUEd by
+      the same highpri campaign a day earlier. Conclusion (observational):
+      on this config, REQUEUE-mode preemption applies to batch jobs only;
+      interactive/salloc allocations are skipped, not cancelled.
+      **Design implication:** the coordinator's allocation is far more
+      contention-stable than designed for — its dominant loss mode is TIME
+      expiry, which v2 already validated end-to-end (re-salloc + resume).
+      Provisional caveat: config-dependent; re-verify if SLURM is upgraded.
+- [ ] GPU confirmation (when pool frees): repeat squeeze during a small REAL
+      training run — confirm the salloc holds and only batch-side artifacts
+      (if any) are affected.
 - [ ] Fold findings into `scripts/cluster_probe_findings.md` + CLAUDE.md.
 
 ## R4. Per-node density parity
