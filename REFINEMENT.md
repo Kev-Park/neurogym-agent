@@ -45,9 +45,10 @@ Tests:
       escalation; navigate fires → retryable error → browser-restart retry
       path. step 30s / reset 240s kwargs. 58/58 tests incl. timer semantics.
       **PROVISIONAL** — code + unit level only.
-- [ ] GPU confirmation: SIGSTOP a real Chrome mid-run (simulated zombie) →
-      watchdog kills → truncate → relaunch → run continues. Queue when pool
-      frees (can piggyback on the soak node before teardown).
+- [x] **GPU-CONFIRMED 2026-07-08** (`probe_watchdog.py`): SIGSTOP'd a live
+      Chrome, watchdog fired at the 8s test-timeout ("watchdog killed hung
+      Chrome pid ..."), step raised BrowserError → resilient truncation →
+      recovery reset relaunched a fresh browser + stepped. **R2 DONE.**
 
 > **GPU-first principle (2026-07-08):** CPU-only / dummy-worker validations are
 > **provisional** — the gold-standard test is always the full env (browsers,
@@ -96,14 +97,17 @@ caps M well below 32 on a 24GB 3090.
       SwiftShader markers. Beyond-one-GPU note: nodes have 8x3090; 2 runners
       in separate srun steps (own device cgroups) could steer 2xM Chromes onto
       2 GPUs — the ceiling-raiser if the curve is still rising at 32.
-- [ ] **[decide] ThreadedVectorEnv port** (the density endgame): custom
-      `gym.vector.VectorEnv` via our existing `vector_entry_point` hook —
-      one process/node, M browser threads (legacy-proven I/O-bound pattern),
-      ONE CUDA context, ONE DINO batching across M (port `DinoVecWrapper`
-      semantics). Tradeoff vs process-per-env: loses per-env crash isolation
-      (mitigated by R2 watchdog per browser); wins ~10×+ VRAM headroom and
-      vector-level DINO batching. Decide after the M-sweep shows where
-      process-per-env tops out.
+- [x] **ThreadedVectorEnv: BUILT + benchmarked** (Phase 1; `6d7914c`). Curve
+      (jobs 837608/837858): threads M=8=18 sps (thread tax at low M, loses to
+      spawn's 26), **M=16≈31 (legacy parity)**, M=20 peak 37 (=legacy peak
+      band), then **flat 24-30 through M=36** — renderer-bound plateau, NOT
+      thread/CPU/GIL/VRAM. No SwiftShader fallback even at M=36 (VRAM edge
+      higher than feared). M=32 had a transient env-runner crash (nan), not a
+      systematic ceiling. **[DECIDED] production M=16, threads topology.**
+      Phase-2 vector-level DINO batching NOT needed (renderer-bound, not
+      encoder-bound). Remaining: flip `--vector` default to threads after the
+      clean production soak + threaded-coordinator learner-kill confirm a long
+      run (the bench/curve were only 3-iter phases).
 
 ## R5. Failover with real workload
 

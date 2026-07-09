@@ -27,7 +27,8 @@ export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 
 M=${SOAK_M:-16}
 ITERS=${SOAK_ITERS:-150}
-echo "=== r4-soak: M=$M iters=$ITERS node=$(hostname) ==="
+RESTART=${SOAK_RESTART_EVERY:-10}   # 10 = restart-stress; 90 = production cadence
+echo "=== r4-soak: M=$M iters=$ITERS restart_every=$RESTART node=$(hostname) ==="
 
 FULL=slurm_outputs/r4-soak-$SLURM_JOB_ID.full.log
 uv run --no-sync python scripts/ppo_smoke.py \
@@ -35,7 +36,7 @@ uv run --no-sync python scripts/ppo_smoke.py \
     --num-envs-per-env-runner "$M" --vector threads \
     --iters "$ITERS" --train-batch-size $((128 * M)) \
     --rollout-fragment-length 128 \
-    --browser-restart-every 10 \
+    --browser-restart-every "$RESTART" \
   2>&1 | tee "$FULL" | grep -E "iter [0-9]+:|complete" | tail -40
 
 echo "########## SOAK SUMMARY ##########"
