@@ -114,14 +114,19 @@ caps M well below 32 on a 24GB 3090.
 v2 accidentally validated learner-death → full respawn → head migration →
 resume. Make it deliberate + cover the promotion branch.
 
-- [ ] Manual learner-kill mid-training (real workload, small run): kill the
-      learner srun step; verify renderers exit, coordinator respawns all,
-      new ray head + endpoint, `--resume` continues from latest ckpt with
-      correct iteration.
-- [ ] `--force-promotion-once` test hook in coordinator (genuine srun denial
-      is hard to stage under `--overlap`): learner death → skip respawn →
-      renderer sacrifice → learner into freed slot → pool re-heals.
-- [ ] Verify wandb run continuity across both.
+- [x] **DONE 2026-07-08 — real workload, threaded** (salloc 838109): trained to
+      iter 4 (ckpt written), scancel'd the learner step (SIGKILL exit 137) →
+      coordinator detected next cycle, correctly classed as death (not denial,
+      via workload_ran()), respawned → new learner `resuming from ckpt_000004`
+      → iter advanced 4→5→6 with REAL samples (1024 steps) → renderer
+      RECONNECTED to the migrated ray head (ray-joins=2). Head migration +
+      resume + renderer rejoin all validated. Also validated `--vector threads`
+      under the coordinator.
+- [x] **DONE 2026-07-08** — `--force-promotion-once` exercised the promotion
+      branch (sacrifice → learner into slot → re-heal); exposed + fixed the
+      crash-vs-denial false positive (see R5 finding above).
+- [x] wandb continuity: v2 already showed run-id continuity across respawn
+      (meta.json wandb_id + resume="allow"); this run used offline mode.
 
 ## R6. Housekeeping
 
