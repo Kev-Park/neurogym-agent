@@ -130,10 +130,12 @@ resume. Make it deliberate + cover the promotion branch.
 
 ## R6. Housekeeping
 
-- [ ] Commit `uv.lock` (reproducibility; regenerate cluster-side w/ /tmp cache,
-      port back via git).
-- [ ] Probe sarekl15-1 when it frees (icd check + `gl_probe.py`) → update
-      CLAUDE.md node lists.
+- [x] **DONE 2026-07-08** — `uv.lock` committed (`368b7e7`; scp'd back
+      checksum-verified, synced to cluster identically).
+- [x] **DONE 2026-07-08** — sarekl15-1 probed = **GOOD** (nvidia ICD+EGL, HW
+      angle-vulkan). Good pool now 12 nodes; CLAUDE.md + node-list memory
+      updated. Minor follow-up: add sarekl15-1 to `--nodelist` allowlists in
+      the r4/coord scripts (currently omit it).
 - [ ] Coordinator `--force-promotion-once` and any test hooks: mark clearly
       as test-only in --help.
 - [ ] Overnight full-scale run (8+ nodes, best-M from R4, 24h): the closing
