@@ -162,6 +162,30 @@ resume. Make it deliberate + cover the promotion branch.
       viable post restart-storm-fix; (2) multi-GPU/node — validated above;
       (3) CDP screencast to cut the 67ms floor — real ngllib work, deferred.
 
+## R4-frontier. (GPU count x threads/GPU) scaling — RESULTS 2026-07-10
+
+Single-GPU post-fix (job 840369): M16=28, M24=30, **M32=34 sps** (monotonic;
+beats legacy ~30). SPS-gap CLOSED — it was the restart-storm on M=16, not a
+real deficit.
+
+Frontier (job 840371, 4-GPU node, R runners x M browsers):
+  R1M16=33  R1M24=24  R1M32=28  R2M24=22  **R2M32=34**  R4M16=17  R4M24=17
+Clean pairing: R2M32 (2 GPU, 64 browsers) = 34 ≈ R1M32 (1 GPU, 32 browsers) = 34.
+**Multi-GPU-per-node does NOT scale throughput** — rendering splits (both GPUs
+~65% util) but aggregate hits a **per-node ceiling ~34 sps**; R4 COLLAPSES
+(17 sps, wall 5-10x) into a CPU/GIL/glitch-storm at 64-96 browsers/node.
+Numbers noisy — the stochastic glitch storm (state-race under load, 2..126 per
+run) dominates and is the true ceiling.
+
+**[DECIDED] scaling model: ~34 sps/node (1 GPU + M=32) x N nodes** (multi-node
+linear, v2-validated). Do NOT pack GPUs onto fewer nodes. Production per-runner
+M=32, one runner/node.
+
+**Highest-value remaining infra lever (deferred, own milestone): CDP screencast**
+to replace page.screenshot — cuts the 67ms sync floor AND shrinks the state-race
+window (the glitch-storm source), lifting every config at once. Only pursue if
+per-node >34 sps is needed.
+
 ## R6. Housekeeping
 
 - [x] **DONE 2026-07-08** — `uv.lock` committed (`368b7e7`; scp'd back
