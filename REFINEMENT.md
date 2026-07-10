@@ -130,19 +130,27 @@ resume. Make it deliberate + cover the promotion branch.
 
 ## R4-ext. Long-run soak (isolated) + multi-GPU/node
 
-- [ ] **Isolated clean soak (job 839615)**: M=16 threads, restart_every=90,
-      `--exclusive`. First attempt (838108) FAILED (mean 22.6, -23% drift, 259
-      glitches) but was CONTAMINATED — shared a node the whole run with the
-      pathological restart-storm soak (837609, restart_every=10). Rerun on a
-      dedicated node for the true endurance verdict. If it still drifts/glitches,
-      that's a real long-run degradation to chase (memory? cumulative browser
-      sickness?) before calling threads production-ready.
-- [ ] **Multi-GPU/node (job 839614)**: 2 env-runners x 1 GPU x M=16 = 32
-      browsers, both GPUs sampled. Tests if Chrome VULKAN rendering follows
-      Ray's per-runner CUDA_VISIBLE_DEVICES (the single-GPU render ceiling was
-      the M-curve plateau cause; 2 GPUs is the real ceiling-raiser). PASS = both
-      GPUs busy + ~2x sps; FAIL = renderer pins GPU0, need explicit Vulkan
-      device steering.
+- [x] **CORRECTION 2026-07-09: sustained per-GPU throughput is ~23 sps, NOT 31.**
+      The 31 sps M=16 "parity" was a 3-iter artifact (measured the clean period
+      before glitches accumulated). Root cause: viewer-state "missing fields"
+      glitches scale with GPU contention (0.36/iter @M=8 → ~10/iter @M=16 = 28x),
+      and step() escalated to a FULL browser restart on EVERY glitch → restart-
+      storm → sustained sps ~20. **Fixed** (ngllib `37e15bc`): escalate only
+      after N consecutive failures (single miss = truncate); poll up to 2s for
+      state to settle; nav_timeout 90s. Post-fix M=16 12-iter: mean ~23 sps,
+      FLAT (no drift). So the isolated-soak "-23% drift" was co-tenancy; the
+      real story is a lower-but-flat plateau.
+      **Reframe:** per-GPU throughput is render-bound at ~23 sps for BOTH
+      topologies (threads M=16 ≈ spawn M=8 ≈ 23/GPU); threads' win is VRAM (one
+      CUDA ctx + one DINO), not throughput. We're ~25% under legacy's ~30/GPU —
+      likely render-config (resolution / NGL state / DINO co-tenancy / state-
+      poll overhead); worth a look, not urgent.
+- [ ] **Multi-GPU/node (retest job 840289)**: 2 runners x 1 GPU x M=16, exact
+      2 GPUs (no --exclusive), per-uuid sampling. First attempt (839614) crashed
+      on the 32-browser cold-start goto timeout (now fixed). This is the real
+      throughput lever: if Vulkan rendering follows Ray's per-runner
+      CUDA_VISIBLE_DEVICES → ~2x/node (46 sps) BEATS legacy. GPU0=8.4/GPU1=0.4GB
+      in the crashed run HINTED no split — retest is decisive.
 
 ## R6. Housekeeping
 
