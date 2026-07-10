@@ -72,6 +72,21 @@ def main() -> int:
     print(f"[timing] rendered image shape: {img_shape}", flush=True)
     print(f"[timing] browser step (apply+render+screenshot+state): {stats(t_step)}", flush=True)
     print(f"[timing] DINO encode (2 panes):                        {stats(t_dino)}", flush=True)
+
+    # Drill into the browser step: time ngllib internals directly.
+    base = env.unwrapped
+    from ngllib_agent.wrappers import decode
+    spec = env._action_spec
+    ta, tss, tjs = [], [], []
+    for i in range(N):
+        act = decode(env.action_space.sample(), spec, orient_dim=3)
+        t0 = time.perf_counter(); base._apply_actions(act); t1 = time.perf_counter()
+        base._get_screenshot(); t2 = time.perf_counter()
+        base._get_json_state(); t3 = time.perf_counter()
+        ta.append((t1 - t0) * 1000); tss.append((t2 - t1) * 1000); tjs.append((t3 - t2) * 1000)
+    print(f"[timing]   apply_action:  {stats(ta)}", flush=True)
+    print(f"[timing]   screenshot:    {stats(tss)}", flush=True)
+    print(f"[timing]   state gather:  {stats(tjs)}", flush=True)
     tot = np.mean(t_step) + np.mean(t_dino)
     print(f"[timing] total/step ~{tot:.0f}ms -> single-env ceiling ~{1000/tot:.1f} steps/s", flush=True)
     print(f"[timing] step breakdown: browser={np.mean(t_step)/tot*100:.0f}% dino={np.mean(t_dino)/tot*100:.0f}%", flush=True)
