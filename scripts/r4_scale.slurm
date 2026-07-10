@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=64            # whole node's cores — threads are I/O-bound
-#SBATCH --mem=400G
+#SBATCH --mem=256G                    # node cap ~512G but 400G was rejected under gres
 #SBATCH --gres=gpu:3090:4             # up to 4 GPUs; sweep uses 1/2/4 of them
 #SBATCH --nodelist=sarekl15-1,sarekl15-2,sarekl15-4,sarekl15-5,sarekl15-7,sarekl15-8,sarekl16-1,sarekl16-3,sarekl16-5,sarekl16-6,sarekl16-7,sarekl16-8
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4
