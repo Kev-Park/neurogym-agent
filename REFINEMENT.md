@@ -128,6 +128,22 @@ resume. Make it deliberate + cover the promotion branch.
 - [x] wandb continuity: v2 already showed run-id continuity across respawn
       (meta.json wandb_id + resume="allow"); this run used offline mode.
 
+## R4-ext. Long-run soak (isolated) + multi-GPU/node
+
+- [ ] **Isolated clean soak (job 839615)**: M=16 threads, restart_every=90,
+      `--exclusive`. First attempt (838108) FAILED (mean 22.6, -23% drift, 259
+      glitches) but was CONTAMINATED — shared a node the whole run with the
+      pathological restart-storm soak (837609, restart_every=10). Rerun on a
+      dedicated node for the true endurance verdict. If it still drifts/glitches,
+      that's a real long-run degradation to chase (memory? cumulative browser
+      sickness?) before calling threads production-ready.
+- [ ] **Multi-GPU/node (job 839614)**: 2 env-runners x 1 GPU x M=16 = 32
+      browsers, both GPUs sampled. Tests if Chrome VULKAN rendering follows
+      Ray's per-runner CUDA_VISIBLE_DEVICES (the single-GPU render ceiling was
+      the M-curve plateau cause; 2 GPUs is the real ceiling-raiser). PASS = both
+      GPUs busy + ~2x sps; FAIL = renderer pins GPU0, need explicit Vulkan
+      device steering.
+
 ## R6. Housekeeping
 
 - [x] **DONE 2026-07-08** — `uv.lock` committed (`368b7e7`; scp'd back
