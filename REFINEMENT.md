@@ -145,12 +145,22 @@ resume. Make it deliberate + cover the promotion branch.
       CUDA ctx + one DINO), not throughput. We're ~25% under legacy's ~30/GPU —
       likely render-config (resolution / NGL state / DINO co-tenancy / state-
       poll overhead); worth a look, not urgent.
-- [ ] **Multi-GPU/node (retest job 840289)**: 2 runners x 1 GPU x M=16, exact
-      2 GPUs (no --exclusive), per-uuid sampling. First attempt (839614) crashed
-      on the 32-browser cold-start goto timeout (now fixed). This is the real
-      throughput lever: if Vulkan rendering follows Ray's per-runner
-      CUDA_VISIBLE_DEVICES → ~2x/node (46 sps) BEATS legacy. GPU0=8.4/GPU1=0.4GB
-      in the crashed run HINTED no split — retest is decisive.
+- [x] **Multi-GPU/node: PASS (job 840289).** Vulkan rendering DOES follow Ray's
+      per-runner CUDA_VISIBLE_DEVICES — 2 runners x 1 GPU x M=16: GPU#0 util 70%,
+      GPU#1 util 62% (both busy), aggregate **~35 sps/node, 0 restarts**
+      (~1.5x single-GPU; sub-2x = shared CPU/learner). Multi-GPU/node works via
+      native RLlib config and **beats legacy's ~30/node**.
+- [x] **SPS-gap investigation (probes 0c9a7d8/7f242c8): not an efficiency gap.**
+      M=1 step breakdown: screenshot=101ms (84%), DINO=14ms (11%), logic=7ms.
+      The screenshot has a **fixed ~67ms floor** (CDP capture + GPU-readback
+      sync) that is resolution- AND jpeg-quality-INDEPENDENT (1800x900 q85 = 67ms,
+      900x450 q30 = 67ms; only PNG scales with res). So downscale/quality won't
+      help. Conclusion: **per-env we're ~1.5x FASTER than legacy** (23 sps/16
+      envs = 1.44/env vs legacy 30/32 = 0.94/env); the lower aggregate was
+      simply fewer envs/GPU (16 vs legacy's 32). Levers to match/beat legacy
+      aggregate, ranked: (1) more envs/GPU M=24-32 — legacy's approach, now
+      viable post restart-storm-fix; (2) multi-GPU/node — validated above;
+      (3) CDP screencast to cut the 67ms floor — real ngllib work, deferred.
 
 ## R6. Housekeeping
 
