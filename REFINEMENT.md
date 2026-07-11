@@ -191,11 +191,31 @@ M=32, one runner/node.
   render compute (not the limit) but not readback bandwidth. Explains the
   per-node ceiling, M-plateau, AND multi-GPU non-scaling with one cause.
 
+**Compositor-flag lever — VALIDATED 2026-07-10 (job 844494 / flags2).** The
+non-hacky readback speedup that *does* work safely: two Chrome flags in ngllib's
+headless launch args (`449b3d2`), `--disable-gpu-vsync` + `--disable-frame-rate-limit`.
+Removes the vsync/frame-throttle wait between action-apply and frame-commit.
+- Single-env step: **133ms → 88ms median** (~33% faster), p90 96ms. **Zero
+  hangs, zero 30s watchdog timeouts** across the full run — the safe 2-flag set
+  is stable. (The 3rd flag `--run-all-compositor-stages-before-draw` was dropped:
+  it intermittently deadlocks page.screenshot → 30s timeout. Do NOT re-add.)
+- **BUT aggregate is unchanged: M16=31.5, M32=33.1 sps** — same ~33 sps node
+  ceiling as pre-flag baseline. per_env collapses 1.97 (M16) → 1.04 (M32).
+- **Conclusion:** the flags cut *per-capture latency* but NOT the *shared-node
+  readback bandwidth*, which is what saturates at M=32. Confirms the root cause
+  above: at training M the many concurrent browsers already contend for the one
+  GPU→CPU readback path; making each faster doesn't widen the pipe. Flags are
+  **kept** (free, stable, help low-contention / warmup / low-M) but are **not**
+  the path to >34 sps/node. Raw-CDP capture (50 vs 67ms) is the same story —
+  single-env win, no aggregate lift — so not worth the page.screenshot swap yet.
+
 **Highest-value remaining infra lever (deferred, own milestone): CDP screencast**
 to replace page.screenshot — streams frames without per-call full readback+sync,
 attacking the confirmed root cause. Cuts the 67ms floor AND shrinks the
-state-race window (glitch-storm source), lifting every config. Only pursue if
-per-node >34 sps is needed.
+state-race window (glitch-storm source), lifting every config. Unlike the
+compositor flags (per-capture latency) this attacks the *shared readback
+bandwidth* — the only lever that can lift the M=32 aggregate ceiling. Only
+pursue if per-node >34 sps is needed.
 
 ## R6. Housekeeping
 
