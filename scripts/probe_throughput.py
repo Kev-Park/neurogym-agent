@@ -35,9 +35,23 @@ def main() -> int:
         # batched MultiDiscrete sample for all M envs
         return np.stack([venv.single_action_space.sample() for _ in range(M)])
 
-    venv.reset(seed=0)
-    for _ in range(8):  # warm all browsers past cold start
-        venv.step(acts())
+    # Vector reset isn't retry-guarded (ResilientStepWrapper only guards step),
+    # and a cold-start thundering herd can fail one browser's navigation.
+    # Retry the reset+warmup a few times before giving up.
+    for attempt in range(5):
+        try:
+            venv.reset(seed=0)
+            for _ in range(8):  # warm all browsers past cold start
+                venv.step(acts())
+            break
+        except Exception as e:
+            print(f"[thru] warmup attempt {attempt} failed: {type(e).__name__}: "
+                  f"{str(e)[:80]}; retrying", flush=True)
+            time.sleep(5)
+    else:
+        print(f"[thru] RESULT M={M} gpu={tag} sps=FAILED (could not warm up)", flush=True)
+        venv.close()
+        return 1
     print(f"[thru] M={M} gpu={tag} warm; measuring {N} vector-steps...", flush=True)
 
     steps = 0
