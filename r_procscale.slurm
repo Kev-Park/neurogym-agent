@@ -4,7 +4,11 @@
 #SBATCH --account=pni
 #SBATCH --qos=normal
 #SBATCH --nodes=1
-#SBATCH --nodelist=sarekl15-4
+# No node pin: --gres=gpu:3090 already restricts to the sarekl15/16 3090 fleet;
+# excluding the 3 known Mesa-only nodes leaves exactly the vulkan-good pool, so
+# backfill can grab whichever good node frees first (pinning one node stuck this
+# behind a 6-day highpri reservation).
+#SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4
 #SBATCH --gres=gpu:3090:3
 #SBATCH --cpus-per-task=24
 #SBATCH --mem=150G
