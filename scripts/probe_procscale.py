@@ -32,19 +32,27 @@ NSTEPS = 100
 _SPS = re.compile(r"sps=([0-9.]+)")
 
 
+# Slurm hands us the allocated GPUs via CUDA_VISIBLE_DEVICES (0-based within the
+# allocation under ConstrainDevices, or physical ids otherwise). Configs below
+# use LOGICAL gpu indices 0..3; translate each onto the real allocated device so
+# pinning is correct regardless of which physical GPUs Slurm gave us.
+_ALLOC = (os.environ.get("CUDA_VISIBLE_DEVICES") or "0,1,2,3").split(",")
+
+
 def run_config(name, procs):
-    """procs: list of (cuda_visible_devices, M). Launch all concurrently, sum sps."""
+    """procs: list of (logical_gpu, M). Launch all concurrently, sum sps."""
     children = []
-    for cuda, M in procs:
-        env = dict(os.environ, CUDA_VISIBLE_DEVICES=str(cuda))
+    for gpu, M in procs:
+        dev = _ALLOC[gpu % len(_ALLOC)]
+        env = dict(os.environ, CUDA_VISIBLE_DEVICES=str(dev))
         p = subprocess.Popen(
             [sys.executable, THRU, str(M), str(NSTEPS)],
             env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
-        children.append((cuda, M, p))
+        children.append((dev, M, p))
 
     total, detail = 0.0, []
-    for cuda, M, p in children:
+    for dev, M, p in children:
         out, _ = p.communicate()
         sps = None
         for line in out.splitlines():
@@ -53,10 +61,10 @@ def run_config(name, procs):
                 if m:
                     sps = float(m.group(1))
         if sps is None:
-            detail.append(f"gpu{cuda}/M{M}=FAIL")
+            detail.append(f"dev{dev}/M{M}=FAIL")
         else:
             total += sps
-            detail.append(f"gpu{cuda}/M{M}={sps:.1f}")
+            detail.append(f"dev{dev}/M{M}={sps:.1f}")
     print(f"[procscale] {name}: AGGREGATE={total:.1f} sps  ({'  '.join(detail)})",
           flush=True)
 
