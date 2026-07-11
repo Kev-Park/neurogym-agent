@@ -70,13 +70,15 @@ def run_config(name, procs):
 
 
 def main() -> int:
-    configs = [
-        ("A1_1gpu_1x32", [(0, 32)]),
-        ("A2_2gpu_2x32", [(0, 32), (1, 32)]),
-        ("A4_4gpu_4x32", [(0, 32), (1, 32), (2, 32), (3, 32)]),
-        ("B2_1gpu_2x16", [(0, 16), (0, 16)]),
-        ("B4_1gpu_4x8",  [(0, 8), (0, 8), (0, 8), (0, 8)]),
-    ]
+    ngpu = len(_ALLOC)
+    print(f"[procscale] allocated GPUs: {_ALLOC} (n={ngpu})", flush=True)
+    configs = []
+    # (A) GPU-scaling: k processes, one M=32 per GPU, for k = 1..ngpu.
+    for k in range(1, ngpu + 1):
+        configs.append((f"A{k}_{k}gpu_{k}x32", [(g, 32) for g in range(k)]))
+    # (B) Process-packing on ONE GPU at a fixed 32 browsers.
+    configs.append(("B2_1gpu_2x16", [(0, 16), (0, 16)]))
+    configs.append(("B4_1gpu_4x8", [(0, 8)] * 4))
     for name, procs in configs:
         run_config(name, procs)
     return 0
