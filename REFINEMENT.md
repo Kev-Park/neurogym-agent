@@ -181,9 +181,20 @@ run) dominates and is the true ceiling.
 linear, v2-validated). Do NOT pack GPUs onto fewer nodes. Production per-runner
 M=32, one runner/node.
 
+**Root-cause confirmed 2026-07-10 (pure-env throughput probes, no ray/ppo):**
+- Q1 M-ceiling: M32=36.5, M40=37.4, M48=35.4 sps — flat ~37 plateau, per-env
+  drops 1.14→0.74. M=32 optimal; M>32 gives nothing.
+- Q2 why-no-multi-GPU: concurrent 2-GPU processes each slow 37→28 sps while
+  **CPU 53-76% IDLE and GPU util only 22-47%**. Neither compute resource is the
+  wall — the bottleneck is the shared per-node **screenshot readback** (GPU→CPU
+  framebuffer copy over CDP/PCIe/mem-bw = the 67ms floor). Adding GPUs adds
+  render compute (not the limit) but not readback bandwidth. Explains the
+  per-node ceiling, M-plateau, AND multi-GPU non-scaling with one cause.
+
 **Highest-value remaining infra lever (deferred, own milestone): CDP screencast**
-to replace page.screenshot — cuts the 67ms sync floor AND shrinks the state-race
-window (the glitch-storm source), lifting every config at once. Only pursue if
+to replace page.screenshot — streams frames without per-call full readback+sync,
+attacking the confirmed root cause. Cuts the 67ms floor AND shrinks the
+state-race window (glitch-storm source), lifting every config. Only pursue if
 per-node >34 sps is needed.
 
 ## R6. Housekeeping
