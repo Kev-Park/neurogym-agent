@@ -288,6 +288,16 @@ then probed the host path stage by stage.
   (per-env batch2 vs batched 32/64, + threaded ceiling) in job 845151
   (`probe_dino.py`). If threaded-per-env ≈40 and batched ≫, **batch DINO at the
   vector level** is the fix.
+- **DINO RULED OUT too (job 845151).** Per-env batch2 = 87 env-steps/s, batched
+  (32/64) = 117, threaded-per-env plateaus ~100. All **≫ the ~40 full-step rate**
+  → DINO has 2–3x headroom; batching gives only ~+34% (87→117), not the 2.5x
+  needed. **Every stage in isolation (capture ~170, decode 54–326, DINO ~100) is
+  faster than the ~40 full step.** ⇒ **No single-stage villain.** The wall is the
+  *serialized per-step critical path* (stages don't overlap — at M=32 per-env
+  slows 90ms→~800ms) + GIL-bound orchestration in one process, not any one op.
+  Consistent with: 2 procs = +44% (2 GILs), multi-GPU flat (node-level, not
+  per-stage). **Decisive next diagnostic = real-loop per-stage wall-clock at
+  M=16/32** (where does the 800ms/env-step actually go under contention).
 
 ## R6. Housekeeping
 
