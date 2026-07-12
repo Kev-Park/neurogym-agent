@@ -209,6 +209,36 @@ Removes the vsync/frame-throttle wait between action-apply and frame-commit.
   the path to >34 sps/node. Raw-CDP capture (50 vs 67ms) is the same story —
   single-env win, no aggregate lift — so not worth the page.screenshot swap yet.
 
+**Process-packing vs GPU-scaling — pure-env sweeps 2026-07-11 (jobs 844573 /
+844878, `probe_procscale.py` + `run_procscale2.sh`).** Two questions, cleanly
+separated. Both ran on sarekl15-2 *while the highpri array co-tenanted the node*
+(40 cpu + 5 GPUs busy), so absolute sps are depressed ~25% vs the uncontended
+~36 baseline — trust the SHAPES, not the absolute numbers.
+- **(B) Process-packing on ONE GPU, fixed 32 browsers, 24 cpu:** 1×M32 = 27.7,
+  2×M16 = **39.4 (+42%)**, 4×M8 = 40.0 (plateau). **Multi-PROCESS beats
+  single-process threading by ~44% on one GPU**, saturating at 2 processes. Cause
+  = the single Python process serializes JPEG-decode + DINO under the GIL (one
+  CUDA context); a 2nd process recovers most of it. ⇒ our single-process
+  `ThreadedVectorEnv` leaves ~44%/GPU on the table; **~2 EnvRunner processes per
+  GPU** is a real lever (RLlib-native), no extra GPUs needed.
+- **(A) GPU-scaling, cgroup-isolated GPUs (`srun --gres=gpu:1`, verified
+  `visible_gpus=1`/proc), 8 cpu/proc:** 1 GPU = 20.3, 2 GPU = **27.6**, 3 GPU =
+  **27.6**. **The 3rd GPU added exactly zero**; per-proc collapsed 20→14→9 so the
+  aggregate stayed pinned. A hard node ceiling *divided* among GPUs, not lifted.
+- **ngllib GPU-selection finding:** ngllib sets **no per-GPU Vulkan device
+  select** (environment.py only passes `--use-angle=vulkan`); Chrome renders on
+  GPU0 regardless of `CUDA_VISIBLE_DEVICES` (which steers only CUDA/DINO). The v1
+  A-series thus piled all browsers on GPU0 and OOM'd past ~32 (A2=64, A3=96 →
+  FAIL). Multi-GPU-per-node requires cgroup isolation (Ray/SLURM 1 GPU/worker).
+- **Caveat / not-fully-clean:** the contended fleet forced 8 cpu/proc (vs 24 for
+  the B baseline) + co-tenancy, so the 1→2 GPU bump is partly cpu and only the
+  **2→3 flat** is a clean within-run signal. A definitive multi-GPU-at-M32 run
+  needs a low-co-tenancy node with ≥~16 cpu/GPU free (blocked while the array
+  saturates the fleet). Even so, 2→3-flat + the readback root-cause agree:
+  **adding GPUs per node does NOT scale throughput.**
+- **[DECIDED] reaffirmed:** scale by NODES, not GPUs/node; per node use 1 GPU
+  with ~2 EnvRunner processes (the +44% packing win), M≈16/proc.
+
 **Highest-value remaining infra lever (deferred, own milestone): CDP screencast**
 to replace page.screenshot — streams frames without per-call full readback+sync,
 attacking the confirmed root cause. Cuts the 67ms floor AND shrinks the
