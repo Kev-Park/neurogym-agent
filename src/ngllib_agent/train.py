@@ -6,10 +6,12 @@ cluster via RAY_ADDRESS (the coordinator's coord_learner.sh path).
 
     uv run python -m ngllib_agent.train \
         --run-name dist-rl-v1 --iters 250 \
-        --num-env-runners 3 --num-envs-per-env-runner 8 \
-        --num-gpus-per-env-runner 0.6 \
         --train-batch-size 3072 --rollout-fragment-length 128 \
         --checkpoint-dir /scratch/kp0374/checkpoints/dist-rl-v1
+
+Env-runner topology defaults to the PINNED 2-process x 16-thread/GPU config
+(see the --num-env-runners note below); for N renderer nodes pass
+`--num-env-runners <2*N>`.
 
 Resume: `--resume` loads the latest `ckpt_*.pkl` from --checkpoint-dir and
 continues the same wandb run (id kept in meta.json).
@@ -37,12 +39,20 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--run-name", default=f"znav-{int(time.time())}")
     ap.add_argument("--iters", type=int, default=250)
     ap.add_argument("--obs", choices=["pos", "dino"], default="dino")
-    # Scale / placement
-    ap.add_argument("--num-env-runners", type=int, default=0)
-    ap.add_argument("--num-envs-per-env-runner", type=int, default=1)
-    ap.add_argument("--num-gpus-per-env-runner", type=float, default=0.0)
-    ap.add_argument("--vector", choices=["spawn", "threads"], default="spawn",
-                    help="M>1 topology: process-per-env vs ThreadedVectorEnv (R4).")
+    # Scale / placement.
+    # PINNED default topology (2026-07-11, REFINEMENT.md R4-frontier): per GPU
+    # node run 2 EnvRunner PROCESSES x 16 threaded envs each on a shared GPU.
+    # Rationale: multi-process beats single-process threading ~+44% (escapes the
+    # GIL on JPEG-decode + DINO-prep), and the per-node full-step ceiling (~35-40
+    # sps) is host-side, NOT capture (raw capture does ~170/GPU) — so 2 procs
+    # saturates the node and more GPUs/procs don't help. Multi-node: scale
+    # --num-env-runners = 2 x (renderer nodes), keep the rest.
+    ap.add_argument("--num-env-runners", type=int, default=2)
+    ap.add_argument("--num-envs-per-env-runner", type=int, default=16)
+    ap.add_argument("--num-gpus-per-env-runner", type=float, default=0.5)
+    ap.add_argument("--vector", choices=["spawn", "threads"], default="threads",
+                    help="M>1 topology: process-per-env vs ThreadedVectorEnv (R4). "
+                         "PINNED: threads (see --num-env-runners note).")
     # Sampling
     ap.add_argument("--train-batch-size", type=int, default=None,
                     help="Defaults to config ppo.train_batch_size.")
