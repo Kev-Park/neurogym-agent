@@ -126,12 +126,19 @@ def main(argv=None) -> int:
             sample_timeout_s=args.sample_timeout_s,
         )
         .learners(num_learners=0)  # learner in the driver (small MLP, CPU)
-        # Under heavy browser load a sub-env can fail (browser/viewer glitch that
-        # exhausts ngllib's + the resilient wrapper's retries). Recreate that env
-        # in-place instead of crashing the whole EnvRunner actor (16 browsers +
-        # re-import). Observed in the 2026-07-12 multi-node val run (job 845536).
+        # Escalation ladder for browser glitches at 32-browsers/GPU density:
+        #   transient  -> absorbed by ResilientStepWrapper (step truncates, reset
+        #                 retries 3x) so they never reach RLlib.
+        #   persistent -> a runner whose browsers stay broken (observed: leaked
+        #                 VRAM after the watchdog SIGKILLs hung Chromes -> new
+        #                 browsers can't get a GPU context -> ALL 16 fail reset).
+        # For persistent failure we must restart the whole EnvRunner *actor*
+        # (fresh PROCESS frees the leaked VRAM). restart_failed_sub_environments
+        # =True recreated the vector-env IN-PLACE, which can't free VRAM and spun
+        # in an infinite recreate loop (job 845537 stalled iter 180 @ 2 sps). So:
+        # keep it False and let restart_failed_env_runners do the process restart.
         .fault_tolerance(
-            restart_failed_sub_environments=True,
+            restart_failed_sub_environments=False,
             restart_failed_env_runners=True,
         )
         .training(
