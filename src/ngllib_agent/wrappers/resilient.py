@@ -28,8 +28,19 @@ class ResilientStepWrapper:
             ngllib_errs: tuple = (NgllibError,)
         except Exception:
             ngllib_errs = ()
+        # Raw Playwright errors (e.g. "Page.screenshot: Unable to capture
+        # screenshot" under heavy multi-browser load) are NOT wrapped by ngllib,
+        # so without this they escape to RLlib and crash the whole EnvRunner
+        # (all 16 browsers) instead of truncating one episode (observed in the
+        # 2026-07-12 multi-node val run, job 845535 — halved throughput).
+        try:
+            from playwright.sync_api import Error as PlaywrightError
+
+            pw_errs: tuple = (PlaywrightError,)
+        except Exception:
+            pw_errs = ()
         # ngllib doesn't yet wrap obs-gathering KeyError/TypeError (its issue #2).
-        catch = (KeyError, TypeError) + ngllib_errs
+        catch = (KeyError, TypeError) + ngllib_errs + pw_errs
 
         class _Impl(gym.Wrapper):
             def __init__(self, env):
