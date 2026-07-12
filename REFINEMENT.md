@@ -272,6 +272,23 @@ resolve the two open questions and OVERTURN the "readback is the ~40 wall" claim
    ceiling itself — i.e. after the host-side path is already optimized. Not the
    milestone I earlier billed it as.
 
+**Bottleneck hunt cont. — 2026-07-12.** Pinned the training topology to **2
+EnvRunner procs x 16 threaded envs/GPU** (`train.py` defaults; commit a080637),
+then probed the host path stage by stage.
+- **JPEG-decode RULED OUT (job 845150, `probe_decode.py`).** Real frame = 237KB.
+  CPU PIL decode+resize224 = 18.7ms → 54/s *single worker* (already > the ~40
+  full-step rate). CPU-decode flood **scales ~linearly** across processes
+  (P=1/2/4/8 → 51/90/170/326 dec/s, per-proc ~41–51) ⇒ **compute-bound per core,
+  NOT a shared memory-bandwidth wall.** So the earlier host-mem-bw hypothesis is
+  **refuted** — decode has 8x headroom and parallelizes. GPU nvJPEG decode =
+  3.7ms (267/s, ~5x CPU) but won't help since decode isn't binding.
+- **Next suspect = per-env DINO.** `dino_obs.py` calls `encoder.encode([left,
+  right])` **per env (batch 2)**; a 32-env vector-step = 32 tiny forwards + 32
+  host↔GPU round-trips instead of one batched forward. Probing throughput
+  (per-env batch2 vs batched 32/64, + threaded ceiling) in job 845151
+  (`probe_dino.py`). If threaded-per-env ≈40 and batched ≫, **batch DINO at the
+  vector level** is the fix.
+
 ## R6. Housekeeping
 
 - [x] **DONE 2026-07-08** — `uv.lock` committed (`368b7e7`; scp'd back
