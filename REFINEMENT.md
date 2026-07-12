@@ -298,6 +298,19 @@ then probed the host path stage by stage.
   Consistent with: 2 procs = +44% (2 GILs), multi-GPU flat (node-level, not
   per-stage). **Decisive next diagnostic = real-loop per-stage wall-clock at
   M=16/32** (where does the 800ms/env-step actually go under contention).
+- **Optimized-obs architecture — Phase 1 GO (job 845152, `probe_obs_arch.py`).**
+  Reframe: GPU-decode + batched-DINO aren't about stage speed — they REMOVE the
+  GIL-held per-env work into one batched GPU call, attacking the actual wall.
+  Head-to-head (no browsers, same frames): current per-env (CPU decode + DINO
+  batch2, M threads) vs batched (GPU nvJPEG decode + one DINO forward over 2M
+  panes, 1 thread): **M16 = 82→185 obs/s (2.3x), M32 = 85→166 obs/s (2.0x).**
+  ⇒ the vector-level batched-obs rewrite is worth building.
+  **Phase 2 (the real refactor):** (a) ngllib: add a raw-JPEG obs mode
+  (`_get_screenshot` returns bytes, defer decode) so decode can move downstream;
+  (b) move DINO OUT of the per-env `DinoObservationWrapper` into a VECTOR-level
+  batched obs step in `ThreadedVectorEnv` (collect M raw JPEGs -> batched GPU
+  decode+DINO -> distribute features); (c) re-run `probe_throughput` end-to-end
+  at 2x16 + sweep process count (opt 2). Touches shipped ngllib — needs care.
 
 ## R6. Housekeeping
 
