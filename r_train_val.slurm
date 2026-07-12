@@ -58,8 +58,11 @@ if [ -n "$(ls -A "$CKPT_DIR" 2>/dev/null)" ]; then RESUME_FLAG="--resume"; fi
 echo "=== train.py (resume='${RESUME_FLAG}') ==="
 
 set +e
+# Export env for the train step (srun inherits via --export=ALL). Do NOT use the
+# `env` command — uv installs a non-executable ~/.local/bin/env that shadows
+# /usr/bin/env on PATH and fails execve.
+export UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp RAY_ADDRESS="$HEAD_IP:6379"
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD_NODE" \
-    env UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp RAY_ADDRESS="$HEAD_IP:6379" \
     uv run --no-sync python -m ngllib_agent.train \
         --run-name val-2x16-mn \
         --iters 500 \
