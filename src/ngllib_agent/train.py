@@ -126,6 +126,14 @@ def main(argv=None) -> int:
             sample_timeout_s=args.sample_timeout_s,
         )
         .learners(num_learners=0)  # learner in the driver (small MLP, CPU)
+        # Under heavy browser load a sub-env can fail (browser/viewer glitch that
+        # exhausts ngllib's + the resilient wrapper's retries). Recreate that env
+        # in-place instead of crashing the whole EnvRunner actor (16 browsers +
+        # re-import). Observed in the 2026-07-12 multi-node val run (job 845536).
+        .fault_tolerance(
+            restart_failed_sub_environments=True,
+            restart_failed_env_runners=True,
+        )
         .training(
             train_batch_size=train_batch,
             minibatch_size=min(pc.get("sgd_minibatch_size", 256), train_batch),

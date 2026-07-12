@@ -48,9 +48,25 @@ class ResilientStepWrapper:
                 self._last_obs: Any = None
 
             def reset(self, *, seed=None, options=None):
-                obs, info = self.env.reset(seed=seed, options=options)
-                self._last_obs = obs
-                return obs, info
+                # Under heavy multi-browser load a reset can hit a transient
+                # viewer/browser glitch (BrowserError etc). ngllib retries
+                # internally, but if it still surfaces, retry the whole reset a
+                # few more times before letting it propagate (RLlib then recreates
+                # the env via restart_failed_sub_environments=True). Observed in
+                # the 2026-07-12 multi-node val run (job 845536).
+                last_e = None
+                for attempt in range(3):
+                    try:
+                        obs, info = self.env.reset(seed=seed, options=options)
+                        self._last_obs = obs
+                        return obs, info
+                    except catch as e:
+                        last_e = e
+                        logger.warning(
+                            "resilient: reset glitch %s (%s); retry %d/3",
+                            type(e).__name__, e, attempt + 1,
+                        )
+                raise last_e
 
             def step(self, action):
                 try:
