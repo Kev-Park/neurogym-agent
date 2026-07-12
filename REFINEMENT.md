@@ -311,6 +311,25 @@ then probed the host path stage by stage.
   batched obs step in `ThreadedVectorEnv` (collect M raw JPEGs -> batched GPU
   decode+DINO -> distribute features); (c) re-run `probe_throughput` end-to-end
   at 2x16 + sweep process count (opt 2). Touches shipped ngllib — needs care.
+- **Phase 2 end-to-end — REFUTED (job 845153, `probe_e2e_batched.py`).** Batched
+  DINO REGRESSED the real loop: 1x32 28.1→24.4, **2x16 39.9→35.1**; proto process
+  sweep 1x32/2x16/4x8 = 24/35/40 (needs 4 procs to match baseline's 2-proc 40).
+  **Why (the lesson):** the per-env threaded design ALREADY hides DINO behind
+  browser-I/O waits — each sticky thread does capture (GIL released on CDP I/O)
+  then its per-env DINO, so 32 threads overlap browser-wait with DINO-compute.
+  Batching DINO as a POST-step barrier serializes it onto the critical path,
+  losing that overlap; the isolated 2x compute win doesn't translate. (Also a
+  prototype artifact: raw mode concatenates+re-splits M full 900x1800 images
+  through the vector env — extra memory traffic baseline avoids; ~part of the
+  12%.) Net: **batching a stage that was never on the critical path can't help**
+  — consistent with "no single-stage villain; DINO has headroom & is hidden."
+- **[DECIDED] per-node optimization CLOSED.** Tested capture/decode/DINO/batching/
+  GPU-scaling/process-count — **none beats the current 2x16 (~40 sps/GPU-node).**
+  The threaded per-env design is near-optimal (hides DINO behind browser I/O);
+  the wall is the browser-step critical path + GIL, no single fixable stage. Only
+  untried idea = a fully PIPELINED async obs (overlap batched-DINO(t) with
+  browser-step(t+1)) — complex, uncertain, only if per-node >40 is truly needed.
+  **Ship 2x16/node; scale by NODES.**
 
 ## R6. Housekeeping
 
