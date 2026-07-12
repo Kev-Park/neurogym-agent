@@ -239,13 +239,38 @@ separated. Both ran on sarekl15-2 *while the highpri array co-tenanted the node*
 - **[DECIDED] reaffirmed:** scale by NODES, not GPUs/node; per node use 1 GPU
   with ~2 EnvRunner processes (the +44% packing win), M≈16/proc.
 
-**Highest-value remaining infra lever (deferred, own milestone): CDP screencast**
-to replace page.screenshot — streams frames without per-call full readback+sync,
-attacking the confirmed root cause. Cuts the 67ms floor AND shrinks the
-state-race window (glitch-storm source), lifting every config. Unlike the
-compositor flags (per-capture latency) this attacks the *shared readback
-bandwidth* — the only lever that can lift the M=32 aggregate ceiling. Only
-pursue if per-node >34 sps is needed.
+**DEFINITIVE clean re-test + capture-flood — 2026-07-11 (jobs 845147 / 845149,
+`run_procscale3.sh` + `probe_flood.py`), fleet IDLE, exclusive node.** These
+resolve the two open questions and OVERTURN the "readback is the ~40 wall" claim.
+- **(A′) GPU-scaling, EXCLUSIVE node, 16 cpu/proc, no co-tenant, verified 1
+  GPU/proc:** 1 GPU = 30.0, 2 GPU = 35.7, 3 GPU = 35.4, 4 GPU = 31.1 sps.
+  **FLAT even with abundant CPU** (per-proc collapses 30→18→12→8). So the earlier
+  flat was NOT starvation — there is a genuine **node-level full-step ceiling
+  ~35 sps** that adding GPUs cannot lift. Q1 answered: real node limit.
+- **(FLOOD) pure-capture ceiling, ONE GPU** (`captureScreenshot` in a tight loop,
+  no DINO/decode/action; each browser built+flooded in its own thread — Playwright
+  sync is thread-bound): M1=24, M4=83, M8=148, **M16=170**, M32=154 caps/s.
+  **The raw readback ceiling is ~170/GPU — ~4× the ~35 full-step rate.**
+- **⇒ CORRECTION:** capture readback is **NOT** the training bottleneck (it has
+  ~4× headroom). The ~35 full-step ceiling is the **post-capture host path**:
+  JPEG-decode (PIL, GIL) + DINO input-prep + memory copies. It's **node-shared**
+  (adding independent processes on separate GPUs still drags each down 30→18→…),
+  most likely **host memory-bandwidth / LLC** contention (NOT capture, NOT GPU
+  compute — util low & per-GPU, NOT VRAM, NOT CPU cores — 16 dedicated each, idle
+  in the flood). Exact node-shared sub-component not micro-profiled (mem-bw is the
+  leading hypothesis; a `nsys`/membw probe would confirm).
+
+**Revised lever priority (was: screencast is #1 — now DEMOTED):**
+1. **Attack the host-side per-frame cost** — the real wall. Faster JPEG decode
+   (PyTurboJPEG / GPU-side decode), **batched DINO** across the vector envs (one
+   ViT call not M), fewer numpy copies. This is what can push a node past ~40.
+2. **~2 EnvRunner processes/GPU** — the proven +44% (escapes the GIL on that same
+   host path). Fold into the training config.
+3. **Scale by NODES** — unchanged; each node independent, linear.
+4. **CDP screencast — DEPRIORITIZED.** It attacks *capture*, which is NOT the wall
+   (~170 headroom). Only relevant if you ever need to exceed the ~170/GPU capture
+   ceiling itself — i.e. after the host-side path is already optimized. Not the
+   milestone I earlier billed it as.
 
 ## R6. Housekeeping
 
