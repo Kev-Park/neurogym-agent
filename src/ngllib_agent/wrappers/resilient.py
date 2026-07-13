@@ -10,9 +10,20 @@ its own retry/browser-restart). Mirrors the legacy `NGLGymEnv.step` recovery.
 from __future__ import annotations
 
 import logging
+import random
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Jittered backoff between reset retries — ported from the legacy
+# `NGLGymEnv.reset` (`time.sleep(random.uniform(1, 5))` per attempt). When many
+# browsers glitch at once (viewer-state race under load), retrying in lockstep is
+# a thundering herd that spikes GPU/CPU and re-fails, cascading into a glitch
+# storm. Staggering recovery across the workers lets resources settle so retries
+# succeed — this is what kept the legacy 32-browser/node runs clean (2026-07-13
+# root-cause: the new stack lost this jitter, so glitches propagated to RLlib).
+_RESET_BACKOFF = (1.0, 5.0)
 
 
 class ResilientStepWrapper:
@@ -49,13 +60,15 @@ class ResilientStepWrapper:
 
             def reset(self, *, seed=None, options=None):
                 # Under heavy multi-browser load a reset can hit a transient
-                # viewer/browser glitch (BrowserError etc). ngllib retries
-                # internally, but if it still surfaces, retry the whole reset a
-                # few more times before letting it propagate (RLlib then recreates
-                # the env via restart_failed_sub_environments=True). Observed in
-                # the 2026-07-12 multi-node val run (job 845536).
+                # viewer/browser glitch (BrowserError etc). Retry the whole reset
+                # (each call re-recycles the browser context inside ngllib) with a
+                # JITTERED backoff between attempts so the ~16 workers don't retry
+                # in lockstep (thundering herd -> resource spike -> re-fail ->
+                # storm). Ports the legacy NGLGymEnv.reset recovery. If it still
+                # fails after N attempts, propagate (RLlib escalates to an
+                # EnvRunner actor restart).
                 last_e = None
-                for attempt in range(3):
+                for attempt in range(4):
                     try:
                         obs, info = self.env.reset(seed=seed, options=options)
                         self._last_obs = obs
@@ -63,9 +76,11 @@ class ResilientStepWrapper:
                     except catch as e:
                         last_e = e
                         logger.warning(
-                            "resilient: reset glitch %s (%s); retry %d/3",
-                            type(e).__name__, e, attempt + 1,
+                            "resilient: reset glitch %s (%s); jittered-backoff "
+                            "retry %d/4", type(e).__name__, e, attempt + 1,
                         )
+                        if attempt < 3:
+                            time.sleep(random.uniform(*_RESET_BACKOFF))
                 raise last_e
 
             def step(self, action):
