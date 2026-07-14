@@ -42,10 +42,14 @@ HEAD_IP=$(hostname -I | awk '{print $1}')
 echo "[learner] $(hostname) ($HEAD_IP)  expecting $EXPECTED_NODES total nodes"
 
 # Start Ray head. It daemonizes and returns; no --block.
+# RAY_NUM_CPUS advertises enough cores for Ray to place the EnvRunners on this
+# node. The old hardcoded 6 was tuned for 1-runner-per-node/8-spawn; the pinned
+# 2x16-threads topology puts 2 EnvRunner procs (32 browsers) on the node, so
+# default to 44 (leave headroom for the driver/learner). Override via env.
 uv run --no-sync ray start --head \
     --node-ip-address="$HEAD_IP" \
     --port=6379 \
-    --num-cpus=6 \
+    --num-cpus="${RAY_NUM_CPUS:-44}" \
     --num-gpus=1
 
 # Publish endpoint atomically (tmp + rename on same fs).

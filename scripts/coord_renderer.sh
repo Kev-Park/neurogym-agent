@@ -33,8 +33,10 @@ if [ -z "$ENDPOINT" ]; then
 fi
 
 echo "[renderer] joining Ray at $ENDPOINT"
+# RAY_NUM_CPUS: advertise enough cores for 2 EnvRunner procs (32 browsers) on
+# this renderer node under the pinned 2x16 topology (was hardcoded 6). Env-override.
 exec uv run --no-sync ray start \
     --address="$ENDPOINT" \
-    --num-cpus=6 \
+    --num-cpus="${RAY_NUM_CPUS:-44}" \
     --num-gpus=1 \
     --block
