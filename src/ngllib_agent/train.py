@@ -58,6 +58,9 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="Defaults to config ppo.train_batch_size.")
     ap.add_argument("--rollout-fragment-length", default="auto")
     ap.add_argument("--sample-timeout-s", type=float, default=600.0)
+    ap.add_argument("--recovery-mode", choices=["escalate", "in_place"], default=None,
+                    help="ngllib glitch-recovery strategy A/B. None = config/ngllib "
+                         "default (escalate).")
     # Checkpoint / resume
     ap.add_argument("--checkpoint-dir", default=None,
                     help="Defaults to checkpoints/<run-name> under CWD.")
@@ -98,6 +101,8 @@ def main(argv=None) -> int:
 
     cfg = load_config(args.config)
     cfg.setdefault("obs", {})["mode"] = args.obs
+    if args.recovery_mode:
+        cfg.setdefault("env", {})["recovery_mode"] = args.recovery_mode
     pc = cfg.get("ppo", {})
     train_batch = args.train_batch_size or pc.get("train_batch_size", 2000)
     ckpt_dir = args.checkpoint_dir or os.path.join("checkpoints", args.run_name)

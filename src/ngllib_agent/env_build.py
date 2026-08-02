@@ -88,6 +88,12 @@ def build_env(cfg: dict[str, Any]):
         env_kwargs["browser_restart_every"] = ec["browser_restart_every"]
     if "retry_on_reset" in ec:
         env_kwargs["retry_on_reset"] = ec["retry_on_reset"]
+    # Glitch-recovery strategy A/B (2026-08): 'escalate' (default, full browser
+    # relaunch on repeated glitch) vs 'in_place' (cheap context recycle at the
+    # source, legacy-style). Only passed if set so older ngllib without the kwarg
+    # still builds.
+    if "recovery_mode" in ec:
+        env_kwargs["recovery_mode"] = ec["recovery_mode"]
     env = Environment(**env_kwargs)
 
     env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
