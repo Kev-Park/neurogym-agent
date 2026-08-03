@@ -201,6 +201,9 @@ def main(argv=None) -> int:
     # ---- train loop ----------------------------------------------------------
     try:
         for _ in range(args.iters):
+            # Iteration-boundary marker (absolute wall ts) for aligning storm
+            # onsets against learner/iteration boundaries in the event logs.
+            print(f"MARK iter_start ts={time.time():.3f}", flush=True)
             result = algo.train()
             it = int(result.get("training_iteration", 0))
             er = result.get("env_runners", {}) or {}
@@ -222,11 +225,13 @@ def main(argv=None) -> int:
                 os.path.join(ckpt_dir, "meta.json"),
             )
             checkpointer.maybe_save(algo, it)
+            if args.checkpoint_every and it % args.checkpoint_every == 0:
+                print(f"MARK checkpoint it={it} ts={time.time():.3f}", flush=True)
             print(
                 f"iter {it}: return_mean={er.get('episode_return_mean')} "
                 f"steps={n_steps} t={t_iter and round(t_iter, 1)}s "
                 f"sps={n_steps and t_iter and round(n_steps / t_iter, 1)} "
-                f"loss={pol.get('total_loss')}",
+                f"loss={pol.get('total_loss')} ts={time.time():.3f}",
                 flush=True,
             )
     finally:
