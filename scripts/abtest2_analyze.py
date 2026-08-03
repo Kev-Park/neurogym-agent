@@ -30,7 +30,12 @@ def parse(f):
         steps, t, sps = m.groups()
         if sps == "None" or steps == "None":
             continue
-        out.append((float(t), float(sps)))
+        tv, sv = float(t), float(sps)
+        # Skip non-finite iters (a nan-loss iter can log sps=nan) so they don't
+        # poison mean/stdev.
+        if sv != sv or tv != tv:  # NaN check
+            continue
+        out.append((tv, sv))
     return out
 
 
