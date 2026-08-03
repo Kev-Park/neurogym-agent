@@ -10,7 +10,7 @@
 #SBATCH --gres=gpu:3090:1
 #SBATCH --nodelist=sarekl15-2,sarekl15-4,sarekl15-5,sarekl15-7,sarekl15-8,sarekl16-1,sarekl16-3,sarekl16-5,sarekl16-6,sarekl16-7,sarekl16-8
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4
-#SBATCH --time=02:30:00
+#SBATCH --time=05:00:00
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=code@thiskevin.com
 #SBATCH --output=slurm_outputs/storm-trial-%j.out
@@ -44,16 +44,21 @@ for n in "${NODES[@]}"; do
 done
 
 # --- ray cluster ---
-srun --overlap --nodes=1 --ntasks=1 -w "$HEAD_NODE" \
-    uv run --no-sync ray start --head --node-ip-address="$HEAD_IP" --port=6379 \
-        --num-cpus=44 --num-gpus=1 --block &
+# Export NGLLIB_EVENT_LOG INSIDE each srun's shell so every node's raylet (and
+# thus its EnvRunner actors) inherits it — relying on srun env-propagation alone
+# missed a worker node last run (only 4/6 runners logged).
+srun --overlap --nodes=1 --ntasks=1 -w "$HEAD_NODE" bash -c \
+    "export NGLLIB_EVENT_LOG='$NGLLIB_EVENT_LOG'; \
+     uv run --no-sync ray start --head --node-ip-address='$HEAD_IP' --port=6379 \
+        --num-cpus=44 --num-gpus=1 --block" &
 HEAD_PID=$!
 sleep 20
 WORKER_PIDS=()
 for ((i=1; i<${#NODES[@]}; i++)); do
-    srun --overlap --nodes=1 --ntasks=1 -w "${NODES[$i]}" \
-        uv run --no-sync ray start --address="$HEAD_IP:6379" \
-            --num-cpus=44 --num-gpus=1 --block &
+    srun --overlap --nodes=1 --ntasks=1 -w "${NODES[$i]}" bash -c \
+        "export NGLLIB_EVENT_LOG='$NGLLIB_EVENT_LOG'; \
+         uv run --no-sync ray start --address='$HEAD_IP:6379' \
+            --num-cpus=44 --num-gpus=1 --block" &
     WORKER_PIDS+=($!)
 done
 sleep 20
@@ -67,7 +72,7 @@ export UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp RAY_ADDRESS="$HEAD_IP:6379"
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD_NODE" \
     uv run --no-sync python -m ngllib_agent.train \
         --run-name "$RUN" \
-        --iters 40 \
+        --iters 120 \
         --num-env-runners 6 \
         --train-batch-size 4000 \
         --rollout-fragment-length auto \
