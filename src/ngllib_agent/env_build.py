@@ -170,8 +170,14 @@ def make_env_creator(cfg: dict[str, Any], vector_mode: str = "spawn"):
                 for i in range(num_envs)
             ]
         if num_envs > 1:
+            # Only pass the kwarg when staggering is on — keeps build_env's
+            # plain (cfg) call signature for other callers/tests.
             fns = [
-                (lambda lim=lim: build_env(cfg, first_episode_limit=lim))
+                (
+                    (lambda lim=lim: build_env(cfg, first_episode_limit=lim))
+                    if lim is not None
+                    else (lambda: build_env(cfg))
+                )
                 for lim in limits
             ]
             if vector_mode == "threads":
