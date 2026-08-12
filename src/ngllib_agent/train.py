@@ -65,6 +65,10 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="M1a: evenly-spaced shorter FIRST episodes desynchronize "
                          "TimeLimit truncations across each node's envs (kills the "
                          "synchronized reset waves). One-time cost, no steady tax.")
+    ap.add_argument("--reset-ahead", action="store_true",
+                    help="M5: pre-navigate the next episode in a warm browser "
+                         "context while the current one steps; reset swaps pages "
+                         "instead of paying navigate+settle on the critical path.")
     # Checkpoint / resume
     ap.add_argument("--checkpoint-dir", default=None,
                     help="Defaults to checkpoints/<run-name> under CWD.")
@@ -109,6 +113,8 @@ def main(argv=None) -> int:
         cfg.setdefault("env", {})["recovery_mode"] = args.recovery_mode
     if args.stagger_first_episode:
         cfg.setdefault("env", {})["stagger_first_episode"] = True
+    if args.reset_ahead:
+        cfg.setdefault("env", {})["reset_ahead"] = True
     pc = cfg.get("ppo", {})
     train_batch = args.train_batch_size or pc.get("train_batch_size", 2000)
     ckpt_dir = args.checkpoint_dir or os.path.join("checkpoints", args.run_name)

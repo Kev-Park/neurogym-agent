@@ -94,6 +94,12 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     # still builds.
     if "recovery_mode" in ec:
         env_kwargs["recovery_mode"] = ec["recovery_mode"]
+    # M5 reset-ahead (2026-08): pre-navigate the next episode in a warm context
+    # off the critical path; reset swaps pages instead of paying navigate+settle.
+    if "reset_ahead" in ec:
+        env_kwargs["reset_ahead"] = ec["reset_ahead"]
+    if "reset_ahead_after_steps" in ec:
+        env_kwargs["reset_ahead_after_steps"] = ec["reset_ahead_after_steps"]
     env = Environment(**env_kwargs)
 
     env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
