@@ -35,7 +35,7 @@ def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
     )
 
 
-def build_env(cfg: dict[str, Any]):
+def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     """Construct `TimeLimit(MultiDiscreteActionWrapper(ngllib.Environment))`."""
     import gymnasium as gym
     import logging
@@ -117,7 +117,15 @@ def build_env(cfg: dict[str, Any]):
         raise ValueError(f"obs.mode must be raw|pos|dino; got {obs_mode!r}")
 
     env = ResilientStepWrapper(env)  # truncate on transient viewer/browser glitches
-    env = gym.wrappers.TimeLimit(env, max_episode_steps=ec.get("max_episode_steps", 300))
+    max_steps = ec.get("max_episode_steps", 300)
+    env = gym.wrappers.TimeLimit(env, max_episode_steps=max_steps)
+    # M1a episode-boundary stagger (2026-08): a shorter FIRST episode permanently
+    # offsets this env's truncation cycle, so a vector's envs don't reset in
+    # synchronized waves. Outermost so it can force truncation before TimeLimit.
+    if first_episode_limit is not None and first_episode_limit < max_steps:
+        from .wrappers import FirstEpisodeStagger
+
+        env = FirstEpisodeStagger(env, first_episode_limit)
     return env
 
 
@@ -141,8 +149,25 @@ def make_env_creator(cfg: dict[str, Any], vector_mode: str = "spawn"):
     def _creator(env_config: dict[str, Any] | None = None):
         env_config = env_config or {}
         num_envs = int(env_config.get("num_envs") or 0)
+        # M1a: evenly-spaced first-episode limits desynchronize TimeLimit
+        # truncations. Spread across the NODE's envs (2 runners/GPU share a
+        # node): runners interleave via worker_index parity, so the node's 2M
+        # envs reset ~1 at a time instead of 16-at-once waves. Deterministic
+        # spacing (not random) guarantees uniformity.
+        limits: list[int | None] = [None] * max(num_envs, 1)
+        if cfg.get("env", {}).get("stagger_first_episode") and num_envs > 1:
+            max_steps = cfg["env"].get("max_episode_steps", 300)
+            widx = int(getattr(env_config, "worker_index", 0) or 0)
+            spacing = max_steps / (2 * num_envs)
+            limits = [
+                max(5, max_steps - round((2 * i + (widx % 2)) * spacing))
+                for i in range(num_envs)
+            ]
         if num_envs > 1:
-            fns = [(lambda: build_env(cfg)) for _ in range(num_envs)]
+            fns = [
+                (lambda lim=lim: build_env(cfg, first_episode_limit=lim))
+                for lim in limits
+            ]
             if vector_mode == "threads":
                 from .vector_env import ThreadedVectorEnv
 

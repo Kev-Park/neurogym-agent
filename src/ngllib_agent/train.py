@@ -61,6 +61,10 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--recovery-mode", choices=["escalate", "in_place"], default=None,
                     help="ngllib glitch-recovery strategy A/B. None = config/ngllib "
                          "default (escalate).")
+    ap.add_argument("--stagger-first-episode", action="store_true",
+                    help="M1a: evenly-spaced shorter FIRST episodes desynchronize "
+                         "TimeLimit truncations across each node's envs (kills the "
+                         "synchronized reset waves). One-time cost, no steady tax.")
     # Checkpoint / resume
     ap.add_argument("--checkpoint-dir", default=None,
                     help="Defaults to checkpoints/<run-name> under CWD.")
@@ -103,6 +107,8 @@ def main(argv=None) -> int:
     cfg.setdefault("obs", {})["mode"] = args.obs
     if args.recovery_mode:
         cfg.setdefault("env", {})["recovery_mode"] = args.recovery_mode
+    if args.stagger_first_episode:
+        cfg.setdefault("env", {})["stagger_first_episode"] = True
     pc = cfg.get("ppo", {})
     train_batch = args.train_batch_size or pc.get("train_batch_size", 2000)
     ckpt_dir = args.checkpoint_dir or os.path.join("checkpoints", args.run_name)

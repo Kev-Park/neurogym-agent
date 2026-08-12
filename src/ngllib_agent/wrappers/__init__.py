@@ -9,8 +9,10 @@ from .dino_obs import (
     split_panes,
 )
 from .resilient import ResilientStepWrapper
+from .stagger import FirstEpisodeStagger
 
 __all__ = [
+    "FirstEpisodeStagger",
     "ActionSpec",
     "MultiDiscreteActionWrapper",
     "cell_to_pixel",
