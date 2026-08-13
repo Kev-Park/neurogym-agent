@@ -29,11 +29,15 @@ SEED="${SEED:-1}"
 ITERS="${ITERS:-150}"
 RUN_NAME="mitig-${ARM}-s${SEED}"
 
-STAGGER_FLAG=""; FRAG="auto"; BATCH="4000"; TIMEOUT="600"
+STAGGER_FLAG=""; EXTRA_FLAGS=""; FRAG="auto"; BATCH="4000"; TIMEOUT="600"
 case "$ARM" in
   base) ;;
   m1)   STAGGER_FLAG="--stagger-first-episode" ;;
   m1m2) STAGGER_FLAG="--stagger-first-episode"; FRAG=8; BATCH=5376; TIMEOUT=60 ;;
+  # m1m2 + M5 warm-context reset-ahead (smoke-validated 2026-08-12: reset
+  # critical-path 17s -> 81ms on warm adoption). Isolates M5's marginal effect.
+  m1m2m5) STAGGER_FLAG="--stagger-first-episode"; EXTRA_FLAGS="--reset-ahead"
+          FRAG=8; BATCH=5376; TIMEOUT=60 ;;
   *) echo "unknown ARM=$ARM"; exit 2 ;;
 esac
 
@@ -94,7 +98,7 @@ srun --overlap --nodes=1 --ntasks=1 -w "$HEAD_NODE" bash -c \
         --train-batch-size '$BATCH' \
         --rollout-fragment-length '$FRAG' \
         --sample-timeout-s '$TIMEOUT' \
-        $STAGGER_FLAG \
+        $STAGGER_FLAG $EXTRA_FLAGS \
         --checkpoint-dir '$CKPT_DIR' \
         --checkpoint-every 25 \
         --wandb-mode offline"

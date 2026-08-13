@@ -23,6 +23,7 @@ ARMS = {
     "base": "auto/4000/600, no stagger (M4 node pool)",
     "m1": "+ first-episode stagger (M1a)",
     "m1m2": "stagger + frag8/5376/timeout60 (M1a+M2)",
+    "m1m2m5": "m1m2 + warm-context reset-ahead (M5)",
 }
 
 
