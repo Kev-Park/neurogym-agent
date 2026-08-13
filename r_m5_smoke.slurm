@@ -5,8 +5,10 @@
 #SBATCH --qos=normal
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:3090:1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=48G
+#SBATCH --cpus-per-task=12
+# Sized to backfill into co-tenanted nodes (holder leaves ~24cpu/47G free):
+# one Chrome + the probe needs far less than the trainer's 48G.
+#SBATCH --mem=24G
 #SBATCH --nodelist=sarekl15-1,sarekl15-2,sarekl15-4,sarekl15-5,sarekl15-7,sarekl16-1,sarekl16-3,sarekl16-5,sarekl16-6,sarekl16-7,sarekl16-8
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8
 #SBATCH --time=00:20:00
