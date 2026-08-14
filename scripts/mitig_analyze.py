@@ -56,7 +56,12 @@ def wave_stats(evdir):
             except Exception:
                 continue
             if e.get("evt") == "reset":
-                resets.append(e["ts"])
+                # Exclude browser-fresh (first=True) resets from the wave count:
+                # cold-start/requeue/actor-restart bursts aren't steady-state
+                # waves (and requeued attempts APPEND to the same event files,
+                # so a mid-file cold burst otherwise poisons the metric).
+                if not e.get("first"):
+                    resets.append(e["ts"])
                 slow_total += e.get("prev_slow_steps") or 0
             elif e.get("evt") == "slow_step":
                 slow_evt += 1
