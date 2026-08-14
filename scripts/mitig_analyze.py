@@ -63,10 +63,14 @@ def wave_stats(evdir):
     if not resets:
         return (0, 0, slow_evt, slow_total)
     t0 = min(resets)
+    # Exclude the first 3 min: ALL arms burst ~96 first-resets at run start
+    # (the stagger offsets truncation boundaries, not the initial resets), so
+    # the steady-state wave check must skip the cold-start burst.
     wins = defaultdict(int)
     for ts in resets:
-        wins[int((ts - t0) // 10)] += 1
-    return (max(wins.values()), len(resets), slow_evt, slow_total)
+        if ts - t0 > 180:
+            wins[int((ts - t0) // 10)] += 1
+    return (max(wins.values()) if wins else 0, len(resets), slow_evt, slow_total)
 
 
 def main():
