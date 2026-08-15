@@ -16,6 +16,12 @@
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=code@thiskevin.com
 #SBATCH --output=slurm_outputs/mitig-%x-%j.out
+# Preemption-resilient (2026-08-14): the fleet holder runs a ROLLING highpri
+# workload that preempts+requeues these arms every ~1h — a fresh 150-iter run
+# can never finish in a window. So: append logs across attempts and resume from
+# the latest checkpoint, running only the REMAINING iters each attempt.
+#SBATCH --open-mode=append
+#SBATCH --requeue
 
 # Mitigation sweep (2026-08): pull unlucky runs up to the peak by killing
 # straggler causes measured in the storm trials. Arms (submit with --export):
@@ -51,6 +57,18 @@ export NGLLIB_EVENT_LOG="$EVDIR/ev-{host}-{pid}.jsonl"
 
 echo "=== ARM: ${RUN_NAME} stagger='${STAGGER_FLAG}' frag=${FRAG} batch=${BATCH} timeout=${TIMEOUT} iters=${ITERS} ==="
 echo "=== instrumentation -> $EVDIR ==="
+
+# Resume across preemption requeues: run only the remaining iters.
+TARGET="$ITERS"
+LATEST=$(ls "$CKPT_DIR"/ckpt_*.pkl 2>/dev/null | sed -E 's/.*ckpt_0*([0-9]+)\.pkl/\1/' | sort -n | tail -1)
+RESUME_FLAG=""
+RUN_ITERS="$TARGET"
+if [ -n "$LATEST" ]; then
+    RESUME_FLAG="--resume"
+    RUN_ITERS=$((TARGET - LATEST))
+    echo "=== resume from ckpt iter $LATEST -> $RUN_ITERS iters remaining ==="
+    if [ "$RUN_ITERS" -le 0 ]; then echo "=== target already reached ==="; exit 0; fi
+fi
 
 NODES=($(scontrol show hostnames "$SLURM_NODELIST"))
 HEAD_NODE=${NODES[0]}
@@ -93,14 +111,14 @@ srun --overlap --nodes=1 --ntasks=1 -w "$HEAD_NODE" bash -c \
     "export NGLLIB_EVENT_LOG='$NGLLIB_EVENT_LOG'; \
      uv run --no-sync python -m ngllib_agent.train \
         --run-name '$RUN_NAME' \
-        --iters '$ITERS' \
+        --iters '$RUN_ITERS' \
         --num-env-runners 6 \
         --train-batch-size '$BATCH' \
         --rollout-fragment-length '$FRAG' \
         --sample-timeout-s '$TIMEOUT' \
-        $STAGGER_FLAG $EXTRA_FLAGS \
+        $STAGGER_FLAG $EXTRA_FLAGS $RESUME_FLAG \
         --checkpoint-dir '$CKPT_DIR' \
-        --checkpoint-every 25 \
+        --checkpoint-every 10 \
         --wandb-mode offline"
 PPO_EXIT=$?
 
