@@ -23,10 +23,13 @@ from ngllib_agent.env_build import load_config, make_env_creator
 def main() -> int:
     M = int(sys.argv[1]) if len(sys.argv) > 1 else 32
     N = int(sys.argv[2]) if len(sys.argv) > 2 else 150
+    scale = float(sys.argv[3]) if len(sys.argv) > 3 else 1.0
     tag = os.environ.get("CUDA_VISIBLE_DEVICES", "?")
 
     cfg = load_config("configs/ppo_zmax_navigate.yaml")
     cfg.setdefault("obs", {})["mode"] = "dino"
+    if scale != 1.0:
+        cfg.setdefault("env", {})["capture_scale"] = scale
     venv = make_env_creator(cfg, vector_mode="threads")({"num_envs": M})
 
     rng = np.random.default_rng(0)
@@ -60,7 +63,7 @@ def main() -> int:
         venv.step(acts())
         steps += M
     dt = time.time() - t0
-    print(f"[thru] RESULT M={M} gpu={tag} sps={steps/dt:.1f} "
+    print(f"[thru] RESULT M={M} scale={scale} gpu={tag} sps={steps/dt:.1f} "
           f"(env_steps={steps} in {dt:.0f}s, per_env={steps/dt/M:.2f})", flush=True)
     venv.close()
     return 0
