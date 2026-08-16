@@ -59,7 +59,12 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     # splits EM|3D and resizes per pane) — derive these env settings from the mode
     # rather than trusting per-key config to stay consistent.
     if obs_mode == "dino":
-        ec = {**ec, "left_pane": True, "right_pane": True, "image_size": None}
+        # capture_scale=0.5 default (2026-08-16): browser-side GPU downscale —
+        # panes 450² still ≫ DINO's 224² input, visually pristine, and +31%
+        # aggregate sps (M=16 A/B: 26.5 -> 34.8; single-env step 99 -> 49ms).
+        # Config env.capture_scale overrides.
+        ec = {**ec, "left_pane": True, "right_pane": True, "image_size": None,
+              "capture_scale": ec.get("capture_scale", 0.5)}
 
     provider = FlywireSkeletonProvider(ec["parquet_path"])
     rcfg = ZRewardConfig(

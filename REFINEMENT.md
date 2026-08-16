@@ -429,3 +429,23 @@ rationale for M1a default rests on the consistency wins + zero cost only.
 **[DECIDED] 2026-08-16 (user): M1a stagger LOCKED as the production default**
 (train.py `--stagger-first-episode` default ON since `9ed5e68`). M2/M5 remain
 opt-in flags; M1b and the m1+m5 combo stay unexplored unless a need arises.
+
+## R8. Cycle-time levers (Playwright/Chrome layer) — 2026-08-16
+
+Probed 3 untried browser-level levers (job 862345) + poll tightening:
+- **capture_scale (browser-side GPU downscale, 2:1 aspect kept): WINNER.**
+  Single-env step 98.6 -> 49.3ms @0.5 (2.0x); 0.25 adds nothing (latency
+  floor) and is visibly softer. Aggregate confirm (862346, M=16 same node):
+  26.5 -> **34.8 sps (+31%)**. Visual QA: 0.5 pristine (frames in
+  out/2026-08-16_capture-*.png); DINO input unchanged (encoder resizes to 224
+  anyway). **SHIPPED: dino mode defaults capture_scale=0.5**
+  (env_build; env.capture_scale overrides).
+- Skip per-episode HTTP-cache clear: NULL (reset ~2.4s both; RSS flat both
+  869->994 vs 904->944MB — no blow-up either way). Default unchanged
+  (clear=True); `clear_cache_on_recycle` param exists. Note: single-env
+  uncontended — a warm cache could still matter under 96-env reset herds.
+- Footprint flag bundle (8 flags incl. site-isolation off): REGRESSION
+  (+21% step time), renderer stayed ANGLE/NVIDIA. Dropped, not bisected.
+- Poll tightening SHIPPED: nav 1s->100ms, isReady 50->25ms, settle 100->50ms.
+Remaining unexplored: same-page JS state reset (vs navigation) — biggest
+reset-side lever; hybrid (swap N, recycle Nth) if P2 accumulation appears.
