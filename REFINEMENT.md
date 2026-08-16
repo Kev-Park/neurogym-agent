@@ -425,3 +425,7 @@ straggler reduction 8.7->3.1% p~0.002 and wave collapse 75->12 p~0.01 are
 SIGNIFICANT; the mean-SPS gain (+4.6, p~0.13) is NOT — treat as point estimate
 ("mean-neutral-at-worst"). ~7 seeds/arm would be needed to power it. Ship
 rationale for M1a default rests on the consistency wins + zero cost only.
+
+**[DECIDED] 2026-08-16 (user): M1a stagger LOCKED as the production default**
+(train.py `--stagger-first-episode` default ON since `9ed5e68`). M2/M5 remain
+opt-in flags; M1b and the m1+m5 combo stay unexplored unless a need arises.
