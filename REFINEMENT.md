@@ -380,3 +380,42 @@ then probed the host path stage by stage.
   threads M=24 = 26.9-27.5 / 16.0GB (past the knee at 24 cpus). VRAM saving
   vs spawn confirmed (~0.43GB/env). Soak (837609, M=16) + ceiling probe
   (837856, M=20/24 @ 32c) queued.
+
+## R7. Straggler-mitigation campaign — FINAL VERDICT 2026-08-16
+
+Goal (user): consistent SPS near the peak — pull unlucky runs up, no constant
+taxes (jitter/backoff ruled out). Data-first: storm trials (851928/929) found
+the real straggler causes = synchronized episode-boundary reset WAVES (83% of
+resets are 300-step TimeLimit truncations, phase-locked from run start; 52-96
+resets/10s), cold-start resets (40-73s vs 3s steady), actor deaths, and an
+unattributed slow-step class (F4). Glitch-retry storms did NOT reproduce.
+
+4-arm x 3-seed sweep (150 iters, jobs 856613-21 + 861935-42, `r_mitig.slurm`;
+preemption-resilient resume after the fleet-holder's rolling batch requeued
+arms 6x; final arms ran on highpri):
+
+  arm      mean±sd      worst   straggler  waves(max/10s)
+  base     96.5 ± 2.7   92.9    8.5%       63-85
+  m1      101.1 ± 2.1   98.2    3.1%       8-13      <- WINNER, default ON
+  m1m2     86.7 ± 1.7   84.3    1.0%       ~9
+  m1m2m5   94.9 ± 6.6   86.5    5.3%       ~10
+
+- **M1a stagger SHIPPED (train.py default ON)**: +5% mean, worst-seed +5.3,
+  stragglers /2.7, waves /7, slow-steps /3. Zero steady-state cost. Mechanism
+  verified (wave metric excludes first=True cold bursts — requeued attempts
+  APPEND to event files).
+- M2 small-frag (frag8/5376/timeout60): lowest stragglers (1%) but -14% mean —
+  dropped rounds discard work + more learner passes. NOT shipped; keep for
+  runs where tail-latency matters more than mean.
+- M5 reset-ahead: smoke = 200x per-reset win (17s->81ms) but at scale the prep
+  ticks (goto-commit + polls) run inside the vector join barrier -> slow-step
+  events 50-101/run (vs m1's 14-36), net m1m2m5 < m1. With waves already dead,
+  the remaining reset cost is too small for M5's overhead to beat. Flag stays
+  (`--reset-ahead`, default off); untested combo m1+m5 (no m2) might differ.
+- M4 (drop sarekl15-8, add 15-1) folded into all arms' node pool.
+
+Ops lessons: own big pending jobs block backfill of own small jobs (hold/release
+to slot probes); rolling highpri fleets starve preempt arms — preemption-
+resilient resume (--open-mode=append + ckpt-resume + remaining-iters) is now in
+r_mitig.slurm; account can politely queue on highpri (no preemption of running
+jobs) when the preempt partition is starved.

@@ -61,7 +61,11 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--recovery-mode", choices=["escalate", "in_place"], default=None,
                     help="ngllib glitch-recovery strategy A/B. None = config/ngllib "
                          "default (escalate).")
-    ap.add_argument("--stagger-first-episode", action="store_true",
+    # DEFAULT ON since the 2026-08-16 mitigation sweep: stagger alone won —
+    # mean 101.1±2.1 sps vs base 96.5±2.7, worst-seed 98.2 vs 92.9, stragglers
+    # 8.5%->3.1%, reset waves 63-85 -> 8-13 resets/10s. Zero steady-state cost.
+    ap.add_argument("--stagger-first-episode", action=argparse.BooleanOptionalAction,
+                    default=True,
                     help="M1a: evenly-spaced shorter FIRST episodes desynchronize "
                          "TimeLimit truncations across each node's envs (kills the "
                          "synchronized reset waves). One-time cost, no steady tax.")
