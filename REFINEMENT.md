@@ -419,3 +419,9 @@ to slot probes); rolling highpri fleets starve preempt arms — preemption-
 resilient resume (--open-mode=append + ckpt-resume + remaining-iters) is now in
 r_mitig.slurm; account can politely queue on highpri (no preemption of running
 jobs) when the preempt partition is starved.
+
+R7 significance addendum (2026-08-16, seed-level Welch tests, n=3/arm):
+straggler reduction 8.7->3.1% p~0.002 and wave collapse 75->12 p~0.01 are
+SIGNIFICANT; the mean-SPS gain (+4.6, p~0.13) is NOT — treat as point estimate
+("mean-neutral-at-worst"). ~7 seeds/arm would be needed to power it. Ship
+rationale for M1a default rests on the consistency wins + zero cost only.
