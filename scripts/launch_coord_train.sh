@@ -31,13 +31,19 @@ mkdir -p "$STATE_DIR" "$CKPT"
 export RAY_NUM_CPUS=44
 export RAY_HEAD_ENDPOINT_FILE="${STATE_DIR}/ray_head_endpoint-${RUN}.txt"
 export NUM_RENDERERS="$RENDERERS"
-export SAMPLE_TIMEOUT_S=90
+# Long sample timeout ON PURPOSE (2026-08-17): with the watchdog tree-kill
+# bounding real hangs, a recovery just prices ONE long iteration and the
+# rounds re-sync. A TIGHT timeout (90s) instead creates a terminal
+# phase-lock: timed-out sample() calls stay in flight, new calls queue
+# behind them, and every runner stays one-call-behind forever (v2 282s /
+# v3 552s locks, reproducible, never self-recovered).
+export SAMPLE_TIMEOUT_S="${SAMPLE_TIMEOUT_S:-600}"
 # WORKLOAD_CMD: coord_learner.sh runs this verbatim after the Ray cluster is up
 # (inherits RAY_ADDRESS). --iters is huge; the coordinator stops it at
 # --target-iterations. train.py writes meta.json in --checkpoint-dir each iter.
 export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --run-name ${RUN} --num-env-runners ${NUM_ENV_RUNNERS} \
-  --iters 100000 --train-batch-size 4000 --sample-timeout-s 90 \
+  --iters 100000 --train-batch-size 4000 --sample-timeout-s ${SAMPLE_TIMEOUT_S} \
   --checkpoint-dir ${CKPT} --checkpoint-every 10 \
   --wandb-project neurogym-agent --resume"
 
