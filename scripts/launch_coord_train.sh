@@ -31,13 +31,13 @@ mkdir -p "$STATE_DIR" "$CKPT"
 export RAY_NUM_CPUS=44
 export RAY_HEAD_ENDPOINT_FILE="${STATE_DIR}/ray_head_endpoint-${RUN}.txt"
 export NUM_RENDERERS="$RENDERERS"
-export SAMPLE_TIMEOUT_S=600
+export SAMPLE_TIMEOUT_S=90
 # WORKLOAD_CMD: coord_learner.sh runs this verbatim after the Ray cluster is up
 # (inherits RAY_ADDRESS). --iters is huge; the coordinator stops it at
 # --target-iterations. train.py writes meta.json in --checkpoint-dir each iter.
 export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --run-name ${RUN} --num-env-runners ${NUM_ENV_RUNNERS} \
-  --iters 100000 --train-batch-size 4000 --sample-timeout-s 600 \
+  --iters 100000 --train-batch-size 4000 --sample-timeout-s 90 \
   --checkpoint-dir ${CKPT} --checkpoint-every 10 \
   --wandb-project neurogym-agent --resume"
 
