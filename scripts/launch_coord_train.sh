@@ -41,17 +41,21 @@ export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --checkpoint-dir ${CKPT} --checkpoint-every 10 \
   --wandb-project neurogym-agent --resume"
 
+# PARTITION=highpri when the preempt partition is starved (established practice:
+# no preemption of running jobs, we queue for the next opening). SALLOC_TIME
+# should be ~run-length + margin, not a blanket 24h hold.
 nohup uv run --no-sync python -m ngllib_agent.distributed.coordinator \
   --run-id "${RUN}" \
   --state-file "${STATE_DIR}/state-${RUN}.json" \
   --renderers "${RENDERERS}" \
   --learner-cmd "bash scripts/coord_learner.sh" \
   --renderer-cmd "bash scripts/coord_renderer.sh" \
-  --salloc-time 24:00:00 \
+  --partition "${PARTITION:-preempt}" \
+  --salloc-time "${SALLOC_TIME:-24:00:00}" \
   --salloc-gres gpu:3090:1 \
   --salloc-cpus-per-node 48 \
   --salloc-mem 200G \
-  --exclude sarekl15-3,sarekl15-6,sarekl16-4 \
+  --exclude sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8 \
   --target-iterations "${TARGET_ITERS}" \
   --progress-file "${CKPT}/meta.json" \
   --worker-log-dir "${STATE_DIR}/logs-${RUN}" \
