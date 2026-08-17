@@ -107,7 +107,8 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         env_kwargs["reset_ahead_after_steps"] = ec["reset_ahead_after_steps"]
     # Cycle-time levers (2026-08-16): browser-side downscaled capture, optional
     # per-episode HTTP-cache clear, extra Chrome flags (footprint experiments).
-    for k in ("capture_scale", "clear_cache_on_recycle", "extra_launch_args"):
+    for k in ("capture_scale", "clear_cache_on_recycle", "extra_launch_args",
+              "state_ready_timeout_s"):
         if k in ec:
             env_kwargs[k] = ec[k]
     env = Environment(**env_kwargs)

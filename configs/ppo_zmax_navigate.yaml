@@ -15,6 +15,10 @@ env:
   right_pane: true
   image_size: [84, 84]        # downsized for RLlib's default CNN in the smoke; DINO/224 later
   max_episode_steps: 300
+  # Settle window for viewer-state reads (2026-08-17): 2s default was tuned
+  # pre-capture-0.5; faster stepping raised the miss rate (glitch storms of
+  # 'missing fields'). 4s converts misses into cheap in-place waits.
+  state_ready_timeout_s: 4.0
 
 # Observation pipeline (agent_plan.md §10/Round 8).
 #   raw  — ngllib Dict obs untouched (sanity_env_loop)
