@@ -61,7 +61,7 @@ nohup uv run --no-sync python -m ngllib_agent.distributed.coordinator \
   --salloc-gres gpu:3090:1 \
   --salloc-cpus-per-node 48 \
   --salloc-mem 200G \
-  --exclude sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8 \
+  --exclude sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2 \
   --target-iterations "${TARGET_ITERS}" \
   --progress-file "${CKPT}/meta.json" \
   --worker-log-dir "${STATE_DIR}/logs-${RUN}" \
