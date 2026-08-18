@@ -15,7 +15,9 @@ NEXT_STEP autoreset only (gymnasium default; what RLlib's env runner expects).
 
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from copy import deepcopy
 from typing import Any, Callable, Sequence
 
@@ -32,8 +34,19 @@ class ThreadedVectorEnv(SyncVectorEnv):
         env_fns: Sequence[Callable[[], Env]],
         copy: bool = True,
         observation_mode: str = "same",
+        result_timeout_s: float = 300.0,
     ):
         env_fns = list(env_fns)
+        # Abandon-and-rebuild backstop (2026-08-17): playwright-python can fail
+        # to reject an in-flight sync call on connection loss (py-spy verified:
+        # caller greenlet waits forever while the loop idles in select()) — a
+        # thread wedge NO process-kill can clear. The vector layer therefore
+        # never trusts an env thread: a step/reset result that exceeds
+        # result_timeout_s abandons the wedged thread (it idles harmlessly; its
+        # browser/driver are already dead) and rebuilds that env on a fresh
+        # executor. Bounded cost, invisible to RLlib.
+        self._env_fns = list(env_fns)
+        self._result_timeout_s = result_timeout_s
         self._executors = [
             ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"venv-{i}")
             for i in range(len(env_fns))
@@ -85,7 +98,12 @@ class ThreadedVectorEnv(SyncVectorEnv):
         }
         infos: dict[str, Any] = {}
         for i in sorted(futures):
-            self._env_obs[i], env_info = futures[i].result()
+            try:
+                self._env_obs[i], env_info = futures[i].result(
+                    timeout=self._result_timeout_s
+                )
+            except FuturesTimeout:
+                self._env_obs[i], env_info = self._abandon_and_rebuild(i)
             infos = self._add_info(infos, env_info, i)
 
         self._observations = concatenate(
@@ -111,13 +129,21 @@ class ThreadedVectorEnv(SyncVectorEnv):
         ]
         infos: dict[str, Any] = {}
         for i, fut in enumerate(futures):
-            (
-                self._env_obs[i],
-                self._rewards[i],
-                self._terminations[i],
-                self._truncations[i],
-                env_info,
-            ) = fut.result()
+            try:
+                (
+                    self._env_obs[i],
+                    self._rewards[i],
+                    self._terminations[i],
+                    self._truncations[i],
+                    env_info,
+                ) = fut.result(timeout=self._result_timeout_s)
+            except FuturesTimeout:
+                obs, env_info = self._abandon_and_rebuild(i)
+                self._env_obs[i] = obs
+                self._rewards[i] = 0.0
+                self._terminations[i] = False
+                self._truncations[i] = True
+                env_info = {**env_info, "env_rebuilt": True}
             infos = self._add_info(infos, env_info, i)
 
         self._observations = concatenate(
@@ -132,6 +158,32 @@ class ThreadedVectorEnv(SyncVectorEnv):
             np.copy(self._truncations),
             infos,
         )
+
+    # -------------------------------------------------------- abandon/rebuild
+
+    def _abandon_and_rebuild(self, i: int):
+        """Replace a wedged env with a fresh one on a fresh sticky thread.
+
+        The old executor/thread is abandoned (never joined — it may be wedged
+        inside playwright forever); its processes are dead or killed by the
+        env-level watchdogs, so the leak is one idle thread. Build+reset run on
+        the NEW thread with generous timeouts; if even that fails, raise — the
+        runner dies and RLlib's actor restart is the outermost net.
+        """
+        logging.getLogger(__name__).error(
+            "vector env %d wedged past %.0fs: abandoning thread and rebuilding",
+            i, self._result_timeout_s,
+        )
+        try:
+            self._executors[i].shutdown(wait=False)
+        except Exception:
+            pass
+        ex = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"venv-{i}r")
+        self._executors[i] = ex
+        env = ex.submit(self._env_fns[i]).result(timeout=240.0)
+        self.envs[i] = env
+        obs, info = ex.submit(env.reset).result(timeout=300.0)
+        return obs, info
 
     # ------------------------------------------------------------------ close
 
