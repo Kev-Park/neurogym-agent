@@ -91,7 +91,15 @@ if [ -n "${WORKLOAD_CMD:-}" ]; then
     # Real-training path: run the given command verbatim (e.g. ngllib_agent.train).
     # Inherits RAY_ADDRESS and connects to the cluster built above.
     echo "[learner] running workload: $WORKLOAD_CMD"
-    bash -c "$WORKLOAD_CMD" || echo "[learner] WARN: workload exited $?"
+    bash -c "$WORKLOAD_CMD"
+    WRC=$?
+    if [ "$WRC" -ne 0 ]; then
+        # A CRASHED workload must look like learner death so the coordinator
+        # respawns it (2026-08-18: a CUDA-init crash exited 1, the shell slept,
+        # and the coordinator saw learner=ALIVE forever — zombie run).
+        echo "[learner] workload exited $WRC; dying so the coordinator respawns"
+        exit "$WRC"
+    fi
 else
     echo "[learner] running ppo_smoke.py ${PPO_ARGS[*]}"
     uv run --no-sync python scripts/ppo_smoke.py "${PPO_ARGS[@]}" \
