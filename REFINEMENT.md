@@ -449,3 +449,53 @@ Probed 3 untried browser-level levers (job 862345) + poll tightening:
 - Poll tightening SHIPPED: nav 1s->100ms, isReady 50->25ms, settle 100->50ms.
 Remaining unexplored: same-page JS state reset (vs navigation) — biggest
 reset-side lever; hybrid (swap N, recycle Nth) if P2 accumulation appears.
+
+## R9. Coordinator end-to-end test run — coord-test-v7 COMPLETE (2026-08-18)
+
+**Goal**: a coordinator-driven 2x16-per-node run to --target-iterations under
+monitoring, surviving whatever the browser stack throws, with zero manual
+intervention. Attempts v1-v6 each exposed (and fixed) one gap; **v7 ran 370/370
+iterations to autonomous completion** (`PARTITION=highpri SALLOC_TIME=08:00:00
+launch_coord_train.sh coord-test-v7 2 370`, nodes sarekl16-[6-8]).
+
+Result census (370 unique iters, 1.60M env steps, wandb ka2ovlhs):
+- cruise: median 39.9s/iter, median 102 sps; return_mean 0.13 -> 1.28
+  (agent genuinely learning — reward signal healthy end-to-end).
+- mean 100.4s/iter dragged by two tails: 27 Chrome-hang incidents (see below)
+  each pricing one ~360-430s iter, and one degraded stretch (iters 257-273,
+  ~360s/iter for ~100 min at segment-1 end) while an env-runner cycled through
+  RLlib restart; the salloc-wall re-salloc cleared it.
+- **Recovery ladder: 27/27 hangs self-healed, zero run-ending failures.**
+  Uniform signature every incident: watchdog tree-kill (6 procs) + driver kill
+  -> wedged caller thread hits the 300s ThreadedVectorEnv backstop
+  ("abandoning thread and rebuilding") -> occasionally the runner still dies
+  on a dead-driver touch -> RLlib restart_failed_env_runners brings the actor
+  back ~2-4 min later. Every rung production-fired.
+- **Coordinator salloc-wall handoff PROVEN**: 863308 hit its 8h TIME LIMIT at
+  iter 273; coordinator re-salloc'd (863366 granted 6 min later), workload
+  resumed from ckpt-270, segment 2 cruised (100 iters, 10 self-healed hangs)
+  and hit target -> clean teardown + scancel. Zero human input across 10.5h.
+
+Fix ledger that made v7 possible (v1-v6, all committed):
+  1. tree-kill ascends to the topmost Chrome parent (child-kill didn't raise);
+  2. driver-pid tracking + ALWAYS kill the Playwright driver (wedged driver
+     never propagates browser death — py-spy-verified greenlet wedge);
+  3. driver-SCOPED chrome-pid attribution (process-wide first-match could kill
+     a sibling env's Chrome);
+  4. 120s launch guard (child sweep since pre_launch);
+  5. ThreadedVectorEnv abandon-and-rebuild backstop (result_timeout_s=300) —
+     the only rung a playwright wedge cannot veto;
+  6. sample_timeout_s 600 (tight 90s creates terminal phase-lock — v2/v3);
+  7. coord_learner crash-exit (nonzero workload exit = learner death, no more
+     zombie-sleep);
+  8. node pool excludes sarekl16-2 (hang factory, 6/9 incidents one night) and
+     sarekl15-5 (persistent CUDA-init failure) on top of the Mesa trio + 15-8.
+
+Open notes: 16-2/15-5 may be transient node states — re-probe before treating
+as permanent; steps/iter is ~4080 at train-batch 4000 (launcher comment said
+~5450 — 370 iters = 1.6M steps, not 2M; size targets accordingly); the
+segment-1-tail degradation (runner restart churn under sustained load) is the
+remaining known soft spot — a future lever is restart_failed_env_runners
+diagnostics or per-runner health metrics.
+
+**Verdict: the coordinator path is the production default for real RL runs.**
