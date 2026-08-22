@@ -46,20 +46,31 @@ def main() -> int:
     ap.add_argument("--fps", type=int, default=10)
     args = ap.parse_args()
 
+    import gymnasium as gym
     import imageio.v2 as imageio
     import torch
 
     from ngllib_agent.env_build import build_env, load_config
-    from ngllib_agent.wrappers import DinoObservationWrapper
 
     cfg = load_config(args.config)
     cfg.setdefault("obs", {})["mode"] = "dino"
     env = build_env(cfg)
 
-    # Locate the Dino wrapper and tap raw frames as observations flow through.
+    # Locate the DINO obs wrapper and tap raw frames as observations flow
+    # through. DinoObservationWrapper is a factory returning a nested class
+    # (lazy gym import), so match by shape: the ObservationWrapper whose INNER
+    # env still exposes the raw "image" space.
     dino_w = env
-    while not isinstance(dino_w, DinoObservationWrapper):
-        dino_w = dino_w.env
+    while True:
+        inner = getattr(dino_w, "env", None)
+        if inner is None:
+            raise RuntimeError("no image->features wrapper found in env stack")
+        inner_space = getattr(inner, "observation_space", None)
+        if (hasattr(dino_w, "observation")
+                and isinstance(inner_space, gym.spaces.Dict)
+                and "image" in inner_space.spaces):
+            break
+        dino_w = inner
     frames: list[np.ndarray] = []
     orig_observation = dino_w.observation
 
