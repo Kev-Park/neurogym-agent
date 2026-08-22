@@ -527,3 +527,31 @@ Forensics: iter lines now carry `H=<healthy>/<total>` env-runners (v7's
 70/70 tests (12 new: detector properties + coordinator stall behavior).
 First live validation rides the next production run; the detector is pure
 logic and the exit->respawn->resume plumbing is already production-fired.
+
+## R11. First frozen-d0 eval of coord-test-v7 — eval protocol decided (2026-08-22)
+
+Frozen pool `eval_d0_v1.parquet` (committed): 200 pairs, seed 42, uniform over
+the full 124k-id skeleton x cell_stats intersection (= training distribution).
+Jobs 868581/868582/868584, ckpt_000370:
+
+  arm                          success   mean_return  notes
+  v7 STOCHASTIC (sampled)      49.6%     1.37         n=139 (job wedged @142)
+  v7 ARGMAX (per-head argmax)   2.5%     -            = chance; mean 15 steps
+  RANDOM baseline               2.5%     -            chance floor
+
+- **The v7 policy is real: ~50% vs 2.5% chance (20x)**, mean_return matches
+  training (1.3-1.9), successful episodes median 148 steps. Success grades
+  cleanly by neuron length: q1 63% / q2 62% / q3 51% / q4 23% — natural
+  curriculum axis for IndexedStateProvider.
+- **[DECIDED] Eval protocol = STOCHASTIC sampling** (`eval_d0.py --stochastic
+  --torch-seed N`). Per-head argmax is degenerate for this policy (the
+  1024-way click head is only ever optimized under sampling); argmax's 5
+  "successes" were near-spawn z_max pairs (mean 15 steps). Deterministic
+  eval understates a working policy by 20x here.
+- Eval-side robustness gap: the single-env eval loop has no vector-level
+  hang backstop — job 868584 wedged at pair 142 on the known
+  playwright-greenlet failure (watchdog killed Chrome+driver, relaunch
+  wedged; in-process kills can't unblock the sync caller). Per-pair results
+  are log-recoverable. Fix candidate if evals get longer: run the env inside
+  ThreadedVectorEnv(1) to inherit the 300s abandon-and-rebuild, or a
+  hard per-pair alarm that os._exits (partial JSON flush + resume).
