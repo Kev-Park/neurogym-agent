@@ -18,7 +18,13 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = [
+    "pytest>=8.0",
+    # rollout-video encoding (scripts/eval_video.py); imageio-ffmpeg bundles
+    # its own ffmpeg binary — compute nodes have no system ffmpeg.
+    "imageio>=2.34",
+    "imageio-ffmpeg>=0.5",
+]
 
 [tool.uv.sources]
 ngllib = { path = "../neurogym", editable = true }
