@@ -3,9 +3,9 @@
 # long run with auto re-salloc + respawn across preemption AND the salloc wall
 # (removes the manual timeout-resubmit toil of the plain sbatch path).
 #
-# R&D currently uses the plain sbatch (r_train_val2.slurm); this exists so the
-# coordinator path is READY when an unattended long run is needed. It has NOT
-# been smoke-tested against 2x16 yet — do a short --target-iterations run first.
+# PRODUCTION-VALIDATED end-to-end by coord-test-v7 (2026-08-18, REFINEMENT R9):
+# 370/370 iters autonomous incl. a live salloc-wall re-salloc handoff. This is
+# the DEFAULT path for real RL runs; plain sbatch remains for throwaway probes.
 #
 #   bash scripts/launch_coord_train.sh [run-name] [renderer-nodes] [target-iters]
 #
@@ -14,8 +14,8 @@
 #   num_env_runners = 2 * (renderers + 1)
 # RAY_NUM_CPUS=44 lets Ray place both runners per node (coord_learner/renderer).
 # The coordinator tears down at --target-iterations (reads train's meta.json);
-# note train's steps/iter ~= 5450 (rollout auto over-collects), so 2M steps ~=
-# iter 367, NOT 500 — set target-iters accordingly.
+# v7 measured steps/iter ~= 4080 at --train-batch-size 4000, so N steps needs
+# target-iters ~= N/4080 (v7's 370 = 1.6M, not the 2M an older estimate said).
 set -u
 cd /scratch/kp0374/neurogym-agent
 

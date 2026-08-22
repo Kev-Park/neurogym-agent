@@ -218,3 +218,11 @@ config.json
 **/chromedriver*/
 
 viewport.jpg
+# Runtime artifacts (cluster-side; never synced or committed)
+checkpoints/
+wandb/
+event_logs/
+segment_positions.parquet
+build_positions_progress.json
+Thumbs.db
+*.jpg
