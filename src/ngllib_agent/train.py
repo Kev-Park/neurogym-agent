@@ -73,6 +73,20 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="M5: pre-navigate the next episode in a warm browser "
                          "context while the current one steps; reset swaps pages "
                          "instead of paying navigate+settle on the critical path.")
+    # R10: coord-test-v7 showed RLlib will run indefinitely at ~15% throughput
+    # while an EnvRunner restart churns (100 min at ~360s/iter vs 40s cruise).
+    # On sustained degradation: force a checkpoint and exit 43 so the
+    # coordinator respawns the workload from it (~5 min, the proven cure).
+    # Non-coordinator launchers without a relaunch loop should pass
+    # --no-degraded-exit or accept the early end (the run was wasting
+    # walltime anyway; --resume continues it).
+    ap.add_argument("--degraded-exit", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="Exit 43 (checkpoint first) when the median of the "
+                         "last 5 iteration times exceeds 3x the run median "
+                         "(floor 180s). Capped at 3 exits/2h via meta.json — "
+                         "degradation that survives full restarts is "
+                         "environmental and restarting only burns progress.")
     # Checkpoint / resume
     ap.add_argument("--checkpoint-dir", default=None,
                     help="Defaults to checkpoints/<run-name> under CWD.")
@@ -103,9 +117,11 @@ def main(argv=None) -> int:
 
     import wandb
 
+    from .degradation import DegradationDetector
     from .distributed.checkpoint import (
         AsyncCheckpointer,
         atomic_json,
+        atomic_pickle,
         latest_checkpoint,
         load_checkpoint,
     )
@@ -190,6 +206,16 @@ def main(argv=None) -> int:
     algo = config.build_algo() if hasattr(config, "build_algo") else config.build()
 
     # ---- resume ------------------------------------------------------------
+    import json
+
+    meta_path = os.path.join(ckpt_dir, "meta.json")
+    prior_meta = {}
+    if os.path.exists(meta_path):
+        try:
+            prior_meta = json.load(open(meta_path))
+        except (json.JSONDecodeError, OSError):
+            prior_meta = {}
+
     wandb_id = None
     if args.resume:
         ckpt = latest_checkpoint(ckpt_dir)
@@ -198,11 +224,25 @@ def main(argv=None) -> int:
         else:
             print(f"[train] resuming from {ckpt}")
             algo.set_state(load_checkpoint(ckpt))
-            meta_path = os.path.join(ckpt_dir, "meta.json")
-            if os.path.exists(meta_path):
-                import json
+            wandb_id = prior_meta.get("wandb_id")
 
-                wandb_id = json.load(open(meta_path)).get("wandb_id")
+    # R10 degraded-throughput exit: detector + cross-restart exit cap. The cap
+    # lives in meta.json because each exit is a fresh process — if 3 exits in
+    # 2h haven't cured it, the cause is environmental (co-tenant load, sick
+    # node) and further restarts just burn progress.
+    degraded_exits = list(prior_meta.get("degraded_exits", []))
+    detector = None
+    if args.degraded_exit:
+        recent_exits = [t for t in degraded_exits if time.time() - t < 7200]
+        if len(recent_exits) >= 3:
+            print(
+                f"[train] degraded-exit DISABLED: {len(recent_exits)} exits in 2h "
+                "did not cure the degradation — environmental cause suspected; "
+                "running through it",
+                flush=True,
+            )
+        else:
+            detector = DegradationDetector()
 
     run = wandb.init(
         project=args.wandb_project,
@@ -235,21 +275,61 @@ def main(argv=None) -> int:
             }
             wandb.log({k: v for k, v in metrics.items() if v is not None}, step=it)
             # Progress heartbeat every iteration — the coordinator's
-            # --target-iterations completion check reads this (REFINEMENT R1).
+            # --target-iterations completion check and its progress-stall
+            # timeout both read this (REFINEMENT R1/R10).
             atomic_json(
-                {"iteration": it, "wandb_id": run.id, "run_name": args.run_name},
-                os.path.join(ckpt_dir, "meta.json"),
+                {
+                    "iteration": it,
+                    "wandb_id": run.id,
+                    "run_name": args.run_name,
+                    "degraded_exits": degraded_exits,
+                },
+                meta_path,
             )
             checkpointer.maybe_save(algo, it)
             if args.checkpoint_every and it % args.checkpoint_every == 0:
                 print(f"MARK checkpoint it={it} ts={time.time():.3f}", flush=True)
+            # Healthy-runner count on the iter line: v7 forensics had to
+            # reconstruct "an actor was down for 100 min" from scattered
+            # actor-manager warnings. Never worth failing an iteration over.
+            try:
+                healthy = algo.env_runner_group.num_healthy_remote_workers()
+            except Exception:
+                healthy = None
             print(
                 f"iter {it}: return_mean={er.get('episode_return_mean')} "
                 f"steps={n_steps} t={t_iter and round(t_iter, 1)}s "
                 f"sps={n_steps and t_iter and round(n_steps / t_iter, 1)} "
-                f"loss={pol.get('total_loss')} ts={time.time():.3f}",
+                f"loss={pol.get('total_loss')} "
+                f"H={healthy if healthy is not None else '?'}/{args.num_env_runners} "
+                f"ts={time.time():.3f}",
                 flush=True,
             )
+            if detector is not None and t_iter and detector.observe(t_iter):
+                degraded_exits.append(time.time())
+                print(
+                    f"MARK degraded_exit it={it} t_iter={t_iter:.1f}s "
+                    f"baseline={detector.baseline_s:.1f}s "
+                    f"n_exits={len(degraded_exits)} ts={time.time():.3f}",
+                    flush=True,
+                )
+                # Checkpoint synchronously (off-cadence iters would otherwise
+                # lose up to checkpoint_every-1 iters of samples), persist the
+                # exit record, and die so the coordinator respawns us fresh.
+                atomic_pickle(
+                    algo.get_state(),
+                    os.path.join(ckpt_dir, f"ckpt_{it:06d}.pkl"),
+                )
+                atomic_json(
+                    {
+                        "iteration": it,
+                        "wandb_id": run.id,
+                        "run_name": args.run_name,
+                        "degraded_exits": degraded_exits,
+                    },
+                    meta_path,
+                )
+                return 43
     finally:
         checkpointer.finalize()
         wandb.finish()

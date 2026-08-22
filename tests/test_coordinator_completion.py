@@ -106,6 +106,106 @@ def test_fast_crash_respawns_instead_of_promoting(tmp_path, monkeypatch):
     assert promoted == [2]                                 # denial -> promote
 
 
+class _AlivePopen:
+    returncode = None
+
+    def __init__(self):
+        self.terminated = False
+
+    def poll(self):
+        return None
+
+    def terminate(self):
+        self.terminated = True
+
+    def wait(self, timeout=None):
+        if not self.terminated:
+            raise AssertionError("wait before terminate")
+
+
+def _alive_learner():
+    import time as _t
+
+    from ngllib_agent.distributed.coordinator import ManagedProcess
+
+    return ManagedProcess(
+        role="learner", cmd="x", node_hint="", popen=_AlivePopen(),
+        started_at="t", started_at_mono=_t.monotonic(),
+    )
+
+
+def test_progress_stall_disabled_by_default(tmp_path):
+    import time as _t
+
+    meta = tmp_path / "meta.json"
+    meta.write_text(json.dumps({"iteration": 5}))
+    c = _coord(tmp_path, ["--progress-file", str(meta)])
+    c.learner = _alive_learner()
+    c._progress_changed_mono = _t.monotonic() - 99999
+    c._check_progress_stall(1)
+    assert c.learner.popen.terminated is False
+
+
+def test_progress_stall_terminates_wedged_learner(tmp_path):
+    import time as _t
+
+    meta = tmp_path / "meta.json"
+    meta.write_text(json.dumps({"iteration": 5}))
+    c = _coord(
+        tmp_path,
+        ["--progress-file", str(meta), "--progress-stall-timeout-s", "60"],
+    )
+    c.learner = _alive_learner()
+
+    c._check_progress_stall(1)                    # first sighting: arms clock
+    assert c._progress_last_val == 5
+    assert c.learner.popen.terminated is False
+
+    c._progress_changed_mono = _t.monotonic() - 61   # iteration frozen past timeout
+    c._check_progress_stall(2)
+    assert c.learner.popen.terminated is True
+
+    # Clock was reset on the kill: the (still-alive popen wrapper) isn't
+    # re-terminated every subsequent cycle.
+    c.learner = _alive_learner()
+    c._check_progress_stall(3)
+    assert c.learner.popen.terminated is False
+
+
+def test_progress_advance_resets_stall_clock(tmp_path):
+    import time as _t
+
+    meta = tmp_path / "meta.json"
+    meta.write_text(json.dumps({"iteration": 5}))
+    c = _coord(
+        tmp_path,
+        ["--progress-file", str(meta), "--progress-stall-timeout-s", "60"],
+    )
+    c.learner = _alive_learner()
+    c._check_progress_stall(1)
+    c._progress_changed_mono = _t.monotonic() - 61
+    meta.write_text(json.dumps({"iteration": 6}))    # progress! no kill
+    c._check_progress_stall(2)
+    assert c.learner.popen.terminated is False
+    assert c._progress_last_val == 6
+
+
+def test_missing_progress_file_counts_as_stall(tmp_path):
+    # A learner that never writes meta.json (wedged before iter 1, beyond
+    # startup grace) must still be caught — None reads don't reset the clock.
+    import time as _t
+
+    c = _coord(
+        tmp_path,
+        ["--progress-file", str(tmp_path / "absent.json"),
+         "--progress-stall-timeout-s", "60"],
+    )
+    c.learner = _alive_learner()
+    c._progress_changed_mono = _t.monotonic() - 61
+    c._check_progress_stall(1)
+    assert c.learner.popen.terminated is True
+
+
 def test_force_promotion_once_routes_to_promotion(tmp_path, monkeypatch):
     c = _coord(tmp_path, ["--force-promotion-once"])
     promoted, launched = [], []

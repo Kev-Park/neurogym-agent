@@ -131,6 +131,11 @@ class Coordinator:
         self._teardown_done = False
         self._launch_counter = 0  # monotonic per-worker id for log naming
         self._last_progress: Optional[int] = None  # last iteration seen in progress file
+        # R10 progress-stall watchdog: when the iteration counter last CHANGED
+        # (monotonic). Reset on every learner launch so startup (browsers +
+        # DINO + ray join, ~10 min) never counts against the timeout.
+        self._progress_last_val: Optional[int] = None
+        self._progress_changed_mono = time.monotonic()
         self._promotion_forced = False  # --force-promotion-once fired yet?
         # Sliding-window log of respawn timestamps (monotonic seconds) for the
         # per-hour circuit breaker. Any older entries are pruned each cycle.
@@ -235,6 +240,8 @@ class Coordinator:
             stderr=stderr_target,
             stdin=subprocess.DEVNULL,
         )
+        if role == "learner":
+            self._progress_changed_mono = time.monotonic()
         return ManagedProcess(
             role=role,
             cmd=cmd,
@@ -288,6 +295,7 @@ class Coordinator:
                 break
 
             self._log_status(cycle)
+            self._check_progress_stall(cycle)  # R10
             self._handle_deaths(cycle)   # M4b, M4c
             self._write_state(cycle)
 
@@ -503,6 +511,40 @@ class Coordinator:
         self.respawns["renderer"] += 1
         self._respawn_times.append(time.monotonic())
 
+    def _check_progress_stall(self, cycle: int) -> None:
+        """R10 outermost net: learner ALIVE but the iteration counter frozen.
+
+        The train.py degraded-exit detector (R10 rung 1) can't fire if the
+        training loop itself is wedged (e.g. an NFS checkpoint write hangs —
+        sample_timeout_s bounds sampling, not everything). If meta.json's
+        iteration hasn't advanced within the timeout, SIGTERM the learner;
+        _handle_deaths respawns it next cycle (counts toward the circuit
+        breaker like any respawn).
+        """
+        if self.args.progress_stall_timeout_s <= 0 or not self.args.progress_file:
+            return
+        now = time.monotonic()
+        it = read_progress_iteration(self.args.progress_file)
+        if it is not None and it != self._progress_last_val:
+            self._progress_last_val = it
+            self._progress_changed_mono = now
+            return
+        stalled_for = now - self._progress_changed_mono
+        if (
+            self.learner is not None
+            and self.learner.alive()
+            and stalled_for > self.args.progress_stall_timeout_s
+        ):
+            logger.warning(
+                "cycle %d: progress STALLED (iteration=%s unchanged for %.0fs "
+                "> %.0fs) with learner nominally ALIVE; terminating learner "
+                "for respawn",
+                cycle, self._progress_last_val, stalled_for,
+                self.args.progress_stall_timeout_s,
+            )
+            self.learner.terminate()
+            self._progress_changed_mono = now
+
     def _target_reached(self) -> bool:
         if self.args.target_iterations <= 0 or not self.args.progress_file:
             return False
@@ -650,6 +692,12 @@ def build_argparser() -> argparse.ArgumentParser:
                          "iteration >= this (RL-native completion; R1).")
     ap.add_argument("--progress-file", default="",
                     help="Path to train.py's meta.json (heartbeated every iter).")
+    ap.add_argument("--progress-stall-timeout-s", type=float, default=0.0,
+                    help="If >0 and --progress-file is set: SIGTERM a nominally "
+                         "ALIVE learner whose iteration counter hasn't advanced "
+                         "in this many seconds (R10 wedge net; respawn follows). "
+                         "0 disables. Must comfortably exceed worst-case startup "
+                         "+ one slow iteration (~1800 for the 2x16 topology).")
     ap.add_argument("--force-promotion-once", action="store_true",
                     help="TEST ONLY: on the first learner death, skip respawn "
                          "and exercise the renderer->learner promotion branch.")

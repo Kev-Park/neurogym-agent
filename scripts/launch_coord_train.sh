@@ -64,6 +64,7 @@ nohup uv run --no-sync python -m ngllib_agent.distributed.coordinator \
   --exclude sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5 \
   --target-iterations "${TARGET_ITERS}" \
   --progress-file "${CKPT}/meta.json" \
+  --progress-stall-timeout-s 1800 \
   --worker-log-dir "${STATE_DIR}/logs-${RUN}" \
   > "${STATE_DIR}/coord-${RUN}.log" 2>&1 &
 
