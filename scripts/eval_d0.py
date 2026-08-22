@@ -122,17 +122,21 @@ class StatePklPolicy:
     """Policy from a `ngllib_agent.train` state pickle (`ckpt_*.pkl`).
 
     Rebuilds HierarchicalPPOModule with the env's spaces, loads the module
-    slice of the pickled Algorithm state, and acts deterministically
-    (per-head argmax) via forward_inference.
+    slice of the pickled Algorithm state, and acts via forward_inference —
+    per-head argmax by default, or sampled (training-matched) with
+    stochastic=True. Argmax on the 1024-way click head can be degenerate
+    for a policy that only ever acted by sampling; eval both when in doubt.
     """
 
-    def __init__(self, pkl_path: str, env, model_config: dict):
+    def __init__(self, pkl_path: str, env, model_config: dict,
+                 stochastic: bool = False):
         import torch
 
         from ngllib_agent.distributed.checkpoint import load_checkpoint
         from ngllib_agent.policies import HierarchicalPPOModule
 
         self._torch = torch
+        self._stochastic = stochastic
         # inference_only=False so the state (which includes the vf head) maps 1:1.
         self.module = HierarchicalPPOModule(
             observation_space=env.observation_space,
@@ -157,7 +161,9 @@ class StatePklPolicy:
         with torch.no_grad():
             out = self.module.forward_inference(batch)
         dist = self.dist_cls.from_logits(out[Columns.ACTION_DIST_INPUTS])
-        return dist.to_deterministic().sample().squeeze(0).cpu().numpy()
+        if not self._stochastic:
+            dist = dist.to_deterministic()
+        return dist.sample().squeeze(0).cpu().numpy()
 
 
 # ============================================================================
@@ -183,6 +189,12 @@ def main() -> int:
                      help="Sample env.action_space each step (for infra tests).")
     ap.add_argument("--obs", choices=["raw", "pos", "dino"], default=None,
                     help="Override config obs.mode (use the mode the policy was trained with).")
+    ap.add_argument("--stochastic", action="store_true",
+                    help="Sample actions from the policy distribution "
+                         "(training-matched) instead of per-head argmax. "
+                         "--state-pkl only.")
+    ap.add_argument("--torch-seed", type=int, default=0,
+                    help="torch RNG seed so --stochastic runs are reproducible.")
     ap.add_argument("--limit", type=int, default=0,
                     help="If >0, only run this many pairs (for smoke tests).")
     args = ap.parse_args()
@@ -206,8 +218,12 @@ def main() -> int:
         policy = RandomPolicy(env.action_space)
         print("[eval] policy: RandomPolicy (uniform action_space sample)", flush=True)
     elif args.state_pkl:
-        print(f"[eval] policy: loading state pickle {args.state_pkl}", flush=True)
-        policy = StatePklPolicy(args.state_pkl, env, cfg.get("model", {}))
+        import torch
+        torch.manual_seed(args.torch_seed)
+        print(f"[eval] policy: loading state pickle {args.state_pkl} "
+              f"(stochastic={args.stochastic})", flush=True)
+        policy = StatePklPolicy(args.state_pkl, env, cfg.get("model", {}),
+                                stochastic=args.stochastic)
         print("[eval] policy: module state loaded", flush=True)
     else:
         print(f"[eval] policy: loading checkpoint {args.checkpoint}", flush=True)
@@ -231,9 +247,11 @@ def main() -> int:
         terminated = False
         truncated = False
         steps_taken = 0
+        ep_return = 0.0
         for step in range(args.max_steps):
             action = policy.act(obs)
             obs, reward, terminated, truncated, info = env.step(action)
+            ep_return += float(reward)
             steps_taken = step + 1
             if terminated or truncated:
                 break
@@ -246,6 +264,7 @@ def main() -> int:
             "terminated": bool(terminated),
             "truncated": bool(truncated),
             "steps": steps_taken,
+            "episode_return": round(ep_return, 4),
         })
         rate_so_far = sum(1 for r in results if r["terminated"]) / len(results)
         elapsed = time.monotonic() - t_start
@@ -253,6 +272,7 @@ def main() -> int:
             f"[eval] pair {i+1}/{len(pairs)} "
             f"root_id={root_id} steps={steps_taken} "
             f"term={terminated} trunc={truncated} "
+            f"return={ep_return:.3f} "
             f"avg_success={rate_so_far:.1%} elapsed={elapsed:.0f}s",
             flush=True,
         )
@@ -292,10 +312,13 @@ def main() -> int:
     summary = {
         "n_pairs": n,
         "overall_success_rate": overall,
+        "mean_episode_return": float(np.mean([r["episode_return"] for r in results])) if n else 0.0,
         "quartiles": per_quartile,
         "policy": (
             "random" if args.random_policy
-            else f"state_pkl:{args.state_pkl}" if args.state_pkl
+            else f"state_pkl:{args.state_pkl}"
+            + (":stochastic" if args.stochastic else ":argmax")
+            if args.state_pkl
             else f"checkpoint:{args.checkpoint}"
         ),
         "config": args.config,
