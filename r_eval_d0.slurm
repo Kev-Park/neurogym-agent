@@ -18,7 +18,8 @@
 # Frozen-d0 policy eval (REFINEMENT R9 follow-up: score coord-test-v7).
 #   sbatch --job-name=evald0-v7  r_eval_d0.slurm pkl /path/to/ckpt.pkl v7_ckpt370
 #   sbatch --job-name=evald0-rnd r_eval_d0.slurm random - random_baseline
-# $1 = pkl|random, $2 = state pickle path (ignored for random), $3 = result tag.
+# $1 = pkl|random, $2 = state pickle path (ignored for random), $3 = result tag,
+# $4.. = extra eval_d0.py args (e.g. --stochastic).
 # Runs a 3-pair smoke first so a policy-adapter failure aborts in minutes,
 # then the full pool. Single env, sequential pairs (~20-35s/pair at
 # capture_scale 0.5), 200 pairs ~= 1-2h.
@@ -29,14 +30,16 @@ export PYTHONUNBUFFERED=1
 MODE=${1:?pkl|random}
 PKL=${2:-}
 TAG=${3:?result tag}
+shift 3
+EXTRA_ARGS=("$@")
 D0=eval_d0_v1.parquet
 SKEL=segment_positions.parquet
 mkdir -p eval_results
 
 if [ "$MODE" = "random" ]; then
-    POLICY_ARGS=(--random-policy)
+    POLICY_ARGS=(--random-policy "${EXTRA_ARGS[@]}")
 else
-    POLICY_ARGS=(--state-pkl "$PKL")
+    POLICY_ARGS=(--state-pkl "$PKL" "${EXTRA_ARGS[@]}")
 fi
 
 echo "==== SMOKE (3 pairs) ===="
