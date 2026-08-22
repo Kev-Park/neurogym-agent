@@ -499,3 +499,31 @@ remaining known soft spot — a future lever is restart_failed_env_runners
 diagnostics or per-runner health metrics.
 
 **Verdict: the coordinator path is the production default for real RL runs.**
+
+## R10. Degraded-throughput catch + handle (2026-08-21)
+
+Closes v7's one blemish (R9): an EnvRunner restart churned ~100 min at ~360s/
+iter (15% throughput) and nothing noticed — RLlib only distinguishes dead from
+alive. The cure was already proven (workload restart from ckpt, ~5 min); R10
+automates invoking it. Two rungs:
+
+1. **train.py degraded-exit** (`--degraded-exit`, default ON;
+   `degradation.DegradationDetector`): trip when median of the last 5 iter
+   times > max(3x run-median baseline, 180s floor). Median-of-5 makes v7's 27
+   benign single-iter hang recoveries invisible; v7's churn block would have
+   tripped at its 3rd degraded iter (~18 min in, vs 100 min). On trip: force
+   sync checkpoint -> MARK degraded_exit -> exit 43 -> coord_learner set -e
+   propagates (v6-production-proven path) -> coordinator respawns + --resume.
+   Cross-restart cap via meta.json `degraded_exits`: >=3 exits in 2h disables
+   the detector (degradation surviving restarts = environmental; ride it out).
+2. **coordinator progress-stall net** (`--progress-stall-timeout-s`, launcher
+   sets 1800): SIGTERM a nominally-ALIVE learner whose meta.json iteration is
+   frozen past the timeout (catches wedges rung 1 can't see — e.g. the loop
+   itself stuck outside algo.train()). Clock resets on every learner launch so
+   startup never counts. Kill counts toward the respawn circuit breaker.
+
+Forensics: iter lines now carry `H=<healthy>/<total>` env-runners (v7's
+100-min outage had to be reconstructed from scattered actor-manager warnings).
+70/70 tests (12 new: detector properties + coordinator stall behavior).
+First live validation rides the next production run; the detector is pure
+logic and the exit->respawn->resume plumbing is already production-fired.
