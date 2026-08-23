@@ -33,12 +33,21 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from eval_d0 import StateBuilder, StatePklPolicy  # noqa: E402
 
 
-def annotate_frames(frames, zs, z_max, z_tol, terminated):
-    """HUD per frame: step counter, z readout vs target band, progress bar.
+def action_label(a, spec) -> str:
+    """Compact human label for a MultiDiscrete action sample."""
+    a_type, cell, dx, dy, dz, dzoom = (int(v) for v in a)
+    if a_type == 0:
+        return f"click r{cell // spec.grid_cols},c{cell % spec.grid_cols}"
+    if a_type == 1:
+        c = spec.rotation_bins_per_axis // 2
+        return f"rotate x{dx - c:+d} y{dy - c:+d} z{dz - c:+d}"
+    return f"zoom {(dzoom - spec.zoom_bins // 2) * spec.zoom_step:+.0f}"
 
-    Bar maps z linearly from the episode's start z (left) to z_max (right);
-    the green segment is the +/- z_tol success band, the white tick is the
-    current z. Final frame gets a SUCCESS/TIMEOUT stamp and is held ~1.5s.
+
+def annotate_frames(frames, zs, z_max, z_tol, terminated, labels):
+    """HUD per frame: step counter, z readout vs the target band, and the
+    action that PRODUCED this frame (frame 0 is the reset — no action).
+    Final frame gets a SUCCESS/TIMEOUT stamp and is held ~1.5s.
     """
     from PIL import Image, ImageDraw, ImageFont
 
@@ -48,38 +57,22 @@ def annotate_frames(frames, zs, z_max, z_tol, terminated):
     except TypeError:  # Pillow < 10.1
         font = font_big = ImageFont.load_default()
 
-    z0 = zs[0]
-    span = z_max - z0
-    if abs(span) < 1e-6:
-        span = 1e-6
     out = []
     n = len(frames)
     for i, (frame, z) in enumerate(zip(frames, zs)):
         img = Image.fromarray(frame)
-        w = img.width
         d = ImageDraw.Draw(img)
-        d.rectangle([0, 0, w, 52], fill=(0, 0, 0))
-        dz = z - z_max
-        d.text((8, 4),
+        d.rectangle([0, 0, img.width, 44], fill=(0, 0, 0))
+        d.text((8, 2),
                f"step {i}/{n - 1}   z={z:.1f}   target z_max={z_max:.1f} "
-               f"+/-{z_tol:g}   dz={dz:+.1f}",
+               f"+/-{z_tol:g}   dz={z - z_max:+.1f}",
                fill=(255, 255, 255), font=font)
-        # Progress bar: [z0 .. z_max] left->right, clamped 5% overshoot margin.
-        bx0, bx1, by0, by1 = 8, w - 8, 30, 44
-        d.rectangle([bx0, by0, bx1, by1], fill=(60, 60, 60))
-
-        def to_x(zv):
-            t = (zv - z0) / span
-            return bx0 + min(max(t, -0.05), 1.05) * (bx1 - bx0)
-
-        d.rectangle([to_x(z_max - z_tol), by0, to_x(z_max + z_tol), by1],
-                    fill=(0, 160, 0))
-        x = to_x(z)
-        d.rectangle([x - 2, by0 - 3, x + 2, by1 + 3], fill=(255, 255, 255))
+        act = labels[i - 1] if i > 0 and i - 1 < len(labels) else "-- (reset)"
+        d.text((8, 23), f"action: {act}", fill=(180, 220, 255), font=font)
         if i == n - 1:
             label = "SUCCESS" if terminated else "TIMEOUT (no success)"
             color = (0, 220, 0) if terminated else (255, 60, 60)
-            d.text((8, 60), label, fill=color, font=font_big)
+            d.text((8, 52), label, fill=color, font=font_big)
         out.append(np.asarray(img))
     out.extend([out[-1]] * 15)  # hold the outcome frame ~1.5s at 10 fps
     return out
@@ -102,7 +95,7 @@ def main() -> int:
     import imageio.v2 as imageio
     import torch
 
-    from ngllib_agent.env_build import build_env, load_config
+    from ngllib_agent.env_build import action_spec_from_config, build_env, load_config
 
     cfg = load_config(args.config)
     cfg.setdefault("obs", {})["mode"] = "dino"
@@ -163,8 +156,12 @@ def main() -> int:
             obs, _ = env.reset(options={"state": state, "task_info": task_info})
             terminated = truncated = False
             ep_return, steps = 0.0, 0
+            labels: list[str] = []
+            spec = action_spec_from_config(cfg["action"])
             for _ in range(args.max_steps):
-                obs, reward, terminated, truncated, _ = env.step(policy.act(obs))
+                action = policy.act(obs)
+                labels.append(action_label(action, spec))
+                obs, reward, terminated, truncated, _ = env.step(action)
                 ep_return += float(reward)
                 steps += 1
                 if terminated or truncated:
@@ -182,7 +179,7 @@ def main() -> int:
             got[outcome] = True
             path = os.path.join(
                 args.out_dir, f"{label}_{outcome}_pair{pair_idx}_{steps}steps.mp4")
-            hud = annotate_frames(frames, zs, z_max, z_tol, terminated)
+            hud = annotate_frames(frames, zs, z_max, z_tol, terminated, labels)
             imageio.mimwrite(path, hud, fps=args.fps,
                              codec="libx264", quality=8)
             manifest.append({
@@ -192,6 +189,9 @@ def main() -> int:
                 "steps": steps, "episode_return": round(ep_return, 4),
                 "z_start": round(zs[0], 1), "z_final": round(z_final, 1),
                 "z_max": round(z_max, 1), "dz_final": round(z_final - z_max, 1),
+                "z_tolerance": z_tol,
+                "z_series": [round(z, 1) for z in zs],
+                "actions": labels,
                 "file": os.path.basename(path),
             })
         missing = [k for k, v in got.items() if not v]
