@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import numpy as np
 import pyarrow as pa
@@ -71,7 +71,7 @@ def test_seeded_call_is_reproducible(parquet):
 def test_task_info_from_state(parquet):
     prov = FlywireSkeletonProvider(parquet)
     ti = prov.task_info_from_state({"segments": ["A"], "position": [1.0, 1.0, 5.0]})
-    assert ti == {"segment_id": "A", "z_max": 50.0}
+    assert ti == {"segment_id": "A", "z_max": 50.0, "z_min": 5.0}
 
 
 def test_task_info_from_state_requires_segments(parquet):
