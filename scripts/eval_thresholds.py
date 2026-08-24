@@ -33,6 +33,8 @@ def main() -> int:
     ap.add_argument("--results", required=True)
     ap.add_argument("--abs-tol", type=float, default=10.0)
     ap.add_argument("--fracs", default="0.05,0.10,0.15")
+    ap.add_argument("--json", default="",
+                    help="Also write the table as JSON (for eval_report_html).")
     args = ap.parse_args()
 
     with open(args.results) as f:
@@ -64,15 +66,25 @@ def main() -> int:
     hdr = f'{"criterion":<18}{"overall":>9}' + "".join(f"{b[0]:>8}" for b in buckets)
     print(hdr)
     sanity = None
+    table = []
     for name, tol_fn in crit:
         wins = [crossed(r["z_series"], r["z_max"], tol_fn(r)) for r in rows]
         cells = []
-        for _, lo, hi in buckets:
+        row = {"criterion": name,
+               "overall": round(100 * sum(wins) / len(wins), 1)}
+        for blab, lo, hi in buckets:
             sel = [w for w, r in zip(wins, rows) if lo <= r["length_nm"] < hi]
-            cells.append(f"{100 * sum(sel) / len(sel):>7.1f}%" if sel else "     --")
-        print(f"{name:<18}{100 * sum(wins) / len(wins):>8.1f}%" + "".join(cells))
+            row[blab] = round(100 * sum(sel) / len(sel), 1) if sel else None
+            cells.append(f"{row[blab]:>7.1f}%" if sel else "     --")
+        table.append(row)
+        print(f"{name:<18}{row['overall']:>8.1f}%" + "".join(cells))
         if sanity is None:
             sanity = sum(wins)
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump({"n": len(rows),
+                       "extent_median_vox": round(float(np.median(extents))),
+                       "rows": table}, f, indent=2)
     reported = sum(1 for r in rows if r["terminated"])
     if sanity != reported:
         print(f"[thresholds] WARNING: abs-band crossings ({sanity}) != run's own "

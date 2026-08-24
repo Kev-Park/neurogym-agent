@@ -155,6 +155,8 @@ def main() -> int:
                     help='e.g. "stochastic=49.6,argmax=2.5,random=2.5"')
     ap.add_argument("--quartile-rates", default="",
                     help='pool success %% per length quartile, e.g. "63.2,62.1,51.4,22.9"')
+    ap.add_argument("--thresholds-json", default="",
+                    help="eval_thresholds.py --json output; rendered as a table.")
     ap.add_argument("--crf", type=int, default=31)
     ap.add_argument("--output", required=True)
     args = ap.parse_args()
@@ -174,6 +176,24 @@ def main() -> int:
         chips = [f'<div class="qr">q{i + 1} {r.strip()}%</div>'
                  for i, r in enumerate(args.quartile_rates.split(","))]
         qrates = f'<div class="qrates">{"".join(chips)} <div class="qr">pool success by neuron-length quartile</div></div>'
+
+    thresholds = ""
+    if args.thresholds_json:
+        with open(args.thresholds_json) as f:
+            tj = json.load(f)
+        trs = "".join(
+            f'<tr><td>{html.escape(r["criterion"])}</td><td><b>{r["overall"]}%</b></td>'
+            + "".join(f'<td>{r[q]}%</td>' for q in ("q1", "q2", "q3", "q4"))
+            + "</tr>"
+            for r in tj["rows"])
+        thresholds = f'''
+<h2>Success under alternative tolerances</h2>
+<p class="sub">Post-hoc from the {tj["n"]} recorded trajectories: an episode counts as a success
+under a band if its trajectory ever entered it (exact for &ldquo;would have terminated&rdquo;).
+Pool median z-extent: {tj["extent_median_vox"]} voxels.</p>
+<div class="criterion" style="max-width:none;padding:8px 16px;">
+<table><tr><th>criterion</th><th>overall</th><th>q1</th><th>q2</th><th>q3</th><th>q4</th></tr>{trs}</table>
+</div>'''
 
     sections, total = [], 0
     for ep in manifest:
@@ -207,6 +227,7 @@ eval pool (eval_d0_v1, 200 pairs, seed 42). Each episode: rollout video beside i
 {stats}{qrates}
 <div class="criterion mono">success &hArr; |viewer_z &minus; z_max| &le; {manifest[0]["z_tolerance"]:g} voxels
 (&plusmn;{manifest[0]["z_tolerance"] * 40:g} nm) &mdash; the green band on each curve</div>
+{thresholds}
 {"".join(sections)}
 <footer>Curves: y = (z &minus; z<sub>min</sub>) / (z<sub>max</sub> &minus; z<sub>min</sub>) — the neuron&rsquo;s own
 z-extent, 0 = lowest skeleton node, 1.0 = target; hollow marker = spawn height; clamped for display.
