@@ -80,6 +80,7 @@ class StateBuilder:
             raise ValueError(f"node_index {node_index} >= n_nodes {n} for {root_id}")
         x, y, z = float(res["x"][node_index]), float(res["y"][node_index]), float(res["z"][node_index])
         z_max = float(res["z"].max())
+        z_min = float(res["z"].min())
 
         rng = np.random.default_rng(orientation_seed)
         state = {
@@ -89,7 +90,9 @@ class StateBuilder:
             "crossSectionScale": self.cross_section_scale,
             "segments": [root_id],
         }
-        task_info = {"segment_id": root_id, "z_max": z_max}
+        # z_min rides along for analysis (percentage-of-extent thresholds,
+        # chart baselines); the reward/termination factories only read z_max.
+        task_info = {"segment_id": root_id, "z_max": z_max, "z_min": z_min}
         return state, task_info
 
 
@@ -232,6 +235,17 @@ def main() -> int:
 
     builder = StateBuilder(args.skeleton)
 
+    # Viewer-z extraction across obs modes (dino Dict / pos flat vector / raw).
+    # pos_state carries z scaled by the config divisor; undo it for analysis.
+    zscale = float((cfg.get("obs", {}).get("pos_state_scale") or [1e5] * 8)[2])
+
+    def _z_of(obs) -> float:
+        if isinstance(obs, dict):
+            if "pos_state" in obs:
+                return float(obs["pos_state"][2]) * zscale
+            return float(np.asarray(obs["position"])[2])
+        return float(np.asarray(obs)[2]) * zscale
+
     results: list[dict[str, Any]] = []
     t_start = time.monotonic()
     for i, pair in enumerate(pairs):
@@ -248,10 +262,12 @@ def main() -> int:
         truncated = False
         steps_taken = 0
         ep_return = 0.0
+        z_series = [round(_z_of(obs), 1)]
         for step in range(args.max_steps):
             action = policy.act(obs)
             obs, reward, terminated, truncated, info = env.step(action)
             ep_return += float(reward)
+            z_series.append(round(_z_of(obs), 1))
             steps_taken = step + 1
             if terminated or truncated:
                 break
@@ -265,7 +281,17 @@ def main() -> int:
             "truncated": bool(truncated),
             "steps": steps_taken,
             "episode_return": round(ep_return, 4),
+            "z_min": round(task_info["z_min"], 1),
+            "z_max": round(task_info["z_max"], 1),
+            "z_series": z_series,
         })
+        # Incremental flush: the single-env eval loop has no vector-level hang
+        # backstop (a playwright wedge lost pairs 143-200 of one run to
+        # log-scraping) — keep the JSON current so a dead job loses nothing.
+        if (i + 1) % 10 == 0:
+            with open(args.output, "w") as f:
+                json.dump({"summary": {"partial": True, "n_done": len(results)},
+                           "per_pair": results}, f)
         rate_so_far = sum(1 for r in results if r["terminated"]) / len(results)
         elapsed = time.monotonic() - t_start
         print(

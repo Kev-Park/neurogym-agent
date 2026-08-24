@@ -189,6 +189,7 @@ def main() -> int:
                 "steps": steps, "episode_return": round(ep_return, 4),
                 "z_start": round(zs[0], 1), "z_final": round(z_final, 1),
                 "z_max": round(z_max, 1), "dz_final": round(z_final - z_max, 1),
+                "z_min": round(float(task_info["z_min"]), 1),
                 "z_tolerance": z_tol,
                 "z_series": [round(z, 1) for z in zs],
                 "actions": labels,

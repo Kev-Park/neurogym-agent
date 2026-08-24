@@ -46,11 +46,15 @@ def reencode(src: str, crf: int = 31) -> bytes:
 
 
 def approach_svg(ep: dict) -> str:
-    """Inline SVG: normalized z-progress vs steps. y=1.0 is z_max (dashed);
-    the band is +/- z_tolerance; the curve ends with an emphasized dot."""
+    """Inline SVG: z-progress vs steps on the NEURON's own scale — y=0 is the
+    segment's lowest skeleton z (z_min), y=1.0 its highest (z_max, dashed).
+    The band is +/- z_tolerance; a hollow marker is the spawn height; the
+    curve ends with an emphasized dot. Falls back to spawn-based
+    normalization for manifests without z_min."""
     zs = ep["z_series"]
-    z0, zmax, tol = zs[0], ep["z_max"], ep["z_tolerance"]
-    span = (zmax - z0) or 1e-6
+    zmax, tol = ep["z_max"], ep["z_tolerance"]
+    zlo = ep.get("z_min", zs[0])
+    span = (zmax - zlo) or 1e-6
     W, H, ml, mr, mt, mb = 560, 230, 44, 14, 14, 30
     iw, ih = W - ml - mr, H - mt - mb
     ymin, ymax = -0.08, 1.12
@@ -63,14 +67,17 @@ def approach_svg(ep: dict) -> str:
         v = min(max(v, ymin), ymax)
         return mt + (ymax - v) / (ymax - ymin) * ih
 
-    pts = " ".join(f"{X(i):.1f},{Y((z - z0) / span):.1f}" for i, z in enumerate(zs))
+    def N(z):
+        return (z - zlo) / span
+
+    pts = " ".join(f"{X(i):.1f},{Y(N(z)):.1f}" for i, z in enumerate(zs))
     band_top, band_bot = Y(1 + tol / abs(span)), Y(1 - tol / abs(span))
     gy = [f'<line x1="{ml}" y1="{Y(v):.1f}" x2="{W - mr}" y2="{Y(v):.1f}" class="grid"/>'
           f'<text x="{ml - 6}" y="{Y(v) + 4:.1f}" class="tick" text-anchor="end">{v:g}</text>'
           for v in (0, 0.5)]
     step_ticks = [f'<text x="{X(i):.1f}" y="{H - 8}" class="tick" text-anchor="middle">{i}</text>'
                   for i in range(0, len(zs), 100)]
-    end_x, end_y = X(len(zs) - 1), Y((zs[-1] - z0) / span)
+    end_x, end_y = X(len(zs) - 1), Y(N(zs[-1]))
     ok = ep["outcome"] == "success"
     return f'''<svg viewBox="0 0 {W} {H}" role="img" aria-label="approach curve">
 <rect x="{ml}" y="{band_top:.1f}" width="{iw}" height="{band_bot - band_top:.1f}" class="band"/>
@@ -78,7 +85,9 @@ def approach_svg(ep: dict) -> str:
 <text x="{ml - 6}" y="{Y(1) + 4:.1f}" class="tick target-t" text-anchor="end">1.0</text>
 {''.join(gy)}{''.join(step_ticks)}
 <polyline points="{pts}" class="curve {'curve-ok' if ok else 'curve-no'}"/>
+<circle cx="{X(0):.1f}" cy="{Y(N(zs[0])):.1f}" r="4" class="spawn"/>
 <circle cx="{end_x:.1f}" cy="{end_y:.1f}" r="4" class="{'dot-ok' if ok else 'dot-no'}"/>
+<text x="{X(0) + 8:.1f}" y="{Y(N(zs[0])) + 4:.1f}" class="tick">spawn</text>
 <text x="{ml}" y="{H - 8}" class="tick">step</text>
 </svg>'''
 
@@ -132,6 +141,7 @@ svg { width:100%; height:auto; display:block; }
 .band { fill:var(--band); }
 .curve { fill:none; stroke-width:2; } .curve-ok { stroke:var(--ok); } .curve-no { stroke:var(--no); }
 .dot-ok { fill:var(--ok); } .dot-no { fill:var(--no); }
+.spawn { fill:none; stroke:var(--muted); stroke-width:1.6; }
 footer { color:var(--muted); font-size:.8rem; margin-top:48px; }
 '''
 
@@ -198,7 +208,8 @@ eval pool (eval_d0_v1, 200 pairs, seed 42). Each episode: rollout video beside i
 <div class="criterion mono">success &hArr; |viewer_z &minus; z_max| &le; {manifest[0]["z_tolerance"]:g} voxels
 (&plusmn;{manifest[0]["z_tolerance"] * 40:g} nm) &mdash; the green band on each curve</div>
 {"".join(sections)}
-<footer>Curves: y = (z &minus; z<sub>start</sub>) / (z<sub>max</sub> &minus; z<sub>start</sub>), clamped for display.
+<footer>Curves: y = (z &minus; z<sub>min</sub>) / (z<sub>max</sub> &minus; z<sub>min</sub>) — the neuron&rsquo;s own
+z-extent, 0 = lowest skeleton node, 1.0 = target; hollow marker = spawn height; clamped for display.
 Videos re-encoded (crf {args.crf}) from the archival MP4s in eval_videos/.</footer>
 </main>'''
 
