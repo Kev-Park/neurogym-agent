@@ -47,15 +47,17 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
     """
 
     _input_lens: List[int] = []
+    _normalize_entropy: bool = False
 
     @classmethod
-    def for_nvec(cls, nvec) -> type:
+    def for_nvec(cls, nvec, normalize_entropy: bool = False) -> type:
         lens = [int(n) for n in nvec]
         if len(lens) != 6 or lens[0] != 3:
             raise ValueError(f"expected nvec [3, cells, R, R, R, Z]; got {lens}")
 
         class _Bound(cls):
             _input_lens = lens
+            _normalize_entropy = normalize_entropy
 
         _Bound.__name__ = f"{cls.__name__}_{'_'.join(map(str, lens))}"
         return _Bound
@@ -90,6 +92,23 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
     def entropy(self) -> torch.Tensor:
         h = [cat.entropy() for cat in self._cats]
         p = self._type_probs()
+        if self._normalize_entropy:
+            # Per-branch max-entropy normalization (2026-08-24): unnormalized,
+            # the gated bonus p_click*H(1024-way) offers ~ln1024=6.9 nats vs
+            # zoom's ln9=2.2, so the entropy regularizer itself pushes verb
+            # mass toward click — v7 used zoom on 0.14% of steps. Normalized,
+            # every branch offers the same [0,1] bonus and verb allocation is
+            # entropy-neutral; exploration of zoom survives on equal terms.
+            # Range is [0,2] not ~[0,8] — scale entropy_coeff up ~4x (config).
+            import math
+
+            n_verb, n_cell, r, _, _, n_zoom = self._input_lens
+            return (
+                h[0] / math.log(n_verb)
+                + p[..., 0] * h[1] / math.log(n_cell)
+                + p[..., 1] * (h[2] + h[3] + h[4]) / (3.0 * math.log(r))
+                + p[..., 2] * h[5] / math.log(n_zoom)
+            )
         return (
             h[0]
             + p[..., 0] * h[1]
@@ -146,7 +165,10 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
         if not self.inference_only:
             self._vf_head = nn.Linear(in_dim, 1)
 
-        self.action_dist_cls = HierarchicalMultiCategorical.for_nvec(nvec)
+        self.action_dist_cls = HierarchicalMultiCategorical.for_nvec(
+            nvec,
+            normalize_entropy=bool(self.model_config.get("normalize_entropy", False)),
+        )
 
     def _embed(self, batch: Dict[str, Any]) -> torch.Tensor:
         obs = batch[Columns.OBS]

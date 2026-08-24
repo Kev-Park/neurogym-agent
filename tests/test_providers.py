@@ -79,3 +79,19 @@ def test_task_info_from_state_requires_segments(parquet):
         prov.task_info_from_state({"position": [0, 0, 0]})
     with pytest.raises(NotImplementedError):
         prov.task_info_from_state("https://example/#!{}")
+
+def test_exclude_root_ids_holdout(parquet):
+    prov = FlywireSkeletonProvider(parquet, exclude_root_ids=["B"])
+    assert prov.root_ids == ["A"]
+    rng = np.random.default_rng(0)
+    for _ in range(5):
+        _, task_info = prov(rng, None)
+        assert task_info["segment_id"] == "A"
+    # explicit segment_id (the eval path) bypasses the holdout on purpose
+    _, task_info = prov(rng, {"segment_id": "B"})
+    assert task_info["segment_id"] == "B"
+
+
+def test_exclude_all_raises(parquet):
+    with pytest.raises(ValueError):
+        FlywireSkeletonProvider(parquet, exclude_root_ids=["A", "B"])

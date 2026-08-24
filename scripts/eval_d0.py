@@ -365,6 +365,17 @@ def main() -> int:
             flush=True,
         )
     print(f"wrote {args.output}", flush=True)
+
+    # Standard threshold report (2026-08-24): abs band + 5/10/15% of z-extent
+    # on every eval, from the recorded trajectories. Sidecar JSON feeds
+    # eval_report_html --thresholds-json.
+    from eval_thresholds import analyze
+
+    z_tol = float(cfg.get("reward", {}).get("z_tolerance", 10.0))
+    text, table = analyze(results, abs_tol=z_tol)
+    print("\n" + text, flush=True)
+    with open(args.output + ".thresholds.json", "w") as f:
+        json.dump(table, f, indent=2)
     return 0
 
 

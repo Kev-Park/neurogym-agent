@@ -28,6 +28,57 @@ def crossed(zs, z_max, tol) -> bool:
     return any(abs(z - z_max) <= tol for z in zs)
 
 
+def analyze(rows, abs_tol: float = 10.0, fracs=(0.05, 0.10, 0.15)):
+    """Threshold table over per_pair rows carrying z_min/z_max/z_series.
+
+    Returns (text, table_dict): printable report + the JSON shape
+    eval_report_html --thresholds-json consumes. Overall rates are computed
+    per-episode across ALL rows (sample-weighted); quartile buckets are
+    equal-count by construction (quantiles of the rows' own lengths).
+    """
+    lengths = np.asarray([r["length_nm"] for r in rows])
+    q1, q2, q3 = np.quantile(lengths, [0.25, 0.5, 0.75])
+    buckets = [("q1", -np.inf, q1), ("q2", q1, q2), ("q3", q2, q3), ("q4", q3, np.inf)]
+    extents = np.asarray([r["z_max"] - r["z_min"] for r in rows])
+
+    lines = [
+        f"[thresholds] n={len(rows)}  z-extent: median {np.median(extents):.0f} vox "
+        f"(q25 {np.quantile(extents, .25):.0f} / q75 {np.quantile(extents, .75):.0f}); "
+        f"abs +/-{abs_tol:g} vox as +/-% of extent: median "
+        f"{np.median(abs_tol / extents * 100):.2f}%"
+    ]
+    crit = [("abs +/-%g vox" % abs_tol, lambda r: abs_tol)]
+    crit += [("+/-%g%% extent" % (f * 100),
+              lambda r, f=f: f * (r["z_max"] - r["z_min"])) for f in fracs]
+
+    lines.append(f'{"criterion":<18}{"overall":>9}'
+                 + "".join(f"{b[0]:>8}" for b in buckets))
+    table = []
+    for name, tol_fn in crit:
+        wins = [crossed(r["z_series"], r["z_max"], tol_fn(r)) for r in rows]
+        cells = []
+        row = {"criterion": name,
+               "overall": round(100 * sum(wins) / len(wins), 1)}
+        for blab, lo, hi in buckets:
+            sel = [w for w, r in zip(wins, rows) if lo <= r["length_nm"] < hi]
+            row[blab] = round(100 * sum(sel) / len(sel), 1) if sel else None
+            cells.append(f"{row[blab]:>7.1f}%" if sel else "     --")
+        table.append(row)
+        lines.append(f"{name:<18}{row['overall']:>8.1f}%" + "".join(cells))
+
+    abs_crossings = sum(crossed(r["z_series"], r["z_max"], abs_tol) for r in rows)
+    reported = sum(1 for r in rows if r["terminated"])
+    if abs_crossings != reported:
+        lines.append(
+            f"[thresholds] WARNING: abs-band crossings ({abs_crossings}) != run's "
+            f"own terminations ({reported}) — check abs-tol matches the run config")
+    return "\n".join(lines), {
+        "n": len(rows),
+        "extent_median_vox": round(float(np.median(extents))),
+        "rows": table,
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", required=True)
@@ -47,48 +98,12 @@ def main() -> int:
     if data.get("summary", {}).get("partial"):
         print(f"[thresholds] NOTE: partial results file ({len(rows)} pairs)")
 
-    lengths = np.asarray([r["length_nm"] for r in rows])
-    q1, q2, q3 = np.quantile(lengths, [0.25, 0.5, 0.75])
-    buckets = [("q1", -np.inf, q1), ("q2", q1, q2), ("q3", q2, q3), ("q4", q3, np.inf)]
-    extents = np.asarray([r["z_max"] - r["z_min"] for r in rows])
-    fracs = [float(x) for x in args.fracs.split(",")]
-
-    print(f"[thresholds] n={len(rows)}  z-extent: median {np.median(extents):.0f} vox "
-          f"(q25 {np.quantile(extents, .25):.0f} / q75 {np.quantile(extents, .75):.0f}); "
-          f"abs +/-{args.abs_tol:g} vox = {np.median(2 * args.abs_tol / extents * 100):.2f}% "
-          f"of median extent (as +/-% of extent: median "
-          f"{np.median(args.abs_tol / extents * 100):.2f}%)")
-
-    crit = [("abs +/-%g vox" % args.abs_tol, lambda r: args.abs_tol)]
-    crit += [("+/-%g%% extent" % (f * 100),
-              lambda r, f=f: f * (r["z_max"] - r["z_min"])) for f in fracs]
-
-    hdr = f'{"criterion":<18}{"overall":>9}' + "".join(f"{b[0]:>8}" for b in buckets)
-    print(hdr)
-    sanity = None
-    table = []
-    for name, tol_fn in crit:
-        wins = [crossed(r["z_series"], r["z_max"], tol_fn(r)) for r in rows]
-        cells = []
-        row = {"criterion": name,
-               "overall": round(100 * sum(wins) / len(wins), 1)}
-        for blab, lo, hi in buckets:
-            sel = [w for w, r in zip(wins, rows) if lo <= r["length_nm"] < hi]
-            row[blab] = round(100 * sum(sel) / len(sel), 1) if sel else None
-            cells.append(f"{row[blab]:>7.1f}%" if sel else "     --")
-        table.append(row)
-        print(f"{name:<18}{row['overall']:>8.1f}%" + "".join(cells))
-        if sanity is None:
-            sanity = sum(wins)
+    text, table = analyze(rows, args.abs_tol,
+                          [float(x) for x in args.fracs.split(",")])
+    print(text)
     if args.json:
         with open(args.json, "w") as f:
-            json.dump({"n": len(rows),
-                       "extent_median_vox": round(float(np.median(extents))),
-                       "rows": table}, f, indent=2)
-    reported = sum(1 for r in rows if r["terminated"])
-    if sanity != reported:
-        print(f"[thresholds] WARNING: abs-band crossings ({sanity}) != run's own "
-              f"terminations ({reported}) — check abs-tol matches the run config")
+            json.dump(table, f, indent=2)
     return 0
 
 

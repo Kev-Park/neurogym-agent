@@ -48,6 +48,7 @@ class FlywireSkeletonProvider:
         projection_scale: float = 14000.0,
         cross_section_scale: float = 2.0,
         root_ids: list[str] | None = None,
+        exclude_root_ids: list[str] | None = None,
     ):
         self.parquet_path = str(parquet_path)
         self._con = duckdb.connect()
@@ -67,6 +68,12 @@ class FlywireSkeletonProvider:
                 "SELECT DISTINCT root_id FROM skeletons"
             ).fetchall()
             self._root_ids = [str(r[0]) for r in rows]
+        # Eval-holdout separation: drop the frozen eval pool's segments from
+        # the training distribution (explicit `segment_id` reset options — the
+        # eval CLI's path — bypass this list on purpose).
+        if exclude_root_ids:
+            excl = {str(r) for r in exclude_root_ids}
+            self._root_ids = [r for r in self._root_ids if r not in excl]
         if not self._root_ids:
             raise ValueError(f"no root_ids found in {self.parquet_path}")
 

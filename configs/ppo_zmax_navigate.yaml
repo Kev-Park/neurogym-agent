@@ -8,6 +8,10 @@
 
 env:
   parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  # Frozen eval pool held OUT of training resets (200 of 124k root_ids) so
+  # eval_d0 scores unseen neurons. Added 2026-08-24 — runs before this
+  # (incl. coord-test-v7) trained WITHOUT the holdout.
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
   orientation: euler          # MultiDiscrete rotate bins map to delta_orient (dim 3)
   headless: true
   renderer: gpu               # needs a vulkan-capable node (CLAUDE.md "Node quirks")
@@ -38,6 +42,13 @@ obs:
 model:
   pos_hidden_dim: 64        # legacy DinoFeaturesExtractor default
   trunk_hiddens: [256, 256]
+  # Per-branch max-entropy normalization (2026-08-24): removes the entropy
+  # regularizer's structural pull toward the high-entropy click branch
+  # (ln1024 vs zoom's ln9) that starved the zoom verb in v7 (0.14% usage).
+  # Zoom gets no explicit reward — it must earn its keep implicitly; this
+  # only stops the bonus from taxing it. Changes entropy scale [0,~8]->[0,2]:
+  # entropy_coeff below is scaled x4 to compensate.
+  normalize_entropy: true
 
 action:
   grid_rows: 32
@@ -58,9 +69,10 @@ ppo:
   train_batch_size: 2000
   sgd_minibatch_size: 256
   num_sgd_iter: 4
-  # Legacy ent-coef schedule (0.05 -> 0.001); RLlib's default is ~0, which
-  # leaves the 1024-way click head with no exploration pressure.
-  entropy_coeff: [[0, 0.05], [900000, 0.001]]
+  # Legacy ent-coef schedule was 0.05 -> 0.001 against unnormalized entropy
+  # (range ~[0,8]); with model.normalize_entropy (range [0,2]) the schedule
+  # is scaled x4 to keep the effective exploration pressure comparable.
+  entropy_coeff: [[0, 0.2], [900000, 0.004]]
   gamma: 0.99
   lambda: 0.95
   clip_param: 0.2

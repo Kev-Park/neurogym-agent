@@ -66,7 +66,19 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         ec = {**ec, "left_pane": True, "right_pane": True, "image_size": None,
               "capture_scale": ec.get("capture_scale", 0.5)}
 
-    provider = FlywireSkeletonProvider(ec["parquet_path"])
+    # env.holdout_parquet: a frozen eval pool whose root_ids are EXCLUDED from
+    # training resets, so eval measures unseen-neuron generalization. The eval
+    # CLI resets with explicit states and is unaffected.
+    exclude = None
+    if ec.get("holdout_parquet"):
+        import pyarrow.parquet as pq
+
+        exclude = [
+            str(r) for r in
+            pq.read_table(ec["holdout_parquet"], columns=["root_id"])
+            .column("root_id").to_pylist()
+        ]
+    provider = FlywireSkeletonProvider(ec["parquet_path"], exclude_root_ids=exclude)
     rcfg = ZRewardConfig(
         z_tolerance=rc["z_tolerance"],
         success=rc["success"],
