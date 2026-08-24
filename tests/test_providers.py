@@ -95,3 +95,27 @@ def test_exclude_root_ids_holdout(parquet):
 def test_exclude_all_raises(parquet):
     with pytest.raises(ValueError):
         FlywireSkeletonProvider(parquet, exclude_root_ids=["A", "B"])
+
+def test_projection_scale_fixed_by_default(parquet):
+    prov = FlywireSkeletonProvider(parquet)
+    rng = np.random.default_rng(0)
+    state, _ = prov(rng, None)
+    assert state["projectionScale"] == 14000.0
+
+
+def test_projection_scale_range_sampling(parquet):
+    prov = FlywireSkeletonProvider(parquet, projection_scale_range=(3500, 14000))
+    rng = np.random.default_rng(0)
+    scales = [prov(rng, None)[0]["projectionScale"] for _ in range(50)]
+    assert all(3500 <= s <= 14000 for s in scales)
+    assert max(scales) - min(scales) > 2000  # actually varies
+    # seeded reproducibility
+    again = [prov(np.random.default_rng(0), None)[0]["projectionScale"]][0]
+    assert again == scales[0]
+
+
+def test_projection_scale_range_validation(parquet):
+    with pytest.raises(ValueError):
+        FlywireSkeletonProvider(parquet, projection_scale_range=(0, 14000))
+    with pytest.raises(ValueError):
+        FlywireSkeletonProvider(parquet, projection_scale_range=(5000, 100))

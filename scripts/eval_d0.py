@@ -54,13 +54,20 @@ def _random_quaternion(rng: np.random.Generator) -> list[float]:
 
 
 class StateBuilder:
-    """Assemble (NglState, task_info) for eval pairs from skeleton data."""
+    """Assemble (NglState, task_info) for eval pairs from skeleton data.
+
+    projection_scale_range mirrors the training provider's spawn-zoom
+    sampling (log-uniform, drawn from the pair's own seeded rng AFTER the
+    orientation quaternion — same pair + seed base => same state, frozen).
+    """
 
     def __init__(self, skeleton_parquet: str,
                  projection_scale: float = 14000.0,
-                 cross_section_scale: float = 2.0):
+                 cross_section_scale: float = 2.0,
+                 projection_scale_range: tuple[float, float] | None = None):
         self.projection_scale = projection_scale
         self.cross_section_scale = cross_section_scale
+        self.projection_scale_range = projection_scale_range
         self._con = duckdb.connect()
         esc = skeleton_parquet.replace("'", "''")
         self._con.execute(
@@ -83,10 +90,15 @@ class StateBuilder:
         z_min = float(res["z"].min())
 
         rng = np.random.default_rng(orientation_seed)
+        orientation = _random_quaternion(rng)
+        ps = self.projection_scale
+        if self.projection_scale_range is not None:
+            lo, hi = self.projection_scale_range
+            ps = float(np.exp(rng.uniform(math.log(lo), math.log(hi))))
         state = {
             "position": [x, y, z],
-            "projectionOrientation": _random_quaternion(rng),
-            "projectionScale": self.projection_scale,
+            "projectionOrientation": orientation,
+            "projectionScale": ps,
             "crossSectionScale": self.cross_section_scale,
             "segments": [root_id],
         }
@@ -233,7 +245,12 @@ def main() -> int:
         policy = CheckpointPolicy(args.checkpoint)
         print("[eval] policy: checkpoint loaded", flush=True)
 
-    builder = StateBuilder(args.skeleton)
+    # Spawn-zoom range follows the config so evals match training's reset
+    # distribution (protocol note: results under a range are not comparable
+    # to fixed-scale runs).
+    psr = cfg.get("env", {}).get("projection_scale_range")
+    builder = StateBuilder(args.skeleton,
+                           projection_scale_range=tuple(psr) if psr else None)
 
     # Viewer-z extraction across obs modes (dino Dict / pos flat vector / raw).
     # pos_state carries z scaled by the config divisor; undo it for analysis.

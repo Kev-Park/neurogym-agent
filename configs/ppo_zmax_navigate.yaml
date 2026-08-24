@@ -12,6 +12,14 @@ env:
   # eval_d0 scores unseen neurons. Added 2026-08-24 — runs before this
   # (incl. coord-test-v7) trained WITHOUT the holdout.
   holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
+  # Spawn zoom sampled log-uniform per episode (2026-08-24; was fixed 14000).
+  # Zoomed-in spawns make zoom-relevant states part of the training
+  # distribution — the fixed-scale v7 policy never learned the zoom verb
+  # (0.14% usage). 3500 = 4x zoomed-in vs default; ~5 zoom actions of
+  # headroom (bins +/-2000/step). Eval StateBuilder samples the same range
+  # (seeded per pair) — evals under this range are protocol v2, not
+  # comparable to v7's fixed-14000 numbers.
+  projection_scale_range: [3500, 14000]
   orientation: euler          # MultiDiscrete rotate bins map to delta_orient (dim 3)
   headless: true
   renderer: gpu               # needs a vulkan-capable node (CLAUDE.md "Node quirks")

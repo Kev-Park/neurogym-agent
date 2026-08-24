@@ -72,6 +72,14 @@ def approach_svg(ep: dict) -> str:
 
     pts = " ".join(f"{X(i):.1f},{Y(N(z)):.1f}" for i, z in enumerate(zs))
     band_top, band_bot = Y(1 + tol / abs(span)), Y(1 - tol / abs(span))
+    # The abs band is ~0.5% of a typical extent — sub-pixel at chart scale.
+    # Enforce a minimum visual height so "ended at 1.0 yet failed" is legible
+    # as "just outside the (thin) success band", and draw a light +/-5%-of-
+    # extent reference band behind it for context.
+    if band_bot - band_top < 3.0:
+        mid = (band_bot + band_top) / 2
+        band_top, band_bot = mid - 1.5, mid + 1.5
+    ref_top, ref_bot = Y(1.05), Y(0.95)
     gy = [f'<line x1="{ml}" y1="{Y(v):.1f}" x2="{W - mr}" y2="{Y(v):.1f}" class="grid"/>'
           f'<text x="{ml - 6}" y="{Y(v) + 4:.1f}" class="tick" text-anchor="end">{v:g}</text>'
           for v in (0, 0.5)]
@@ -80,6 +88,7 @@ def approach_svg(ep: dict) -> str:
     end_x, end_y = X(len(zs) - 1), Y(N(zs[-1]))
     ok = ep["outcome"] == "success"
     return f'''<svg viewBox="0 0 {W} {H}" role="img" aria-label="approach curve">
+<rect x="{ml}" y="{ref_top:.1f}" width="{iw}" height="{ref_bot - ref_top:.1f}" class="band5"/>
 <rect x="{ml}" y="{band_top:.1f}" width="{iw}" height="{band_bot - band_top:.1f}" class="band"/>
 <line x1="{ml}" y1="{Y(1):.1f}" x2="{W - mr}" y2="{Y(1):.1f}" class="target"/>
 <text x="{ml - 6}" y="{Y(1) + 4:.1f}" class="tick target-t" text-anchor="end">1.0</text>
@@ -139,6 +148,7 @@ svg { width:100%; height:auto; display:block; }
 .target { stroke:var(--accent); stroke-width:1.4; stroke-dasharray:5 4; }
 .target-t { fill:var(--accent); }
 .band { fill:var(--band); }
+.band5 { fill:var(--chip); }
 .curve { fill:none; stroke-width:2; } .curve-ok { stroke:var(--ok); } .curve-no { stroke:var(--no); }
 .dot-ok { fill:var(--ok); } .dot-no { fill:var(--no); }
 .spawn { fill:none; stroke:var(--muted); stroke-width:1.6; }
@@ -231,7 +241,10 @@ eval pool (eval_d0_v1, 200 pairs, seed 42). Each episode: rollout video beside i
 {"".join(sections)}
 <footer>Curves: y = (z &minus; z<sub>min</sub>) / (z<sub>max</sub> &minus; z<sub>min</sub>) — the neuron&rsquo;s own
 z-extent, 0 = lowest skeleton node, 1.0 = target; hollow marker = spawn height; clamped for display.
-Videos re-encoded (crf {args.crf}) from the archival MP4s in eval_videos/.</footer>
+Green band = the ACTUAL success criterion (drawn with a minimum height — to scale it is often
+sub-pixel, which is why curves can end &ldquo;at 1.0&rdquo; and still be timeouts); grey band =
+&plusmn;5% of extent, for reference. Videos re-encoded (crf {args.crf}) from the archival MP4s
+in eval_videos/.</footer>
 </main>'''
 
     with open(args.output, "w", encoding="utf-8") as f:

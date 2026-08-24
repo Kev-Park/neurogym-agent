@@ -78,7 +78,12 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
             pq.read_table(ec["holdout_parquet"], columns=["root_id"])
             .column("root_id").to_pylist()
         ]
-    provider = FlywireSkeletonProvider(ec["parquet_path"], exclude_root_ids=exclude)
+    psr = ec.get("projection_scale_range")
+    provider = FlywireSkeletonProvider(
+        ec["parquet_path"],
+        projection_scale_range=tuple(psr) if psr else None,
+        exclude_root_ids=exclude,
+    )
     rcfg = ZRewardConfig(
         z_tolerance=rc["z_tolerance"],
         success=rc["success"],

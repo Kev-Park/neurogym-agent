@@ -129,7 +129,9 @@ def main() -> int:
 
     policy = StatePklPolicy(args.state_pkl, env, cfg.get("model", {}),
                             stochastic=True)
-    builder = StateBuilder(args.skeleton)
+    psr = cfg.get("env", {}).get("projection_scale_range")
+    builder = StateBuilder(args.skeleton,
+                           projection_scale_range=tuple(psr) if psr else None)
 
     pairs = pq.read_table(args.eval_d0).to_pylist()
     lengths = np.asarray([p["length_nm"] for p in pairs])

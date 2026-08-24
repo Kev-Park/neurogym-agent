@@ -47,6 +47,7 @@ class FlywireSkeletonProvider:
         *,
         projection_scale: float = 14000.0,
         cross_section_scale: float = 2.0,
+        projection_scale_range: tuple[float, float] | None = None,
         root_ids: list[str] | None = None,
         exclude_root_ids: list[str] | None = None,
     ):
@@ -60,6 +61,18 @@ class FlywireSkeletonProvider:
         )
         self._projection_scale = float(projection_scale)
         self._cross_section_scale = float(cross_section_scale)
+        # Spawn-zoom diversity (2026-08-24): sample projectionScale log-uniform
+        # in [lo, hi] per episode instead of the fixed default. Zoomed-in
+        # spawns put zoom-relevant states in the training distribution (the
+        # fixed-scale v7 policy used the zoom verb on 0.14% of steps).
+        self._projection_scale_range = None
+        if projection_scale_range is not None:
+            lo, hi = (float(projection_scale_range[0]),
+                      float(projection_scale_range[1]))
+            if not (0 < lo <= hi):
+                raise ValueError(
+                    f"projection_scale_range must be 0 < lo <= hi; got {lo}, {hi}")
+            self._projection_scale_range = (lo, hi)
 
         if root_ids is not None:
             self._root_ids = [str(r) for r in root_ids]
@@ -87,10 +100,14 @@ class FlywireSkeletonProvider:
         nodes = self._nodes(root_id)
         start = nodes[int(rng.integers(len(nodes)))]
 
+        ps = self._projection_scale
+        if self._projection_scale_range is not None:
+            lo, hi = self._projection_scale_range
+            ps = float(np.exp(rng.uniform(np.log(lo), np.log(hi))))
         state: "NglState" = {
             "position": [float(start[0]), float(start[1]), float(start[2])],
             "projectionOrientation": _random_quaternion(rng),
-            "projectionScale": self._projection_scale,
+            "projectionScale": ps,
             "crossSectionScale": self._cross_section_scale,
             "segments": [root_id],
         }
