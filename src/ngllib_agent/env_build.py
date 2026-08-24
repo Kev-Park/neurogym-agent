@@ -89,6 +89,7 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         success=rc["success"],
         z_shaping_coef=rc["z_shaping_coef"],
         step_penalty=rc["step_penalty"],
+        z_tolerance_frac=rc.get("z_tolerance_frac"),
     )
 
     image_size = ec.get("image_size")

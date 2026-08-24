@@ -69,6 +69,12 @@ action:
 
 reward:
   z_tolerance: 10.0
+  # Proportional success band (2026-08-24): tol = max(z_tolerance, frac *
+  # z-extent). +/-5% of extent = +/-93 vox on the median eval neuron; the
+  # data said the abs +/-10 band (median +/-0.54% of extent) made the q4
+  # deficit a fine-approach artifact. z_tolerance above stays as the floor.
+  # Runs before this (incl. v7) trained/evaled on the absolute band.
+  z_tolerance_frac: 0.05
   success: 1.0
   z_shaping_coef: 0.001
   step_penalty: 0.0

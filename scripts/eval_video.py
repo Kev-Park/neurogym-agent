@@ -171,7 +171,12 @@ def main() -> int:
 
             outcome = "success" if terminated else "failure"
             z_final, z_max = zs[-1], float(task_info["z_max"])
-            z_tol = float(cfg["reward"]["z_tolerance"])
+            from ngllib_agent.rewards import ZRewardConfig, effective_z_tolerance
+            rc = cfg["reward"]
+            z_tol = effective_z_tolerance(
+                ZRewardConfig(z_tolerance=rc["z_tolerance"],
+                              z_tolerance_frac=rc.get("z_tolerance_frac")),
+                task_info)
             print(f"[video] {label} pair {pair_idx} ({pair['length_nm']} nm): "
                   f"{outcome} steps={steps} return={ep_return:.3f} "
                   f"dz_final={z_final - z_max:+.1f} frames={len(frames)}",

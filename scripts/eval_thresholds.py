@@ -28,13 +28,20 @@ def crossed(zs, z_max, tol) -> bool:
     return any(abs(z - z_max) <= tol for z in zs)
 
 
-def analyze(rows, abs_tol: float = 10.0, fracs=(0.05, 0.10, 0.15)):
+def analyze(rows, abs_tol: float = 10.0, fracs=(0.05, 0.10, 0.15),
+            run_frac: float | None = None):
     """Threshold table over per_pair rows carrying z_min/z_max/z_series.
 
     Returns (text, table_dict): printable report + the JSON shape
     eval_report_html --thresholds-json consumes. Overall rates are computed
     per-episode across ALL rows (sample-weighted); quartile buckets are
     equal-count by construction (quantiles of the rows' own lengths).
+
+    run_frac: the run's OWN termination fraction (None = the abs band was the
+    run criterion) — used only for the crossings-vs-terminations sanity check.
+    Caveat for the non-criterion rows: episodes END at the run's band, so
+    rows tighter than the criterion are lower bounds (the episode stops
+    before it could reach the tighter band).
     """
     lengths = np.asarray([r["length_nm"] for r in rows])
     q1, q2, q3 = np.quantile(lengths, [0.25, 0.5, 0.75])
@@ -66,12 +73,17 @@ def analyze(rows, abs_tol: float = 10.0, fracs=(0.05, 0.10, 0.15)):
         table.append(row)
         lines.append(f"{name:<18}{row['overall']:>8.1f}%" + "".join(cells))
 
-    abs_crossings = sum(crossed(r["z_series"], r["z_max"], abs_tol) for r in rows)
+    def _run_tol(r):
+        if run_frac is None:
+            return abs_tol
+        return max(abs_tol, run_frac * (r["z_max"] - r["z_min"]))
+
+    run_crossings = sum(crossed(r["z_series"], r["z_max"], _run_tol(r)) for r in rows)
     reported = sum(1 for r in rows if r["terminated"])
-    if abs_crossings != reported:
+    if run_crossings != reported:
         lines.append(
-            f"[thresholds] WARNING: abs-band crossings ({abs_crossings}) != run's "
-            f"own terminations ({reported}) — check abs-tol matches the run config")
+            f"[thresholds] WARNING: run-band crossings ({run_crossings}) != run's "
+            f"own terminations ({reported}) — check abs-tol/run-frac vs the run config")
     return "\n".join(lines), {
         "n": len(rows),
         "extent_median_vox": round(float(np.median(extents))),

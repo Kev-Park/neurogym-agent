@@ -26,10 +26,23 @@ class ZRewardConfig:
     success: float = 1.0
     z_shaping_coef: float = 0.001
     step_penalty: float = 0.0
+    # Proportional band (2026-08-24): tol = max(z_tolerance, frac * z-extent),
+    # extent = task_info z_max - z_min. The absolute z_tolerance becomes the
+    # floor (guards degenerate flat segments). None = legacy absolute band
+    # (v7 and earlier). Requires z_min in task_info when set.
+    z_tolerance_frac: float | None = None
 
 
 def _z(obs: dict[str, Any]) -> float:
     return float(np.asarray(obs["position"])[2])
+
+
+def effective_z_tolerance(cfg: ZRewardConfig, task_info: dict[str, Any]) -> float:
+    """The success band half-width for one episode under `cfg`."""
+    if cfg.z_tolerance_frac is None:
+        return cfg.z_tolerance
+    extent = float(task_info["z_max"]) - float(task_info["z_min"])
+    return max(cfg.z_tolerance, cfg.z_tolerance_frac * extent)
 
 
 def make_z_termination_factory(
@@ -39,9 +52,10 @@ def make_z_termination_factory(
 
     def factory(task_info: dict[str, Any]) -> Callable[..., bool]:
         z_max = float(task_info["z_max"])
+        tol = effective_z_tolerance(cfg, task_info)
 
         def terminated_fn(obs, action, prev_obs) -> bool:
-            return abs(_z(obs) - z_max) <= cfg.z_tolerance
+            return abs(_z(obs) - z_max) <= tol
 
         return terminated_fn
 

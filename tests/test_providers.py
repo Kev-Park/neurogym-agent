@@ -38,10 +38,11 @@ def test_call_returns_valid_state_and_task_info(parquet):
     rng = np.random.default_rng(0)
     state, task_info = prov(rng, None)
 
-    assert set(task_info) == {"segment_id", "z_max"}
+    assert set(task_info) == {"segment_id", "z_max", "z_min"}
     rid = task_info["segment_id"]
     assert rid in {"A", "B"}
     assert task_info["z_max"] == (50.0 if rid == "A" else 7.0)
+    assert task_info["z_min"] == (5.0 if rid == "A" else 3.0)
 
     assert state["segments"] == [rid]
     assert len(state["position"]) == 3

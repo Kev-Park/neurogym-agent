@@ -389,7 +389,8 @@ def main() -> int:
     from eval_thresholds import analyze
 
     z_tol = float(cfg.get("reward", {}).get("z_tolerance", 10.0))
-    text, table = analyze(results, abs_tol=z_tol)
+    run_frac = cfg.get("reward", {}).get("z_tolerance_frac")
+    text, table = analyze(results, abs_tol=z_tol, run_frac=run_frac)
     print("\n" + text, flush=True)
     with open(args.output + ".thresholds.json", "w") as f:
         json.dump(table, f, indent=2)

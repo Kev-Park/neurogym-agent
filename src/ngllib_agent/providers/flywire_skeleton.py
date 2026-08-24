@@ -111,7 +111,11 @@ class FlywireSkeletonProvider:
             "crossSectionScale": self._cross_section_scale,
             "segments": [root_id],
         }
-        task_info = {"segment_id": root_id, "z_max": float(nodes[:, 2].max())}
+        task_info = {
+            "segment_id": root_id,
+            "z_max": float(nodes[:, 2].max()),
+            "z_min": float(nodes[:, 2].min()),
+        }
         return state, task_info
 
     def task_info_from_state(self, state: "NglState | str") -> dict[str, Any]:
@@ -123,12 +127,12 @@ class FlywireSkeletonProvider:
         if not segments:
             raise NotImplementedError("state has no `segments` to derive task_info from")
         root_id = str(segments[0])
-        z_max = self._con.execute(
-            "SELECT max(z) FROM skeletons WHERE root_id = ?", [root_id]
-        ).fetchone()[0]
+        z_max, z_min = self._con.execute(
+            "SELECT max(z), min(z) FROM skeletons WHERE root_id = ?", [root_id]
+        ).fetchone()
         if z_max is None:
             raise ValueError(f"root_id {root_id!r} not found in {self.parquet_path}")
-        return {"segment_id": root_id, "z_max": float(z_max)}
+        return {"segment_id": root_id, "z_max": float(z_max), "z_min": float(z_min)}
 
     # -- internals -------------------------------------------------------------
 
