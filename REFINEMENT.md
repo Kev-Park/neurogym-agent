@@ -555,3 +555,37 @@ Jobs 868581/868582/868584, ckpt_000370:
   are log-recoverable. Fix candidate if evals get longer: run the env inside
   ThreadedVectorEnv(1) to inherit the 300s abandon-and-rebuild, or a
   hard per-pair alarm that os._exits (partial JSON flush + resume).
+
+## R11 addendum — eval v2 (instrumented) + threshold study + action census (2026-08-24)
+
+Second full stochastic eval of ckpt_000370 (job 869583, all 200 pairs, no
+wedge; z_series recorded, incremental flush live): **55.5%** overall
+(q1 72 / q2 50 / q3 60 / q4 40) — consistent with R11's 49.6%/139.
+
+Post-hoc tolerance study (eval_thresholds.py, first-crossing on recorded
+trajectories — exact for "would have terminated"):
+
+  criterion       overall   q1    q2    q3    q4
+  abs +/-10 vox    55.5%   72    50    60    40
+  +/-5%  extent    70.5%   80    68    68    66
+  +/-10% extent    82.0%   84    72    82    90
+  +/-15% extent    84.5%   88    74    84    92
+
+Pool median z-extent 1866 vox => abs +/-10 is a median +/-0.54%-of-extent
+band. Key reading: under proportional bands the q4 deficit EVAPORATES
+(40 -> 90% at +/-10%): long neurons reach the target's neighborhood as
+reliably as short ones — the abs-band gap is a FINE-APPROACH problem, not
+gross navigation. Returns saturate past +/-10% (82 -> 84.5). If a
+percentage criterion is adopted, +/-5% keeps discrimination (70.5%).
+
+Action census (video manifests, 2.2k steps): click 63% / rotate 23% /
+**zoom 0.14%** — the zoom verb is effectively unused. Architecture is NOT
+the cause (HierarchicalMultiCategorical verb head is a flat 3-way softmax;
+click's 1024 options are gated behind it): suspects are zoom's zero
+z-shaping payoff + the entropy bonus favoring the high-H click branch
+(H_max log1024 vs log9). Fine-approach levers: per-head-normalized entropy,
+zoom-in shaping near the band, or the percentage criterion itself.
+
+Eval artifact pipeline (all committed): r_eval_video.slurm (HUD: z/target/dz
++ action label) -> eval_report_html.py (embedded MP4s + z_min-based approach
+curves + threshold table) -> claude.ai artifact. z_min now rides task_info.
