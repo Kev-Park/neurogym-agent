@@ -84,9 +84,12 @@ ppo:
   sgd_minibatch_size: 256
   num_sgd_iter: 4
   # Legacy ent-coef schedule was 0.05 -> 0.001 against unnormalized entropy
-  # (range ~[0,8]); with model.normalize_entropy (range [0,2]) the schedule
-  # is scaled x4 to keep the effective exploration pressure comparable.
-  entropy_coeff: [[0, 0.2], [900000, 0.004]]
+  # (range ~[0,8]); with model.normalize_entropy (range [0,2]) scaled x4.
+  # 2026-08-25 extension (user-approved): v8@370 = 51.0% vs the 64.5%
+  # benchmark — under-trained on the harder varied-zoom distribution with
+  # entropy already flat at 0.004. Re-raised mid-schedule: ~0.037 at the
+  # 1.6M-step resume point, decaying to 0.01 by 3M.
+  entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
   gamma: 0.99
   lambda: 0.95
   clip_param: 0.2
