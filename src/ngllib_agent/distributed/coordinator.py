@@ -127,6 +127,13 @@ class Coordinator:
         self.renderers: list[ManagedProcess] = []
         self.stopped = False
         self.respawns = {"learner": 0, "renderer": 0, "promoted_renderer_to_learner": 0}
+        # Capture the working directory as a STRING and pass it to every
+        # subprocess (2026-08-24): a long-lived coordinator's inherited CWD
+        # handle goes stale when the login node's automount cycles (observed
+        # after a 3h50m salloc wait: every srun died client-side with
+        # "getcwd failed: No such file or directory", 112x). An explicit cwd=
+        # re-resolves the path at each exec instead.
+        self._workdir = os.getcwd()
         self.salloc_resubmissions = 0
         self._teardown_done = False
         self._launch_counter = 0  # monotonic per-worker id for log naming
@@ -190,7 +197,7 @@ class Coordinator:
             cmd += ["--exclude", self.args.exclude]
 
         logger.info("salloc: %s", " ".join(cmd))
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=self._workdir)
         # salloc prints "salloc: Granted job allocation N" on stderr in most SLURM setups.
         blob = (result.stderr or "") + (result.stdout or "")
         jobid = None
@@ -239,6 +246,7 @@ class Coordinator:
             stdout=stdout_target,   # None -> inherit; or DEVNULL if --output pinned
             stderr=stderr_target,
             stdin=subprocess.DEVNULL,
+            cwd=self._workdir,
         )
         if role == "learner":
             self._progress_changed_mono = time.monotonic()
