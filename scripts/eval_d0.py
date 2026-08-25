@@ -215,11 +215,26 @@ def main() -> int:
     args = ap.parse_args()
 
     # Build env same shape as training.
+    import signal
+
     from ngllib_agent.env_build import build_env, load_config
     cfg = load_config(args.config)
     if args.obs is not None:
         cfg.setdefault("obs", {})["mode"] = args.obs
     env = build_env(cfg)
+
+    # Per-pair SIGALRM hard cap (2026-08-25): the single-env loop has no
+    # vector-level backstop, and a playwright greenlet wedge after a watchdog
+    # kill blocks the main thread forever (jobs 868584/870639). The alarm
+    # interrupts the blocked call; the pair is recorded as a wedged failure
+    # and the env rebuilt.
+    class EpisodeTimeout(Exception):
+        pass
+
+    def _on_alarm(signum, frame):  # noqa: ARG001
+        raise EpisodeTimeout()
+
+    signal.signal(signal.SIGALRM, _on_alarm)
 
     # Load eval pairs.
     d0_tbl = pq.read_table(args.eval_d0)
@@ -274,20 +289,41 @@ def main() -> int:
         seed = args.orientation_seed_base + pair_idx
         state, task_info = builder.build(root_id, node_index, seed)
 
-        obs, info = env.reset(options={"state": state, "task_info": task_info})
         terminated = False
         truncated = False
         steps_taken = 0
         ep_return = 0.0
-        z_series = [round(_z_of(obs), 1)]
-        for step in range(args.max_steps):
-            action = policy.act(obs)
-            obs, reward, terminated, truncated, info = env.step(action)
-            ep_return += float(reward)
+        z_series: list[float] = []
+        wedged = False
+        signal.alarm(600)
+        try:
+            obs, info = env.reset(options={"state": state, "task_info": task_info})
             z_series.append(round(_z_of(obs), 1))
-            steps_taken = step + 1
-            if terminated or truncated:
-                break
+            for step in range(args.max_steps):
+                action = policy.act(obs)
+                obs, reward, terminated, truncated, info = env.step(action)
+                ep_return += float(reward)
+                z_series.append(round(_z_of(obs), 1))
+                steps_taken = step + 1
+                if terminated or truncated:
+                    break
+        except EpisodeTimeout:
+            wedged = True
+            truncated = True
+            print(f"[eval] pair {i+1}: WEDGED past 600s — recording as failure, "
+                  "rebuilding env", flush=True)
+            signal.alarm(30)  # close() on a wedged env can hang too
+            try:
+                env.close()
+            except Exception:
+                pass
+            finally:
+                signal.alarm(0)
+            env = build_env(cfg)
+        finally:
+            signal.alarm(0)
+        if wedged and not z_series:
+            z_series = [round(float(np.asarray(state["position"])[2]), 1)]
 
         results.append({
             "pair_idx": pair_idx,
@@ -301,6 +337,7 @@ def main() -> int:
             "z_min": round(task_info["z_min"], 1),
             "z_max": round(task_info["z_max"], 1),
             "z_series": z_series,
+            "wedged": wedged,
         })
         # Incremental flush: the single-env eval loop has no vector-level hang
         # backstop (a playwright wedge lost pairs 143-200 of one run to

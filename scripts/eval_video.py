@@ -22,10 +22,22 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import sys
 
 import numpy as np
 import pyarrow.parquet as pq
+
+
+class EpisodeTimeout(Exception):
+    """SIGALRM-raised hard cap on one episode (reset+steps+encode).
+
+    The single-env loop has no vector-level backstop: a playwright greenlet
+    wedge after a watchdog kill blocks the main thread forever (py-spy
+    verified; process kills can't unblock the sync caller). SIGALRM
+    interrupts the blocked select() and raises here; the loop rebuilds the
+    env and moves on. Main-thread only — both eval scripts qualify.
+    """
 
 os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
 
@@ -99,36 +111,48 @@ def main() -> int:
 
     cfg = load_config(args.config)
     cfg.setdefault("obs", {})["mode"] = "dino"
-    env = build_env(cfg)
 
-    # Locate the DINO obs wrapper and tap raw frames as observations flow
-    # through. DinoObservationWrapper is a factory returning a nested class
-    # (lazy gym import), so match by shape: the ObservationWrapper whose INNER
-    # env still exposes the raw "image" space.
-    dino_w = env
-    while True:
-        inner = getattr(dino_w, "env", None)
-        if inner is None:
-            raise RuntimeError("no image->features wrapper found in env stack")
-        inner_space = getattr(inner, "observation_space", None)
-        if (hasattr(dino_w, "observation")
-                and isinstance(inner_space, gym.spaces.Dict)
-                and "image" in inner_space.spaces):
-            break
-        dino_w = inner
     frames: list[np.ndarray] = []
     zs: list[float] = []
-    orig_observation = dino_w.observation
 
-    def tapped(obs):
-        frames.append(np.asarray(obs["image"], dtype=np.uint8).copy())
-        zs.append(float(np.asarray(obs["position"])[2]))
-        return orig_observation(obs)
+    def make_tapped_env():
+        """build_env + frame tap; also the wedge-recovery rebuild path.
 
-    dino_w.observation = tapped
+        Locate the DINO obs wrapper and tap raw frames as observations flow
+        through. DinoObservationWrapper is a factory returning a nested class
+        (lazy gym import), so match by shape: the ObservationWrapper whose
+        INNER env still exposes the raw "image" space.
+        """
+        env = build_env(cfg)
+        dino_w = env
+        while True:
+            inner = getattr(dino_w, "env", None)
+            if inner is None:
+                raise RuntimeError("no image->features wrapper found in env stack")
+            inner_space = getattr(inner, "observation_space", None)
+            if (hasattr(dino_w, "observation")
+                    and isinstance(inner_space, gym.spaces.Dict)
+                    and "image" in inner_space.spaces):
+                break
+            dino_w = inner
+        orig_observation = dino_w.observation
 
+        def tapped(obs):
+            frames.append(np.asarray(obs["image"], dtype=np.uint8).copy())
+            zs.append(float(np.asarray(obs["position"])[2]))
+            return orig_observation(obs)
+
+        dino_w.observation = tapped
+        return env
+
+    env = make_tapped_env()
     policy = StatePklPolicy(args.state_pkl, env, cfg.get("model", {}),
                             stochastic=True)
+
+    def _on_alarm(signum, frame):  # noqa: ARG001
+        raise EpisodeTimeout()
+
+    signal.signal(signal.SIGALRM, _on_alarm)
     psr = cfg.get("env", {}).get("projection_scale_range")
     builder = StateBuilder(args.skeleton,
                            projection_scale_range=tuple(psr) if psr else None)
@@ -155,19 +179,35 @@ def main() -> int:
 
             frames.clear()
             zs.clear()
-            obs, _ = env.reset(options={"state": state, "task_info": task_info})
-            terminated = truncated = False
-            ep_return, steps = 0.0, 0
-            labels: list[str] = []
             spec = action_spec_from_config(cfg["action"])
-            for _ in range(args.max_steps):
-                action = policy.act(obs)
-                labels.append(action_label(action, spec))
-                obs, reward, terminated, truncated, _ = env.step(action)
-                ep_return += float(reward)
-                steps += 1
-                if terminated or truncated:
-                    break
+            signal.alarm(600)  # hard cap: reset + 300 steps + encode
+            try:
+                obs, _ = env.reset(options={"state": state, "task_info": task_info})
+                terminated = truncated = False
+                ep_return, steps = 0.0, 0
+                labels: list[str] = []
+                for _ in range(args.max_steps):
+                    action = policy.act(obs)
+                    labels.append(action_label(action, spec))
+                    obs, reward, terminated, truncated, _ = env.step(action)
+                    ep_return += float(reward)
+                    steps += 1
+                    if terminated or truncated:
+                        break
+            except EpisodeTimeout:
+                print(f"[video] {label} pair {pair_idx}: WEDGED past 600s — "
+                      "rebuilding env, skipping pair", flush=True)
+                signal.alarm(30)  # close() on a wedged env can hang too
+                try:
+                    env.close()
+                except Exception:
+                    pass
+                finally:
+                    signal.alarm(0)
+                env = make_tapped_env()
+                continue
+            finally:
+                signal.alarm(0)
 
             outcome = "success" if terminated else "failure"
             z_final, z_max = zs[-1], float(task_info["z_max"])
