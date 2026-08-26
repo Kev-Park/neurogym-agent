@@ -22,7 +22,9 @@ export PYTHONUNBUFFERED=1
 
 PKL=${1:?state pickle path}
 OUT=${2:?output subdir under eval_videos/}
+shift 2
+EXTRA_ARGS=("$@")
 
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/eval_video.py \
     --eval-d0 eval_d0_v1.parquet --skeleton segment_positions.parquet \
-    --state-pkl "$PKL" --out-dir "eval_videos/$OUT"
+    --state-pkl "$PKL" --out-dir "eval_videos/$OUT" "${EXTRA_ARGS[@]}"

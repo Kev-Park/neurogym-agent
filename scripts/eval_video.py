@@ -100,6 +100,10 @@ def main() -> int:
     ap.add_argument("--max-steps", type=int, default=300)
     ap.add_argument("--orientation-seed-base", type=int, default=1000)
     ap.add_argument("--attempts-per-quartile", type=int, default=6)
+    ap.add_argument("--root-ids", default="",
+                    help="Comma-separated root_ids: roll each named neuron "
+                         "once and keep every episode (targeted probe mode; "
+                         "quartile sampling is skipped).")
     ap.add_argument("--fps", type=int, default=10)
     args = ap.parse_args()
 
@@ -165,87 +169,107 @@ def main() -> int:
 
     os.makedirs(args.out_dir, exist_ok=True)
     manifest = []
-    for label, lo, hi in buckets:
-        bucket_pairs = [p for p in pairs if lo <= p["length_nm"] < hi]
-        got = {"success": False, "failure": False}
-        for attempt, pair in enumerate(bucket_pairs[: args.attempts_per_quartile]):
-            if all(got.values()):
-                break
-            pair_idx = int(pair["pair_idx"])
-            seed = args.orientation_seed_base + pair_idx
-            torch.manual_seed(seed)
-            state, task_info = builder.build(
-                str(pair["root_id"]), int(pair["node_index"]), seed)
+    spec = action_spec_from_config(cfg["action"])
 
-            frames.clear()
-            zs.clear()
-            spec = action_spec_from_config(cfg["action"])
-            signal.alarm(600)  # hard cap: reset + 300 steps + encode
+    from ngllib_agent.rewards import ZRewardConfig, effective_z_tolerance
+    rc = cfg["reward"]
+    rcfg = ZRewardConfig(z_tolerance=rc["z_tolerance"],
+                         z_tolerance_frac=rc.get("z_tolerance_frac"))
+
+    def run_pair(label, pair, got=None):
+        """Roll one episode; encode + record it unless `got` already covers
+        its outcome. Returns the outcome, or None on a wedge (env rebuilt)."""
+        nonlocal env
+        pair_idx = int(pair["pair_idx"])
+        seed = args.orientation_seed_base + pair_idx
+        torch.manual_seed(seed)
+        state, task_info = builder.build(
+            str(pair["root_id"]), int(pair["node_index"]), seed)
+
+        frames.clear()
+        zs.clear()
+        signal.alarm(600)  # hard cap: reset + 300 steps + encode
+        try:
+            obs, _ = env.reset(options={"state": state, "task_info": task_info})
+            terminated = truncated = False
+            ep_return, steps = 0.0, 0
+            labels: list[str] = []
+            for _ in range(args.max_steps):
+                action = policy.act(obs)
+                labels.append(action_label(action, spec))
+                obs, reward, terminated, truncated, _ = env.step(action)
+                ep_return += float(reward)
+                steps += 1
+                if terminated or truncated:
+                    break
+        except EpisodeTimeout:
+            print(f"[video] {label} pair {pair_idx}: WEDGED past 600s — "
+                  "rebuilding env, skipping pair", flush=True)
+            signal.alarm(30)  # close() on a wedged env can hang too
             try:
-                obs, _ = env.reset(options={"state": state, "task_info": task_info})
-                terminated = truncated = False
-                ep_return, steps = 0.0, 0
-                labels: list[str] = []
-                for _ in range(args.max_steps):
-                    action = policy.act(obs)
-                    labels.append(action_label(action, spec))
-                    obs, reward, terminated, truncated, _ = env.step(action)
-                    ep_return += float(reward)
-                    steps += 1
-                    if terminated or truncated:
-                        break
-            except EpisodeTimeout:
-                print(f"[video] {label} pair {pair_idx}: WEDGED past 600s — "
-                      "rebuilding env, skipping pair", flush=True)
-                signal.alarm(30)  # close() on a wedged env can hang too
-                try:
-                    env.close()
-                except Exception:
-                    pass
-                finally:
-                    signal.alarm(0)
-                env = make_tapped_env()
-                continue
+                env.close()
+            except Exception:
+                pass
             finally:
                 signal.alarm(0)
+            env = make_tapped_env()
+            return None
+        finally:
+            signal.alarm(0)
 
-            outcome = "success" if terminated else "failure"
-            z_final, z_max = zs[-1], float(task_info["z_max"])
-            from ngllib_agent.rewards import ZRewardConfig, effective_z_tolerance
-            rc = cfg["reward"]
-            z_tol = effective_z_tolerance(
-                ZRewardConfig(z_tolerance=rc["z_tolerance"],
-                              z_tolerance_frac=rc.get("z_tolerance_frac")),
-                task_info)
-            print(f"[video] {label} pair {pair_idx} ({pair['length_nm']} nm): "
-                  f"{outcome} steps={steps} return={ep_return:.3f} "
-                  f"dz_final={z_final - z_max:+.1f} frames={len(frames)}",
-                  flush=True)
-            if got[outcome]:
-                continue  # already have a video for this outcome
-            got[outcome] = True
-            path = os.path.join(
-                args.out_dir, f"{label}_{outcome}_pair{pair_idx}_{steps}steps.mp4")
-            hud = annotate_frames(frames, zs, z_max, z_tol, terminated, labels)
-            imageio.mimwrite(path, hud, fps=args.fps,
-                             codec="libx264", quality=8)
-            manifest.append({
-                "quartile": label, "outcome": outcome, "pair_idx": pair_idx,
-                "root_id": str(pair["root_id"]),
-                "length_nm": int(pair["length_nm"]),
-                "steps": steps, "episode_return": round(ep_return, 4),
-                "z_start": round(zs[0], 1), "z_final": round(z_final, 1),
-                "z_max": round(z_max, 1), "dz_final": round(z_final - z_max, 1),
-                "z_min": round(float(task_info["z_min"]), 1),
-                "z_tolerance": z_tol,
-                "z_series": [round(z, 1) for z in zs],
-                "actions": labels,
-                "file": os.path.basename(path),
-            })
-        missing = [k for k, v in got.items() if not v]
-        if missing:
-            print(f"[video] {label}: no {'/'.join(missing)} episode within "
-                  f"{args.attempts_per_quartile} attempts", flush=True)
+        outcome = "success" if terminated else "failure"
+        z_final, z_max = zs[-1], float(task_info["z_max"])
+        z_tol = effective_z_tolerance(rcfg, task_info)
+        print(f"[video] {label} pair {pair_idx} ({pair['length_nm']} nm): "
+              f"{outcome} steps={steps} return={ep_return:.3f} "
+              f"dz_final={z_final - z_max:+.1f} frames={len(frames)}",
+              flush=True)
+        if got is not None and got.get(outcome):
+            return outcome  # already have a video for this outcome
+        path = os.path.join(
+            args.out_dir, f"{label}_{outcome}_pair{pair_idx}_{steps}steps.mp4")
+        hud = annotate_frames(frames, zs, z_max, z_tol, terminated, labels)
+        imageio.mimwrite(path, hud, fps=args.fps,
+                         codec="libx264", quality=8)
+        manifest.append({
+            "quartile": label, "outcome": outcome, "pair_idx": pair_idx,
+            "root_id": str(pair["root_id"]),
+            "length_nm": int(pair["length_nm"]),
+            "steps": steps, "episode_return": round(ep_return, 4),
+            "z_start": round(zs[0], 1), "z_final": round(z_final, 1),
+            "z_max": round(z_max, 1), "dz_final": round(z_final - z_max, 1),
+            "z_min": round(float(task_info["z_min"]), 1),
+            "z_tolerance": z_tol,
+            "z_series": [round(z, 1) for z in zs],
+            "actions": labels,
+            "file": os.path.basename(path),
+        })
+        return outcome
+
+    if args.root_ids:
+        # Targeted mode: roll every named neuron once, keep every episode
+        # regardless of outcome (e.g. the always-fail probe set).
+        wanted = {x.strip() for x in args.root_ids.split(",") if x.strip()}
+        sel = [p for p in pairs if str(p["root_id"]) in wanted]
+        missing_ids = wanted - {str(p["root_id"]) for p in sel}
+        if missing_ids:
+            print(f"[video] WARNING: not in pool: {sorted(missing_ids)}", flush=True)
+        for pair in sel:
+            run_pair("hard", pair)
+    else:
+        for label, lo, hi in buckets:
+            bucket_pairs = [p for p in pairs if lo <= p["length_nm"] < hi]
+            got = {"success": False, "failure": False}
+            for pair in bucket_pairs[: args.attempts_per_quartile]:
+                if all(got.values()):
+                    break
+                outcome = run_pair(label, pair, got=got)
+                if outcome is not None:
+                    got[outcome] = True
+            missing = [k for k, v in got.items() if not v]
+            if missing:
+                print(f"[video] {label}: no {'/'.join(missing)} episode within "
+                      f"{args.attempts_per_quartile} attempts", flush=True)
 
     env.close()
     with open(os.path.join(args.out_dir, "manifest.json"), "w") as f:
