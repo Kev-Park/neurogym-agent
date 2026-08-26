@@ -218,3 +218,39 @@ def test_force_promotion_once_routes_to_promotion(tmp_path, monkeypatch):
 
     c._maybe_respawn_learner(2)          # second death -> normal respawn path
     assert promoted == [1] and len(launched) == 1
+
+
+def test_transient_cycle_errors_do_not_kill_loop(tmp_path, monkeypatch):
+    # The 2026-08-25 suspect: one NFS blip inside a monitor cycle must not
+    # end the coordinator — record and continue; max_cycles still honored.
+    c = _coord(tmp_path, ["--max-cycles", "3", "--ping-interval", "0.01"])
+    c.jobid = "1"
+    monkeypatch.setattr(c, "_salloc_lost", lambda: False)
+    calls = {"n": 0}
+
+    def boom(cycle):
+        calls["n"] += 1
+        raise OSError("nfs blip")
+
+    monkeypatch.setattr(c, "_log_status", boom)
+    c._monitor_loop()
+    assert calls["n"] == 3            # every cycle failed, loop survived
+    assert c._exit_reason == "max-cycles"
+
+
+def test_flight_recorder_best_effort(tmp_path):
+    from pathlib import Path
+
+    c = _coord(tmp_path)
+    c._flight_paths = [tmp_path / "fr.jsonl", Path("/nonexistent-zz/x.jsonl")]
+    c._flight("test-event", foo=1)    # second path fails silently
+    rec = json.loads((tmp_path / "fr.jsonl").read_text().strip())
+    assert rec["event"] == "test-event" and rec["foo"] == 1
+
+
+def test_exit_reason_on_signal(tmp_path):
+    c = _coord(tmp_path)
+    c._flight_paths = [tmp_path / "fr.jsonl"]
+    c._sig_stop(15, None)
+    assert c.stopped is True
+    assert c._exit_reason == "signal-15"

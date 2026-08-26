@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import dataclasses
+import faulthandler
 import json
 import logging
 import os
@@ -38,6 +39,7 @@ import socket
 import subprocess
 import sys
 import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -134,6 +136,17 @@ class Coordinator:
         # "getcwd failed: No such file or directory", 112x). An explicit cwd=
         # re-resolves the path at each exec instead.
         self._workdir = os.getcwd()
+        # Flight recorder (2026-08-26): the coord-v8 extension coordinator
+        # died at 22:05 with no recorded cause, and the relaunch truncated
+        # the only log. Record heartbeats/exceptions/exit reasons to an
+        # append-only JSONL on BOTH local /tmp (immune to the NFS blips that
+        # are the leading suspect) and the NFS state dir (survives login-node
+        # reboots). Best-effort per path — never raises.
+        self._exit_reason = "unknown"
+        self._flight_paths = [
+            Path(f"/tmp/coordflight-{args.run_id}.jsonl"),
+            self.state_path.parent / f"flight-{args.run_id}.jsonl",
+        ]
         self.salloc_resubmissions = 0
         self._teardown_done = False
         self._launch_counter = 0  # monotonic per-worker id for log naming
@@ -152,15 +165,30 @@ class Coordinator:
     # Public entry
     # ------------------------------------------------------------------------
 
+    def _flight(self, event: str, **kw) -> None:
+        """Append one JSON record to every flight-recorder path; never raises."""
+        rec = json.dumps({"ts": _utcnow(), "pid": os.getpid(),
+                          "event": event, **kw})
+        for p in self._flight_paths:
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                with open(p, "a") as f:
+                    f.write(rec + "\n")
+            except OSError:
+                pass
+
     def start(self) -> int:
         signal.signal(signal.SIGTERM, self._sig_stop)
         signal.signal(signal.SIGINT, self._sig_stop)
         atexit.register(self._teardown)
+        self._flight("start", host=socket.gethostname(),
+                     argv=" ".join(sys.argv)[:500])
 
         try:
             self._salloc()
         except Exception as e:
             logger.error("salloc failed: %s", e)
+            self._exit_reason = f"salloc-failed: {e}"
             return 1
 
         try:
@@ -168,6 +196,8 @@ class Coordinator:
             self._monitor_loop()
         except Exception:
             logger.exception("coordinator loop crashed")
+            self._exit_reason = "loop-crash"
+            self._flight("loop-crash", tb=traceback.format_exc()[-3000:])
             return 2
 
         return 0
@@ -277,35 +307,62 @@ class Coordinator:
 
     def _monitor_loop(self) -> None:
         cycle = 0
+        consec_errors = 0
         while not self.stopped:
             cycle += 1
             if self.args.max_cycles and cycle > self.args.max_cycles:
                 logger.info("reached max_cycles=%d; exiting", self.args.max_cycles)
+                self._exit_reason = "max-cycles"
                 break
 
-            # M4d: check the salloc allocation is still alive; if not, re-request
-            # and relaunch all processes. Happens BEFORE _handle_deaths because
-            # a preempted allocation will have killed every managed process
-            # simultaneously and any respawn attempt would fail.
-            if self._salloc_lost():
-                self._resalloc_and_relaunch(cycle)
+            # A transient failure in ONE cycle (NFS blip on squeue/state
+            # writes — the leading suspect for the unexplained 2026-08-25
+            # coordinator death) must not kill the coordinator: record it and
+            # keep monitoring. Only sustained failure (~10 min of consecutive
+            # errors) gives up, with the reason on record.
+            try:
+                # M4d: check the salloc allocation is still alive; if not,
+                # re-request and relaunch all processes. Happens BEFORE
+                # _handle_deaths because a preempted allocation will have
+                # killed every managed process simultaneously and any respawn
+                # attempt would fail.
+                if self._salloc_lost():
+                    self._resalloc_and_relaunch(cycle)
+                    self._write_state(cycle)
+                    consec_errors = 0
+                    time.sleep(self.args.ping_interval)
+                    continue
+
+                # R1: iteration-based completion — training progress is the
+                # RL-native "done" measure. train.py heartbeats meta.json
+                # each iter.
+                if self._target_reached():
+                    logger.info(
+                        "target iterations reached (%d >= %d); tearing down",
+                        self._last_progress or -1, self.args.target_iterations,
+                    )
+                    self._exit_reason = "target-reached"
+                    break
+
+                self._log_status(cycle)
+                self._check_progress_stall(cycle)  # R10
+                self._handle_deaths(cycle)   # M4b, M4c
                 self._write_state(cycle)
-                time.sleep(self.args.ping_interval)
-                continue
-
-            # R1: iteration-based completion — training progress is the
-            # RL-native "done" measure. train.py heartbeats meta.json each iter.
-            if self._target_reached():
-                logger.info(
-                    "target iterations reached (%d >= %d); tearing down",
-                    self._last_progress or -1, self.args.target_iterations,
+                if cycle % 60 == 0:  # ~5 min at the 5s default interval
+                    self._flight("heartbeat", cycle=cycle, jobid=self.jobid)
+                consec_errors = 0
+            except Exception:
+                consec_errors += 1
+                logger.exception(
+                    "cycle %d body failed (consecutive=%d); continuing",
+                    cycle, consec_errors,
                 )
-                break
-
-            self._log_status(cycle)
-            self._check_progress_stall(cycle)  # R10
-            self._handle_deaths(cycle)   # M4b, M4c
-            self._write_state(cycle)
+                self._flight("cycle-error", cycle=cycle, consec=consec_errors,
+                             tb=traceback.format_exc()[-2000:])
+                if consec_errors >= 120:
+                    self._exit_reason = "persistent-cycle-errors"
+                    logger.error("120 consecutive cycle failures; giving up")
+                    break
 
             time.sleep(self.args.ping_interval)
 
@@ -618,13 +675,26 @@ class Coordinator:
 
     def _sig_stop(self, signum, frame):  # noqa: ARG002
         logger.info("received signal %d; stopping cleanly", signum)
+        self._exit_reason = f"signal-{signum}"
+        self._flight("signal", signum=signum)
         self.stopped = True
 
     def _teardown(self) -> None:
         if self._teardown_done:
             return
         self._teardown_done = True
-        logger.info("teardown: terminating processes")
+        exc = sys.exc_info()
+        self._flight(
+            "teardown",
+            reason=self._exit_reason,
+            jobid=self.jobid,
+            respawns=dict(self.respawns),
+            in_flight_exc=(
+                "".join(traceback.format_exception(*exc))[-2000:]
+                if exc[0] else None
+            ),
+        )
+        logger.info("teardown: terminating processes (reason=%s)", self._exit_reason)
         if self.learner:
             self.learner.terminate()
         for r in self.renderers:
@@ -725,7 +795,11 @@ def build_argparser() -> argparse.ArgumentParser:
     return ap
 
 
+_FAULT_LOG = None  # module ref: faulthandler requires the file to stay open
+
+
 def main(argv: Optional[list[str]] = None) -> int:
+    global _FAULT_LOG
     ap = build_argparser()
     args = ap.parse_args(argv)
 
@@ -733,6 +807,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Hard-crash forensics (segfault/fatal signal → C-level traceback) on
+    # LOCAL disk, since NFS may be the thing that's failing.
+    try:
+        _FAULT_LOG = open(f"/tmp/coordfault-{args.run_id}.log", "a")
+        faulthandler.enable(_FAULT_LOG)
+    except OSError:
+        pass
 
     coord = Coordinator(args)
     return coord.start()
