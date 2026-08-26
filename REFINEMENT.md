@@ -589,3 +589,37 @@ zoom-in shaping near the band, or the percentage criterion itself.
 Eval artifact pipeline (all committed): r_eval_video.slurm (HUD: z/target/dz
 + action label) -> eval_report_html.py (embedded MP4s + z_min-based approach
 curves + threshold table) -> claude.ai artifact. z_min now rides task_info.
+
+## R12. coord-v8 complete: 87.0% — extension verdict (2026-08-26)
+
+v8 final (ckpt_000740, ~3.2M steps, protocol v2 stochastic, 200 frozen pairs):
+
+  checkpoint          overall   q1    q2    q3    q4    zoom-use
+  v7 baseline (v2)     64.5%    68    68    68    54     0.14%
+  v8 @ 370             51.0%    62    44    48    50     10.9%
+  v8 @ 740 (final)     87.0%    88    92    84    84     12.1%
+
+  v8@740 thresholds: +/-5% 87.0 | +/-10% 92.0 | +/-15% 94.0 | abs+/-10 12.0
+  (abs row = lower bound; episodes terminate at the +/-5% band)
+
+- **+22.5 points over v7** with a flat quartile profile — the q4 long-neuron
+  deficit is GONE (84 vs v7's 54). Zoom verb established (12.1% of actions);
+  q2/q3 produced no failure episode within 6 video attempts each.
+- **The extension arc validates the approach**: v8@370 was BELOW baseline
+  (51.0%) — under-trained on the harder varied-zoom distribution with
+  entropy flattened at 0.004. The entropy re-raise (0.037 at resume -> 0.01
+  @3M) + doubling steps took return_mean 1.07 -> 1.83 and eval 51 -> 87.
+  Lesson: with normalize_entropy + spawn diversity, 1.6M steps is not
+  enough; budget ~3M+ and keep entropy >= ~0.01 until late.
+- Caveats: v8 changed 4 things at once (holdout, normalize_entropy,
+  spawn-zoom, frac-5% criterion) — attribution needs ablations if it
+  matters. v7's 64.5% was NOT holdout-trained (in-distribution); v8's 87.0%
+  IS holdout-clean (unseen neurons) — the comparison is conservative in
+  v8's favor.
+- Ops: one unexplained coordinator death mid-extension (silent exit via
+  atexit, log truncated by relaunch — forensics destroyed; NFS-blip
+  hypothesis). Countermeasures shipped: flight recorder (/tmp + NFS JSONL),
+  exit-reason discipline, faulthandler, I/O-hardened monitor loop (transient
+  cycle errors continue), supervisor + timestamped logs in the launcher.
+  Monitor-side: WSL bridge needs an OUTER timeout (dead-while-alive watchdog
+  missed the 740 completion); re-alarm + restored-notice pattern (CLAUDE.md).
