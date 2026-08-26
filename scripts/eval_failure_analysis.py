@@ -198,6 +198,8 @@ def main() -> int:
         vals = [key(r) for r in sel if "_m" in r]
         return np.median(vals) if vals else float("nan")
 
+    # `fails` holds pre-annotation copies; use the annotated originals here.
+    fail_rows = [r for r in rows if not r["terminated"]]
     print(f"  {'':<22}{'success':>10}{'failure':>10}")
     for name, key in [
         ("n_nodes", lambda r: r["_m"]["n_nodes"]),
@@ -207,7 +209,7 @@ def main() -> int:
         ("node density /Mnm", lambda r: r["_m"]["n_nodes"] / (r["length_nm"] / 1e6)),
         ("nodes near target", lambda r: r["_near_target_nodes"]),
     ]:
-        print(f"  {name:<22}{med(succ, key):>10.1f}{med(fails, key):>10.1f}")
+        print(f"  {name:<22}{med(succ, key):>10.1f}{med(fail_rows, key):>10.1f}")
     af = [r for r in rows if r["root_id"] in set(out["always_fail_root_ids"])]
     if af:
         print(f"  always-fail neurons ({len(af)}): "
