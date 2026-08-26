@@ -2,16 +2,24 @@
 
 Embeds each episode's rollout MP4 (re-encoded to fit a 16MB page budget via
 imageio-ffmpeg's bundled binary) as a data: URI next to an inline-SVG
-"approach curve": normalized progress toward z_max (y=1.0 = target, green
-band = +/- z_tolerance) over steps. Output is meant to be published as a
-claude.ai Artifact (strict CSP: no external assets, so everything inlines).
+"approach curve". A criterion selector (abs / percent-of-extent bands)
+re-evaluates the page live: each episode's success band, outcome label, and
+curve color, plus the full pool's overall/per-quartile rates (from
+--results-json's recorded trajectories). Output is meant to be published as
+a claude.ai Artifact (strict CSP: no external assets, so everything inlines;
+inline script is fine).
 
     uv run --no-sync python scripts/eval_report_html.py \
-        --manifest-dir eval_videos/v7_ckpt370_stoch_hud2 \
-        --title "v7 Z-Nav Evals" \
-        --summary "stochastic=49.6,argmax=2.5,random=2.5" \
-        --quartile-rates "63.2,62.1,51.4,22.9" \
-        --output eval_videos/v7_report.html
+        --manifest-dir eval_videos/v8_ckpt740_vids \
+        --results-json eval_results/v8_ckpt740.json \
+        --title "Z-Nav Evals" --checkpoint "coord-v8 ckpt_000740" \
+        --summary "v8@740=87.0,v7-baseline=64.5" \
+        --thresholds-json eval_results/v8_ckpt740.json.thresholds.json \
+        --output eval_videos/v8_report.html
+
+Note: the videos' baked-in HUD always shows the RUN criterion; only the
+charts/labels/stats re-evaluate. Criteria tighter than the run's are lower
+bounds (episodes terminate at the run band).
 """
 
 from __future__ import annotations
@@ -24,6 +32,13 @@ import os
 import subprocess
 import sys
 import tempfile
+
+import numpy as np
+
+# SVG chart geometry — mirrored in the page's JS (CHART constant below).
+W, H, ML, MR, MT, MB = 560, 230, 44, 14, 14, 30
+IW, IH = W - ML - MR, H - MT - MB
+YMIN, YMAX = -0.08, 1.12
 
 
 def reencode(src: str, crf: int = 31) -> bytes:
@@ -45,59 +60,48 @@ def reencode(src: str, crf: int = 31) -> bytes:
         os.unlink(out)
 
 
+def _y(v: float) -> float:
+    v = min(max(v, YMIN), YMAX)
+    return MT + (YMAX - v) / (YMAX - YMIN) * IH
+
+
 def approach_svg(ep: dict) -> str:
-    """Inline SVG: z-progress vs steps on the NEURON's own scale — y=0 is the
-    segment's lowest skeleton z (z_min), y=1.0 its highest (z_max, dashed).
-    The band is +/- z_tolerance; a hollow marker is the spawn height; the
-    curve ends with an emphasized dot. Falls back to spawn-based
-    normalization for manifests without z_min."""
+    """Inline SVG on the NEURON's own scale — y=0 at z_min, y=1.0 at z_max.
+    Band/curve/dot carry stable classes so the criterion selector can
+    re-style them; the card's data-span/data-closest feed the re-evaluation."""
     zs = ep["z_series"]
     zmax, tol = ep["z_max"], ep["z_tolerance"]
     zlo = ep.get("z_min", zs[0])
     span = (zmax - zlo) or 1e-6
-    W, H, ml, mr, mt, mb = 560, 230, 44, 14, 14, 30
-    iw, ih = W - ml - mr, H - mt - mb
-    ymin, ymax = -0.08, 1.12
-    n = max(len(zs) - 1, 1)
 
     def X(i):
-        return ml + i / n * iw
-
-    def Y(v):
-        v = min(max(v, ymin), ymax)
-        return mt + (ymax - v) / (ymax - ymin) * ih
+        return ML + i / max(len(zs) - 1, 1) * IW
 
     def N(z):
         return (z - zlo) / span
 
-    pts = " ".join(f"{X(i):.1f},{Y(N(z)):.1f}" for i, z in enumerate(zs))
-    band_top, band_bot = Y(1 + tol / abs(span)), Y(1 - tol / abs(span))
-    # The abs band is ~0.5% of a typical extent — sub-pixel at chart scale.
-    # Enforce a minimum visual height so "ended at 1.0 yet failed" is legible
-    # as "just outside the (thin) success band", and draw a light +/-5%-of-
-    # extent reference band behind it for context.
+    pts = " ".join(f"{X(i):.1f},{_y(N(z)):.1f}" for i, z in enumerate(zs))
+    half = tol / abs(span)
+    band_top, band_bot = _y(1 + half), _y(1 - half)
     if band_bot - band_top < 3.0:
         mid = (band_bot + band_top) / 2
         band_top, band_bot = mid - 1.5, mid + 1.5
-    ref_top, ref_bot = Y(1.05), Y(0.95)
-    gy = [f'<line x1="{ml}" y1="{Y(v):.1f}" x2="{W - mr}" y2="{Y(v):.1f}" class="grid"/>'
-          f'<text x="{ml - 6}" y="{Y(v) + 4:.1f}" class="tick" text-anchor="end">{v:g}</text>'
+    gy = [f'<line x1="{ML}" y1="{_y(v):.1f}" x2="{W - MR}" y2="{_y(v):.1f}" class="grid"/>'
+          f'<text x="{ML - 6}" y="{_y(v) + 4:.1f}" class="tick" text-anchor="end">{v:g}</text>'
           for v in (0, 0.5)]
     step_ticks = [f'<text x="{X(i):.1f}" y="{H - 8}" class="tick" text-anchor="middle">{i}</text>'
                   for i in range(0, len(zs), 100)]
-    end_x, end_y = X(len(zs) - 1), Y(N(zs[-1]))
     ok = ep["outcome"] == "success"
     return f'''<svg viewBox="0 0 {W} {H}" role="img" aria-label="approach curve">
-<rect x="{ml}" y="{ref_top:.1f}" width="{iw}" height="{ref_bot - ref_top:.1f}" class="band5"/>
-<rect x="{ml}" y="{band_top:.1f}" width="{iw}" height="{band_bot - band_top:.1f}" class="band"/>
-<line x1="{ml}" y1="{Y(1):.1f}" x2="{W - mr}" y2="{Y(1):.1f}" class="target"/>
-<text x="{ml - 6}" y="{Y(1) + 4:.1f}" class="tick target-t" text-anchor="end">1.0</text>
+<rect x="{ML}" y="{band_top:.1f}" width="{IW}" height="{band_bot - band_top:.1f}" class="band"/>
+<line x1="{ML}" y1="{_y(1):.1f}" x2="{W - MR}" y2="{_y(1):.1f}" class="target"/>
+<text x="{ML - 6}" y="{_y(1) + 4:.1f}" class="tick target-t" text-anchor="end">1.0</text>
 {''.join(gy)}{''.join(step_ticks)}
 <polyline points="{pts}" class="curve {'curve-ok' if ok else 'curve-no'}"/>
-<circle cx="{X(0):.1f}" cy="{Y(N(zs[0])):.1f}" r="4" class="spawn"/>
-<circle cx="{end_x:.1f}" cy="{end_y:.1f}" r="4" class="{'dot-ok' if ok else 'dot-no'}"/>
-<text x="{X(0) + 8:.1f}" y="{Y(N(zs[0])) + 4:.1f}" class="tick">spawn</text>
-<text x="{ml}" y="{H - 8}" class="tick">step</text>
+<circle cx="{X(0):.1f}" cy="{_y(N(zs[0])):.1f}" r="4" class="spawn"/>
+<circle cx="{X(len(zs) - 1):.1f}" cy="{_y(N(zs[-1])):.1f}" r="4" class="enddot {'dot-ok' if ok else 'dot-no'}"/>
+<text x="{X(0) + 8:.1f}" y="{_y(N(zs[0])) + 4:.1f}" class="tick">spawn</text>
+<text x="{ML}" y="{H - 8}" class="tick">step</text>
 </svg>'''
 
 
@@ -131,6 +135,13 @@ h2 { font-size:1.15rem; font-weight:650; margin:40px 0 4px; }
   font-variant-numeric:tabular-nums; }
 .criterion { background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--accent);
   border-radius:8px; padding:12px 16px; margin:16px 0 4px; font-size:.92rem; max-width:70ch; }
+.crit-picker { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:22px 0 6px; }
+.crit-chip { background:var(--chip); color:var(--ink); border:1px solid var(--line);
+  border-radius:99px; padding:7px 16px; font-size:.88rem; cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace; }
+.crit-chip.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.crit-chip:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.crit-note { color:var(--muted); font-size:.82rem; margin:2px 0 10px; max-width:75ch; }
 .ep { background:var(--surface); border:1px solid var(--line); border-radius:10px;
   padding:18px; margin:16px 0; display:grid; grid-template-columns:1fr 1fr; gap:18px; }
 @media (max-width:820px) { .ep { grid-template-columns:1fr; } }
@@ -148,7 +159,6 @@ svg { width:100%; height:auto; display:block; }
 .target { stroke:var(--accent); stroke-width:1.4; stroke-dasharray:5 4; }
 .target-t { fill:var(--accent); }
 .band { fill:var(--band); }
-.band5 { fill:var(--chip); }
 .curve { fill:none; stroke-width:2; } .curve-ok { stroke:var(--ok); } .curve-no { stroke:var(--no); }
 .dot-ok { fill:var(--ok); } .dot-no { fill:var(--no); }
 .spawn { fill:none; stroke:var(--muted); stroke-width:1.6; }
@@ -162,11 +172,15 @@ def main() -> int:
     ap.add_argument("--title", default="Eval report")
     ap.add_argument("--checkpoint", default="")
     ap.add_argument("--summary", default="",
-                    help='e.g. "stochastic=49.6,argmax=2.5,random=2.5"')
-    ap.add_argument("--quartile-rates", default="",
-                    help='pool success %% per length quartile, e.g. "63.2,62.1,51.4,22.9"')
+                    help='e.g. "v8@740=87.0,v7-baseline=64.5"')
+    ap.add_argument("--results-json", default="",
+                    help="Full eval JSON (z_series per pair): powers the live "
+                         "pool re-evaluation under the criterion selector.")
     ap.add_argument("--thresholds-json", default="",
                     help="eval_thresholds.py --json output; rendered as a table.")
+    ap.add_argument("--run-frac", type=float, default=0.05,
+                    help="The run's own termination fraction (labels the default chip).")
+    ap.add_argument("--abs-tol", type=float, default=10.0)
     ap.add_argument("--crf", type=int, default=31)
     ap.add_argument("--output", required=True)
     args = ap.parse_args()
@@ -181,11 +195,25 @@ def main() -> int:
             k, v = part.split("=")
             cells.append(f'<div class="stat"><b>{v}%</b><span>{html.escape(k)}</span></div>')
         stats = f'<div class="stats">{"".join(cells)}</div>'
-    qrates = ""
-    if args.quartile_rates:
-        chips = [f'<div class="qr">q{i + 1} {r.strip()}%</div>'
-                 for i, r in enumerate(args.quartile_rates.split(","))]
-        qrates = f'<div class="qrates">{"".join(chips)} <div class="qr">pool success by neuron-length quartile</div></div>'
+
+    # Pool data for live re-evaluation: closest approach + extent + length
+    # quartile per pair. Wedged/glitch pairs keep their recorded outcome
+    # (closest is still honest — they never got there).
+    pool_js = "[]"
+    if args.results_json:
+        with open(args.results_json) as f:
+            pairs = [r for r in json.load(f)["per_pair"] if "z_series" in r]
+        lengths = np.asarray([p["length_nm"] for p in pairs])
+        q1, q2, q3 = np.quantile(lengths, [0.25, 0.5, 0.75])
+        pool = []
+        for p in pairs:
+            zs = np.asarray(p["z_series"], float)
+            closest = float(np.abs(zs - p["z_max"]).min())
+            span = p["z_max"] - p["z_min"]
+            qi = 0 if p["length_nm"] < q1 else 1 if p["length_nm"] < q2 \
+                else 2 if p["length_nm"] < q3 else 3
+            pool.append([round(closest, 1), round(span, 1), qi])
+        pool_js = json.dumps(pool, separators=(",", ":"))
 
     thresholds = ""
     if args.thresholds_json:
@@ -197,10 +225,7 @@ def main() -> int:
             + "</tr>"
             for r in tj["rows"])
         thresholds = f'''
-<h2>Success under alternative tolerances</h2>
-<p class="sub">Post-hoc from the {tj["n"]} recorded trajectories: an episode counts as a success
-under a band if its trajectory ever entered it (exact for &ldquo;would have terminated&rdquo;).
-Pool median z-extent: {tj["extent_median_vox"]} voxels.</p>
+<h2>Success under alternative tolerances (static table)</h2>
 <div class="criterion" style="max-width:none;padding:8px 16px;">
 <table><tr><th>criterion</th><th>overall</th><th>q1</th><th>q2</th><th>q3</th><th>q4</th></tr>{trs}</table>
 </div>'''
@@ -211,10 +236,12 @@ Pool median z-extent: {tj["extent_median_vox"]} voxels.</p>
         total += len(vid)
         b64 = base64.b64encode(vid).decode()
         ok = ep["outcome"] == "success"
+        span = ep["z_max"] - ep.get("z_min", ep["z_series"][0])
+        closest = min(abs(z - ep["z_max"]) for z in ep["z_series"])
         pill = f'<span class="pill {"pill-ok" if ok else "pill-no"}">{ep["outcome"]}</span>'
         sections.append(f'''
 <h2>{ep["quartile"]} &middot; {ep["length_nm"] / 1e6:.2f}M nm neuron</h2>
-<div class="ep">
+<div class="ep ep-card" data-span="{span:.1f}" data-closest="{closest:.1f}">
 <div><video controls muted playsinline src="data:video/mp4;base64,{b64}"></video></div>
 <div>
 <h3>pair {ep["pair_idx"]} {pill}</h3>
@@ -226,6 +253,68 @@ Pool median z-extent: {tj["extent_median_vox"]} voxels.</p>
 </div></div>''')
         print(f"[report] {ep['file']}: {len(vid) / 1e6:.2f}MB re-encoded", flush=True)
 
+    picker = f'''
+<div class="crit-picker" role="group" aria-label="success criterion">
+<span class="tick" style="font-size:.85rem">criterion:</span>
+<button class="crit-chip" data-k="f5">&plusmn;5% extent (run)</button>
+<button class="crit-chip" data-k="f10">&plusmn;10% extent</button>
+<button class="crit-chip" data-k="f15">&plusmn;15% extent</button>
+<button class="crit-chip" data-k="abs">abs &plusmn;{args.abs_tol:g} vox</button>
+</div>
+<div class="stats">
+<div class="stat"><b id="sel-overall">&ndash;</b><span>pool under selection</span></div>
+<div class="stat"><b><span id="sel-q1">&ndash;</span> / <span id="sel-q2">&ndash;</span> /
+<span id="sel-q3">&ndash;</span> / <span id="sel-q4">&ndash;</span></b><span>q1 / q2 / q3 / q4</span></div>
+</div>
+<p class="crit-note">Selecting a criterion re-evaluates the pool stats above and every
+episode below (band, label, curve color) from the recorded trajectories. Criteria
+TIGHTER than the run&rsquo;s (&plusmn;{args.run_frac:.0%}) are lower bounds — episodes
+terminated at the run band. Video overlays are baked at the run criterion.</p>'''
+
+    js = f'''<script>
+const POOL = {pool_js};
+const CRIT = {{f5:{{t:"f",v:0.05}}, f10:{{t:"f",v:0.10}}, f15:{{t:"f",v:0.15}},
+              abs:{{t:"a",v:{args.abs_tol}}}}};
+const CH = {{mt:{MT}, ih:{IH}, ymin:{YMIN}, ymax:{YMAX}}};
+function tol(c, span) {{ return c.t === "a" ? c.v : c.v * span; }}
+function Y(v) {{ v = Math.min(Math.max(v, CH.ymin), CH.ymax);
+  return CH.mt + (CH.ymax - v) / (CH.ymax - CH.ymin) * CH.ih; }}
+function apply(key) {{
+  const c = CRIT[key];
+  document.querySelectorAll(".ep-card").forEach(el => {{
+    const span = +el.dataset.span, closest = +el.dataset.closest;
+    const ok = closest <= tol(c, span);
+    const pill = el.querySelector(".pill");
+    pill.textContent = ok ? "success" : "failure";
+    pill.setAttribute("class", "pill " + (ok ? "pill-ok" : "pill-no"));
+    el.querySelector(".curve").setAttribute("class",
+      "curve " + (ok ? "curve-ok" : "curve-no"));
+    el.querySelector(".enddot").setAttribute("class",
+      "enddot " + (ok ? "dot-ok" : "dot-no"));
+    const half = tol(c, span) / span;
+    let top = Y(1 + half), bot = Y(1 - half);
+    if (bot - top < 3) {{ const m = (top + bot) / 2; top = m - 1.5; bot = m + 1.5; }}
+    const band = el.querySelector(".band");
+    band.setAttribute("y", top.toFixed(1));
+    band.setAttribute("height", (bot - top).toFixed(1));
+  }});
+  if (POOL.length) {{
+    const w = [0,0,0,0], n = [0,0,0,0]; let tot = 0;
+    POOL.forEach(p => {{ n[p[2]]++; if (p[0] <= tol(c, p[1])) {{ w[p[2]]++; tot++; }} }});
+    document.getElementById("sel-overall").textContent =
+      (100 * tot / POOL.length).toFixed(1) + "%";
+    ["sel-q1","sel-q2","sel-q3","sel-q4"].forEach((id, i) =>
+      document.getElementById(id).textContent =
+        n[i] ? (100 * w[i] / n[i]).toFixed(0) + "%" : "--");
+  }}
+  document.querySelectorAll(".crit-chip").forEach(b =>
+    b.classList.toggle("active", b.dataset.k === key));
+}}
+document.querySelectorAll(".crit-chip").forEach(b =>
+  b.addEventListener("click", () => apply(b.dataset.k)));
+apply("f5");
+</script>'''
+
     doc = f'''<title>{html.escape(args.title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;650&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>{CSS}</style>
@@ -233,19 +322,17 @@ Pool median z-extent: {tj["extent_median_vox"]} voxels.</p>
 <h1>{html.escape(args.title)}</h1>
 <p class="sub">Stochastic rollouts of {html.escape(args.checkpoint or "the checkpoint")} on the frozen
 eval pool (eval_d0_v1, 200 pairs, seed 42). Each episode: rollout video beside its approach curve
-&mdash; normalized progress toward the target, where 1.0 = the segment&rsquo;s max-z point.</p>
-{stats}{qrates}
-<div class="criterion mono">success &hArr; |viewer_z &minus; z_max| &le; {manifest[0]["z_tolerance"]:g} voxels
-(&plusmn;{manifest[0]["z_tolerance"] * 40:g} nm) &mdash; the green band on each curve</div>
+&mdash; y=0 at the neuron&rsquo;s lowest skeleton z, 1.0 at the target z_max.</p>
+{stats}
+{picker}
 {thresholds}
 {"".join(sections)}
-<footer>Curves: y = (z &minus; z<sub>min</sub>) / (z<sub>max</sub> &minus; z<sub>min</sub>) — the neuron&rsquo;s own
-z-extent, 0 = lowest skeleton node, 1.0 = target; hollow marker = spawn height; clamped for display.
-Green band = the ACTUAL success criterion (drawn with a minimum height — to scale it is often
-sub-pixel, which is why curves can end &ldquo;at 1.0&rdquo; and still be timeouts); grey band =
-&plusmn;5% of extent, for reference. Videos re-encoded (crf {args.crf}) from the archival MP4s
-in eval_videos/.</footer>
-</main>'''
+<footer>Curves: y = (z &minus; z<sub>min</sub>) / (z<sub>max</sub> &minus; z<sub>min</sub>); hollow marker =
+spawn height; clamped for display. The success band tracks the selected criterion (drawn with a
+minimum height — to scale it can be sub-pixel). Videos re-encoded (crf {args.crf}) from the
+archival MP4s in eval_videos/.</footer>
+</main>
+{js}'''
 
     with open(args.output, "w", encoding="utf-8") as f:
         f.write(doc)

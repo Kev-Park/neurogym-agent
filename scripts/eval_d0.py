@@ -336,6 +336,9 @@ def main() -> int:
             "episode_return": round(ep_return, 4),
             "z_min": round(task_info["z_min"], 1),
             "z_max": round(task_info["z_max"], 1),
+            # B7 (2026-08-26): sampled spawn zoom, for failure-correlation
+            # analysis (zoomed-in vs zoomed-out spawns).
+            "projection_scale": round(float(state["projectionScale"]), 1),
             "z_series": z_series,
             "wedged": wedged,
         })
