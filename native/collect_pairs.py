@@ -53,6 +53,11 @@ def main() -> int:
 
     cfg = load_config(args.config)
     cfg.setdefault("obs", {})["mode"] = "raw"
+    # Raw mode honors config image_size (84x84 thumbnails for the smoke CNN)
+    # — calibration needs the TRAINING-equivalent frames: both panes, native
+    # resolution, capture_scale 0.5 (what dino mode forces) => 450x900.
+    cfg["env"].update({"image_size": None, "left_pane": True,
+                       "right_pane": True, "capture_scale": 0.5})
 
     def make_env():
         return build_env(cfg)
