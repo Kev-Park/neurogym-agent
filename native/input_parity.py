@@ -163,6 +163,7 @@ def mode_native(args):
 
     records = [json.loads(l) for l in open(args.browser_jsonl)]
     click_err, radius_err, noop_ok, noop_n = [], [], 0, 0
+    click_along, click_lat = [], []
     rot_err, zoom_err = [], []
 
     for rec in records:
@@ -213,6 +214,10 @@ def mode_native(args):
             browser_moved = (np.linalg.norm(
                 np.asarray(p["post"]["position"])
                 - np.asarray(pre["position"])) > 0.5)
+            # view direction in voxel space, for error decomposition
+            vdir_nm = np.linalg.inv(view)[:3, 2]
+            vdir_vox = (vdir_nm / VOXEL_NM)
+            vdir_vox /= np.linalg.norm(vdir_vox) + 1e-9
             d0 = draw[iy, ix] if 0 <= iy < PANE_H and 0 <= ix < PANE else 1.0
             # pick radius 3px: nearest (front-most) hit in the window
             y0, y1 = max(0, iy - 3), min(PANE_H, iy + 4)
@@ -221,9 +226,14 @@ def mode_native(args):
             hit = win < 0.9999
             if d0 < 0.9999:
                 pr = unproject(ix, iy, d0)
-                err = np.linalg.norm(pr - np.asarray(p["post"]["position"]))
+                dvec = pr - np.asarray(p["post"]["position"])
+                err = np.linalg.norm(dvec)
+                along = float(abs(dvec @ vdir_vox))
+                lateral = float(np.sqrt(max(0.0, err ** 2 - along ** 2)))
                 if browser_moved:
                     click_err.append(float(err))
+                    click_along.append(along)
+                    click_lat.append(lateral)
             elif hit.any():
                 yy, xx = np.unravel_index(np.argmin(win), win.shape)
                 pr = unproject(x0 + xx, y0 + yy, win[yy, xx])
@@ -245,6 +255,8 @@ def mode_native(args):
               f"p90 {np.percentile(a, 90):.2f} max {a.max():.2f}", flush=True)
 
     stats("click position error (voxels, exact px)", click_err)
+    stats("  - along view axis", click_along)
+    stats("  - lateral (screen)", click_lat)
     stats("click position error (voxels, 3px radius)", radius_err)
     print(f"[parity] background no-op agreement: {noop_ok}/{noop_n}", flush=True)
     stats("rotate euler error (rad)", rot_err)
