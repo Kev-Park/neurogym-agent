@@ -18,7 +18,7 @@ WT=/scratch/kp0374/wt/neurogym-agent-native
 cd "$WT"
 export PYTHONUNBUFFERED=1
 uv run --no-sync python scripts/eval_d0.py \
-  --config configs/native_eval.yaml \
+  --config configs/native.yaml \
   --eval-d0 /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
   --skeleton /scratch/kp0374/neurogym-agent/segment_positions.parquet \
   --random-policy \

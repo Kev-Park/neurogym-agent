@@ -1,7 +1,7 @@
-# Native-backend eval config (stage D frozen-policy stress test).
-# Identical to configs/ppo_zmax_navigate.yaml except env.backend: native
-# (+ cv_cache), so eval_d0.py numbers are attributable to the renderer swap
-# alone. Keep the two files in lockstep.
+# Native-backend config (eval + training). Identical to
+# configs/ppo_zmax_navigate.yaml except env.backend: native (+ cv_cache),
+# so both eval numbers and training runs are attributable to the renderer
+# swap alone. Keep the two files in lockstep.
 
 env:
   backend: native

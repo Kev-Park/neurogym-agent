@@ -25,7 +25,7 @@ cd "$WT"
 export PYTHONUNBUFFERED=1
 PKL=$1; shift || true
 uv run --no-sync python scripts/eval_d0.py \
-  --config configs/native_eval.yaml \
+  --config configs/native.yaml \
   --eval-d0 /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
   --skeleton /scratch/kp0374/neurogym-agent/segment_positions.parquet \
   --state-pkl "$PKL" \
