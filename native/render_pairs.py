@@ -326,7 +326,11 @@ class EMTiles:
             print(f"[em] label tile fail: {type(e).__name__}: {e}", flush=True)
             return None
 
-    def tile(self, pos_nm, extent_x_nm, extent_y_nm=None, max_px=1024):
+    def tile(self, pos_nm, extent_x_nm, extent_y_nm=None, max_px=1024,
+             subpixel: bool = False):
+        """EM z-slice tile. With subpixel=True, the fractional texel phase
+        of the requested center is preserved via an affine resample (integer
+        snapping costs up to half a texel — visible at membrane scale)."""
         if extent_y_nm is None:
             extent_y_nm = extent_x_nm
         mip = 1
@@ -336,12 +340,22 @@ class EMTiles:
                 break
         res = self.RES_XY[mip - 1]
         vol = self._vol(mip)
-        cx, cy = int(pos_nm[0] / res), int(pos_nm[1] / res)
+        fx, fy = pos_nm[0] / res, pos_nm[1] / res
+        cx, cy = int(fx), int(fy)
         z = int(pos_nm[2] / 40.0)
         hx = int(extent_x_nm / res / 2)
         hy = int(extent_y_nm / res / 2)
-        cut = vol[cx - hx:cx + hx, cy - hy:cy + hy, z:z + 1]
+        pad = 2 if subpixel else 0
+        cut = vol[cx - hx - pad:cx + hx + pad,
+                  cy - hy - pad:cy + hy + pad, z:z + 1]
         img = np.asarray(cut)[:, :, 0, 0].T.astype(np.uint8)  # row=y, col=x
+        if subpixel:
+            from PIL import Image as _I
+            dx, dy = fx - cx, fy - cy
+            im = _I.fromarray(img).transform(
+                (img.shape[1], img.shape[0]), _I.AFFINE,
+                (1, 0, dx, 0, 1, dy), resample=_I.BILINEAR)
+            img = np.asarray(im)[pad:-pad or None, pad:-pad or None]
         return img
 
 
@@ -493,12 +507,17 @@ def main() -> int:
             left_shift_px[0] * ext_y / PANE_H, 0.0])
         canvas = np.zeros((PANE, PANE, 3), dtype=np.uint8)
         try:
-            tile = em.tile(pos_nm, ext_x, ext_y, max_px=1024)
+            tile = em.tile(pos_nm, ext_x, ext_y, max_px=1024, subpixel=True)
         except Exception as e:
             print(f"[render] EM(left) fail ({e})", flush=True)
             return canvas
-        img = np.asarray(Image.fromarray(tile).resize(
-            (PANE, PANE_H), Image.BILINEAR)).astype(np.float32) * em_gain[0]
+        # Match the browser's filter chain: GL-linear sampling onto the
+        # 900x867 CSS pane, then Chrome's area-average capture downscale
+        # to 450x433 (a single bilinear jump blurs differently and
+        # decorrelates membrane-scale blocks).
+        big = Image.fromarray(tile).resize((900, 867), Image.BILINEAR)
+        img = np.asarray(big.resize((PANE, PANE_H), Image.BOX)
+                         ).astype(np.float32) * em_gain[0]
         rgb = np.repeat(img[..., None], 3, axis=2)
         if seg_overlay:
             mask = em.label_tile(pos_nm, ext_x, ext_y, rec["root_id"],
@@ -631,11 +650,15 @@ def main() -> int:
     if good:
         g = np.array(good)
         med_scale = float(np.median(g[:, 1]))
-        left_shift_px[0] = float(np.median(g[:, 2]))
-        left_shift_px[1] = float(np.median(g[:, 3]))
+        # Empirical correction transfer: baking c changed the residual by
+        # -2c (r(0)=-6, r(-6)=+6 across v11/v13), so the nulling correction
+        # is half the measured median.
+        left_shift_px[0] = float(np.median(g[:, 2])) / 2.0
+        left_shift_px[1] = float(np.median(g[:, 3])) / 2.0
         print(f"[calib] 2D registration medians ({len(good)} confident): "
-              f"scale {med_scale:.3f} dy {left_shift_px[0]:+.1f} "
-              f"dx {left_shift_px[1]:+.1f}", flush=True)
+              f"scale {med_scale:.3f} raw dy {float(np.median(g[:, 2])):+.1f} "
+              f"dx {float(np.median(g[:, 3])):+.1f} -> baked "
+              f"({left_shift_px[0]:+.1f}, {left_shift_px[1]:+.1f})", flush=True)
     else:
         print("[calib] 2D registration: NO confident fits — scale further off "
               "than +/-10% or content mismatch; inspect saved pairs", flush=True)
