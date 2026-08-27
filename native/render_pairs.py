@@ -569,22 +569,72 @@ def main() -> int:
     print(f"[calib] em_gain = {em_gain[0]:.3f} "
           f"(median of {len(ratios)} state ratios)", flush=True)
 
-    # ---- 2D-pane registration: phase-correlate native vs browser EM and
-    # bake the median shift (fine EM texture destroys SSIM at even a few px
-    # of misregistration; measured ~25px vertical in iteration 9).
-    shifts = []
+    # ---- 2D-pane registration: joint scale x shift NCC search (phase
+    # correlation was unstable on periodic EM texture: sigma ~50px). For
+    # each calib state, grid-search a scale factor and (dy, dx) shift of
+    # the native pane maximizing normalized cross-correlation on a central
+    # crop; report per-state fits + confidence so the failure mode is
+    # visible, then bake medians.
+    def ncc(a, b):
+        a = a - a.mean(); b = b - b.mean()
+        d = np.sqrt((a * a).sum() * (b * b).sum()) + 1e-9
+        return float((a * b).sum() / d)
+
+    def register(natl, brol):
+        gn = natl.mean(axis=2)
+        gb = brol.mean(axis=2)
+        cy, cx = gn.shape[0] // 2, gn.shape[1] // 2
+        crop = 150
+        best = (-2.0, 1.0, 0, 0)
+        for scale in (0.90, 0.94, 0.98, 1.0, 1.02, 1.06, 1.10):
+            if scale != 1.0:
+                h, w = gn.shape
+                sc = np.asarray(Image.fromarray(gn.astype(np.uint8)).resize(
+                    (int(w * scale), int(h * scale)), Image.BILINEAR),
+                    dtype=np.float64)
+                oy, ox = (sc.shape[0] - h) // 2, (sc.shape[1] - w) // 2
+                if oy < 0 or ox < 0:
+                    pad = np.zeros((h, w))
+                    pad[-oy:-oy + sc.shape[0] if oy else h,
+                        -ox:-ox + sc.shape[1] if ox else w] = \
+                        sc[:h + 2 * oy if oy else h, :w + 2 * ox if ox else w]
+                    gs = pad
+                else:
+                    gs = sc[oy:oy + h, ox:ox + w]
+            else:
+                gs = gn
+            for dy in range(-36, 37, 6):
+                for dx in range(-36, 37, 6):
+                    a = gs[cy + dy - crop:cy + dy + crop,
+                           cx + dx - crop:cx + dx + crop]
+                    b = gb[cy - crop:cy + crop, cx - crop:cx + crop]
+                    if a.shape != b.shape:
+                        continue
+                    v = ncc(a, b)
+                    if v > best[0]:
+                        best = (v, scale, dy, dx)
+        return best
+
+    fits = []
     for r in calib:
         natl = native_left(r, seg_overlay=False)[TOOLBAR:]
         brol = browser_left(r)[TOOLBAR:]
-        shifts.append(phase_shift(natl, brol))
-    if shifts:
-        ss_arr = np.array(shifts)
-        left_shift_px[0] = float(np.median(ss_arr[:, 0]))
-        left_shift_px[1] = float(np.median(ss_arr[:, 1]))
-    print(f"[calib] left-pane shift (dy, dx) = "
-          f"({left_shift_px[0]:+.1f}, {left_shift_px[1]:+.1f}) px "
-          f"(per-state spread dy {np.std(ss_arr[:, 0]):.1f} "
-          f"dx {np.std(ss_arr[:, 1]):.1f})", flush=True)
+        v, scale, dy, dx = register(natl, brol)
+        fits.append((v, scale, dy, dx))
+        print(f"[calib] 2D reg state {r['idx']}: ncc={v:.3f} "
+              f"scale={scale:.2f} dy={dy:+d} dx={dx:+d}", flush=True)
+    good = [f for f in fits if f[0] > 0.3]
+    if good:
+        g = np.array(good)
+        med_scale = float(np.median(g[:, 1]))
+        left_shift_px[0] = float(np.median(g[:, 2]))
+        left_shift_px[1] = float(np.median(g[:, 3]))
+        print(f"[calib] 2D registration medians ({len(good)} confident): "
+              f"scale {med_scale:.3f} dy {left_shift_px[0]:+.1f} "
+              f"dx {left_shift_px[1]:+.1f}", flush=True)
+    else:
+        print("[calib] 2D registration: NO confident fits — scale further off "
+              "than +/-10% or content mismatch; inspect saved pairs", flush=True)
 
     # ---- full scoring + side-by-sides ------------------------------------
     metrics = []
