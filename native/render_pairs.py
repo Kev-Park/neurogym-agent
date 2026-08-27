@@ -580,6 +580,22 @@ def main() -> int:
         d = np.sqrt((a * a).sum() * (b * b).sum()) + 1e-9
         return float((a * b).sum() / d)
 
+    def rescale_center(g, s):
+        """Resample about the center to the SAME shape (pad or crop)."""
+        h, w = g.shape
+        if s == 1.0:
+            return g
+        img = Image.fromarray(g.astype(np.uint8)).resize(
+            (max(1, round(w * s)), max(1, round(h * s))), Image.BILINEAR)
+        arr = np.asarray(img, dtype=np.float64)
+        ah, aw = arr.shape
+        out = np.zeros((h, w))
+        sy, sx = max(0, (ah - h) // 2), max(0, (aw - w) // 2)
+        dy0, dx0 = max(0, (h - ah) // 2), max(0, (w - aw) // 2)
+        ch, cw = min(h, ah), min(w, aw)
+        out[dy0:dy0 + ch, dx0:dx0 + cw] = arr[sy:sy + ch, sx:sx + cw]
+        return out
+
     def register(natl, brol):
         gn = natl.mean(axis=2)
         gb = brol.mean(axis=2)
@@ -587,22 +603,7 @@ def main() -> int:
         crop = 150
         best = (-2.0, 1.0, 0, 0)
         for scale in (0.90, 0.94, 0.98, 1.0, 1.02, 1.06, 1.10):
-            if scale != 1.0:
-                h, w = gn.shape
-                sc = np.asarray(Image.fromarray(gn.astype(np.uint8)).resize(
-                    (int(w * scale), int(h * scale)), Image.BILINEAR),
-                    dtype=np.float64)
-                oy, ox = (sc.shape[0] - h) // 2, (sc.shape[1] - w) // 2
-                if oy < 0 or ox < 0:
-                    pad = np.zeros((h, w))
-                    pad[-oy:-oy + sc.shape[0] if oy else h,
-                        -ox:-ox + sc.shape[1] if ox else w] = \
-                        sc[:h + 2 * oy if oy else h, :w + 2 * ox if ox else w]
-                    gs = pad
-                else:
-                    gs = sc[oy:oy + h, ox:ox + w]
-            else:
-                gs = gn
+            gs = rescale_center(gn, scale)
             for dy in range(-36, 37, 6):
                 for dx in range(-36, 37, 6):
                     a = gs[cy + dy - crop:cy + dy + crop,
