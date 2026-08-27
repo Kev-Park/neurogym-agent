@@ -185,10 +185,11 @@ class MeshRenderer:
         vao, _ = self._vaos[rid]
         vao.render(mode=4)
 
-        # Section plane AFTER the mesh: translucent (mesh stays visible
-        # through it, as in the browser), depth-TESTED against the mesh but
-        # not depth-WRITTEN (an opaque-first draw occluded everything behind
-        # the plane — the iteration-6 regression).
+        # Section plane: NG's quad is the CROSS-SECTION VIEWPORT's square
+        # (crossSectionScale x 900px x 4nm per side — small vs the projection
+        # view), rendered bright and opaque with normal depth. Iteration 6's
+        # "occlusion regression" was the quad being frustum-sized, not its
+        # opacity.
         if overlays and em_tile is not None:
             tex = self.ctx.texture(em_tile.shape[::-1], 1,
                                    np.ascontiguousarray(em_tile).tobytes())
@@ -206,12 +207,8 @@ class MeshRenderer:
             self.plane_prog["mvp"].write(mvp_b)
             # plane normal = +z; NG: factor = ambient + |dot(l, n)| * 0.8
             self.plane_prog["lfac"].value = float(0.2 + abs(ldir[2]) * 0.8)
-            self.plane_prog["alpha"].value = 0.5
-            self.ctx.enable(self._moderngl.BLEND)
-            self.fbo.depth_mask = False
+            self.plane_prog["alpha"].value = 1.0
             vao.render(mode=5)  # TRIANGLE_STRIP
-            self.fbo.depth_mask = True
-            self.ctx.disable(self._moderngl.BLEND)
             vao.release(); vbo.release(); tex.release()
 
         # Axis lines: half-length = zoom * min(w,h)/h / 4 (panel.ts).
@@ -400,9 +397,10 @@ def main() -> int:
         zoom_nm = rec["observed_a"]["proj_scale"] * scale_cal
         tile = ext = None
         if overlays:
-            ext = zoom_nm * 2.5  # cover the frustum with margin
+            # NG slice quad side = crossSectionScale x 900 CSS px x 4nm.
+            ext = rec["observed_a"]["xs_scale"] * 900.0 * 4.0
             try:
-                tile = em.tile(pos_nm, ext)
+                tile = em.tile(pos_nm, ext, max_px=1024)
             except Exception as e:
                 print(f"[render] EM tile fail ({e}); plane skipped", flush=True)
         return rend.render(rec["root_id"], pos_nm, quat, zoom_nm, conj=conj,
