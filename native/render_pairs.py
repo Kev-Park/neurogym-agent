@@ -27,9 +27,25 @@ import sys
 import numpy as np
 from PIL import Image
 
-sys.path.insert(0, "/scratch/kp0374/wt/neurogym-native/src")
-from ngllib.native.camera import projection_camera  # noqa: E402
-from ngllib.native.colors import segment_color  # noqa: E402
+# Load the ngllib.native modules directly by file: a package import would
+# execute ngllib/__init__ (gymnasium/playwright), which the spike venv
+# intentionally does not carry.
+import importlib.util  # noqa: E402
+
+_NGL_NATIVE = "/scratch/kp0374/wt/neurogym-native/src/ngllib/native"
+
+
+def _load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+projection_camera = _load("ngl_native_camera",
+                          f"{_NGL_NATIVE}/camera.py").projection_camera
+segment_color = _load("ngl_native_colors",
+                      f"{_NGL_NATIVE}/colors.py").segment_color
 
 VOXEL_NM = np.array([4.0, 4.0, 40.0])
 PANE = 450  # capture_scale 0.5 of the 900px pane
