@@ -16,8 +16,13 @@
 # v9-identical training on the NATIVE renderer — single node, NO coordinator.
 # The coordinator existed to manage multi-node salloc + respawn for the
 # browser fleet; a single-node native run needs only SLURM --requeue +
-# train.py --resume. Topology mirrors one production node: 2 EnvRunner
-# processes x 16 threaded envs sharing the GPU with the learner-in-driver.
+# train.py --resume.
+#
+# Topology from the density sweeps (jobs 870732/34/37/38/39): per-step
+# Python is GIL-serialized, so ONE process caps ~10 sps at any thread
+# count; process count is the scaling axis (K=4 -> 28.8, K=8 -> 48.1
+# sps/node vs browser ~35-40). Hence 8 EnvRunner processes x 4 threaded
+# envs (32 envs/node), small per-runner fetch pools.
 #
 # Usage: sbatch native/r_train_native.slurm [run-name] [target-iters]
 set -e
@@ -31,6 +36,7 @@ mkdir -p "$CKPT"
 export PYTHONUNBUFFERED=1
 export RAY_NUM_CPUS=44
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
+export NGL_NATIVE_FETCH_WORKERS=3
 # Wall-clock spawn-curriculum anchor must survive preemption requeues: first
 # launch stamps it into the checkpoint dir; requeues reuse the stamp so the
 # anneal doesn't replay the easy phase.
@@ -41,9 +47,9 @@ export CURRICULUM_T0=$(cat "$T0_FILE")
 uv run --no-sync python -m ngllib_agent.train \
   --config configs/native.yaml \
   --run-name "$RUN" \
-  --num-env-runners 2 \
-  --num-envs-per-env-runner 16 \
-  --num-gpus-per-env-runner 0.5 \
+  --num-env-runners 8 \
+  --num-envs-per-env-runner 4 \
+  --num-gpus-per-env-runner 0.1 \
   --vector threads \
   --iters "$ITERS" \
   --train-batch-size 4000 \
