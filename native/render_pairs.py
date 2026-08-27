@@ -344,6 +344,26 @@ class EMTiles:
         return img
 
 
+def phase_shift(a: np.ndarray, b: np.ndarray):
+    """(dy, dx) such that shifting `a` by it best aligns with `b`
+    (FFT phase correlation on grayscale)."""
+    ga = a.mean(axis=2) if a.ndim == 3 else a
+    gb = b.mean(axis=2) if b.ndim == 3 else b
+    ga = ga - ga.mean()
+    gb = gb - gb.mean()
+    fa, fb = np.fft.fft2(ga), np.fft.fft2(gb)
+    cross = fb * np.conj(fa)
+    cross /= (np.abs(cross) + 1e-9)
+    corr = np.abs(np.fft.ifft2(cross))
+    peak = np.unravel_index(np.argmax(corr), corr.shape)
+    dy, dx = peak
+    if dy > ga.shape[0] // 2:
+        dy -= ga.shape[0]
+    if dx > ga.shape[1] // 2:
+        dx -= ga.shape[1]
+    return float(dy), float(dx)
+
+
 def block_ssim(a: np.ndarray, b: np.ndarray, block: int = 16) -> float:
     """Mean SSIM over non-overlapping blocks of the grayscale images."""
     ga = a.mean(axis=2).astype(np.float64)
@@ -458,10 +478,17 @@ def main() -> int:
                            em_tile=tile, em_extent_nm=ext,
                            em_gain=em_gain[0], overlays=overlays)
 
+    left_shift_px = [0.0, 0.0]  # (dy, dx) calibration, measured below
+
     def native_left(rec, seg_overlay=True):
         """The 2D xy EM pane: tile + gain + segment tint + crosshair."""
         pos_nm = np.asarray(rec["observed_a"]["position"]) * VOXEL_NM
         ext_x, ext_y = pane_extents(rec)
+        # Apply the phase-correlation-calibrated registration offset in
+        # world space (px -> nm at this pane's scale).
+        pos_nm = pos_nm + np.array([
+            -left_shift_px[1] * ext_x / PANE,
+            -left_shift_px[0] * ext_y / PANE_H, 0.0])
         canvas = np.zeros((PANE, PANE, 3), dtype=np.uint8)
         try:
             tile = em.tile(pos_nm, ext_x, ext_y, max_px=1024)
@@ -541,6 +568,23 @@ def main() -> int:
         em_gain[0] = float(np.median(ratios))
     print(f"[calib] em_gain = {em_gain[0]:.3f} "
           f"(median of {len(ratios)} state ratios)", flush=True)
+
+    # ---- 2D-pane registration: phase-correlate native vs browser EM and
+    # bake the median shift (fine EM texture destroys SSIM at even a few px
+    # of misregistration; measured ~25px vertical in iteration 9).
+    shifts = []
+    for r in calib:
+        natl = native_left(r, seg_overlay=False)[TOOLBAR:]
+        brol = browser_left(r)[TOOLBAR:]
+        shifts.append(phase_shift(natl, brol))
+    if shifts:
+        ss_arr = np.array(shifts)
+        left_shift_px[0] = float(np.median(ss_arr[:, 0]))
+        left_shift_px[1] = float(np.median(ss_arr[:, 1]))
+    print(f"[calib] left-pane shift (dy, dx) = "
+          f"({left_shift_px[0]:+.1f}, {left_shift_px[1]:+.1f}) px "
+          f"(per-state spread dy {np.std(ss_arr[:, 0]):.1f} "
+          f"dx {np.std(ss_arr[:, 1]):.1f})", flush=True)
 
     # ---- full scoring + side-by-sides ------------------------------------
     metrics = []
