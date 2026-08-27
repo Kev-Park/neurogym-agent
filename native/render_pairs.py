@@ -48,7 +48,9 @@ segment_color = _load("ngl_native_colors",
                       f"{_NGL_NATIVE}/colors.py").segment_color
 
 VOXEL_NM = np.array([4.0, 4.0, 40.0])
-PANE = 450  # capture_scale 0.5 of the 900px pane
+PANE = 450        # capture_scale 0.5 of the 900px pane width
+TOOLBAR = 17      # NG top toolbar (~33 CSS px) at capture scale 0.5
+PANE_H = PANE - TOOLBAR  # the 3D panel's true captured height (433)
 
 
 class MeshRenderer:
@@ -59,7 +61,9 @@ class MeshRenderer:
         print(f"[render] GL_RENDERER = {self.ctx.info['GL_RENDERER']}",
               flush=True)
         self.ctx.enable(moderngl.DEPTH_TEST)
-        self.fbo = self.ctx.simple_framebuffer((PANE, PANE), components=4)
+        # Render at the 3D panel's true captured geometry (450 x 433 below
+        # the toolbar) so the optical center and aspect match the browser.
+        self.fbo = self.ctx.simple_framebuffer((PANE, PANE_H), components=4)
         self.prog = self.ctx.program(
             vertex_shader="""#version 330
                 uniform mat4 mvp;
@@ -109,7 +113,7 @@ class MeshRenderer:
         q = list(quat)
         if conj:
             q = [-q[0], -q[1], -q[2], q[3]]
-        view, proj = projection_camera(position_nm, q, zoom_nm, PANE, PANE)
+        view, proj = projection_camera(position_nm, q, zoom_nm, PANE, PANE_H)
         mvp = (proj @ view).astype("f4")
         self.fbo.use()
         self.fbo.clear(0.0, 0.0, 0.0, 1.0)
@@ -118,7 +122,11 @@ class MeshRenderer:
         vao, _ = self._vaos[rid]
         vao.render(mode=4)
         px = np.frombuffer(self.fbo.read(components=4), dtype=np.uint8)
-        return px.reshape(PANE, PANE, 4)[::-1, :, :3]  # GL origin flip
+        pane = px.reshape(PANE_H, PANE, 4)[::-1, :, :3]  # GL origin flip
+        # Paste below a black toolbar strip: same 450x450 layout as browser.
+        out = np.zeros((PANE, PANE, 3), dtype=np.uint8)
+        out[TOOLBAR:, :] = pane
+        return out
 
 
 def color_silhouette(img_rgb: np.ndarray, expected_rgb, margin: int = 16,
@@ -148,6 +156,28 @@ def iou(a: np.ndarray, b: np.ndarray) -> float:
     inter = np.logical_and(a, b).sum()
     union = np.logical_or(a, b).sum()
     return float(inter) / float(union) if union else 0.0
+
+
+def dilate(mask: np.ndarray, r: int = 2) -> np.ndarray:
+    """Binary dilation by r px (separable max filter, numpy-only)."""
+    out = mask.copy()
+    for _ in range(r):
+        out[1:] |= out[:-1]
+        out[:-1] |= out[1:]
+        out[:, 1:] |= out[:, :-1]
+        out[:, :-1] |= out[:, 1:]
+    return out
+
+
+def tol_iou(a: np.ndarray, b: np.ndarray, r: int = 2) -> float:
+    """Tolerance IoU: fraction of each mask within r px of the other —
+    robust to antialiasing/shading edge noise on thin filaments."""
+    if not a.any() or not b.any():
+        return 0.0
+    da, db = dilate(a, r), dilate(b, r)
+    hit_a = np.logical_and(a, db).sum() / a.sum()
+    hit_b = np.logical_and(b, da).sum() / b.sum()
+    return float(min(hit_a, hit_b))
 
 
 def centroid_delta(a: np.ndarray, b: np.ndarray):
@@ -219,7 +249,18 @@ def main() -> int:
             if best is None or mean > best[2]:
                 best = (conj, sc, mean)
     conj, sc, _ = best
-    print(f"[calib] chosen conj={conj} scale_cal={sc}", flush=True)
+    # Golden-section-ish refine around the grid winner (grid steps are ~12%
+    # — too coarse: thin filaments halve IoU on a few-% scale error).
+    lo, hi = sc * 0.85, sc * 1.15
+    for _ in range(5):
+        cands = np.linspace(lo, hi, 5)
+        vals = [(float(np.mean([iou(*masks(r, s, conj)) for r in calib])), s)
+                for s in cands]
+        vals.sort(reverse=True)
+        sc = vals[0][1]
+        span = (hi - lo) / 4
+        lo, hi = sc - span / 2, sc + span / 2
+    print(f"[calib] chosen conj={conj} scale_cal={sc:.3f} (refined)", flush=True)
 
     # ---- full scoring + side-by-sides ------------------------------------
     metrics = []
@@ -227,11 +268,12 @@ def main() -> int:
     for k, rec in enumerate(records):
         nat, bro = masks(rec, sc, conj)
         v = iou(nat, bro)
+        tv = tol_iou(nat, bro, r=2)
         d = centroid_delta(nat, bro)
         if d:
             deltas.append(d)
         metrics.append({"idx": rec["idx"], "root_id": rec["root_id"],
-                        "iou": round(v, 4),
+                        "iou": round(v, 4), "tol_iou": round(tv, 4),
                         "centroid_dydx": [round(x, 1) for x in d] if d else None})
         if k < 24:
             side = np.concatenate([native_pane(rec, sc, conj),
@@ -239,9 +281,13 @@ def main() -> int:
             Image.fromarray(side).save(
                 os.path.join(args.out_dir, f"pair_{rec['idx']:04d}.png"))
     ious = np.array([m["iou"] for m in metrics])
+    tious = np.array([m["tol_iou"] for m in metrics])
     print(f"[render] color-silhouette IoU over {len(ious)} states: "
           f"mean {ious.mean():.3f} median {np.median(ious):.3f} "
           f"p10 {np.percentile(ious, 10):.3f} min {ious.min():.3f}",
+          flush=True)
+    print(f"[render] tolerance-IoU (2px): mean {tious.mean():.3f} "
+          f"median {np.median(tious):.3f} p10 {np.percentile(tious, 10):.3f}",
           flush=True)
     if deltas:
         dd = np.array(deltas)
