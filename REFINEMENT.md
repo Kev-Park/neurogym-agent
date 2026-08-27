@@ -623,3 +623,32 @@ v8 final (ckpt_000740, ~3.2M steps, protocol v2 stochastic, 200 frozen pairs):
   cycle errors continue), supervisor + timestamped logs in the launcher.
   Monitor-side: WSL bridge needs an OUTER timeout (dead-while-alive watchdog
   missed the 740 completion); re-alarm + restored-notice pattern (CLAUDE.md).
+
+## R13. coord-v9b: spawn-distance curriculum verdict (2026-08-28)
+
+v9b = v8 + ONE config delta (wall-clock spawn-distance curriculum, 3.5h
+anneal anchored to CURRICULUM_T0; the reset-count-paced v9 annealed ~25x
+too fast — killed at iter 68, returns negative — and was relaunched fixed).
+740 iters (~3M steps), fully autonomous (one salloc-wall handoff, several
+self-healed respawns, zero flight-recorder errors).
+
+  checkpoint     @300 (92q1/96q2/88q3/84q4)   @600            zoom-use
+  v8@740         87.0%  (92/92/90/74)         98.5% (100/100/96/98)  12.1%
+  v9b@740        90.0%  (92/96/88/84)         98.0% (98/98/98/98)    11.8%
+
+- **@300: 90.0 vs 87.0 (+3.0)** — clears the >=82% bar; NO extension needed.
+- **The curriculum's designed effect landed**: the @300<->@600 speed gap
+  shrank 11.5 -> 8.0 pts, and q4@300 (long climbs) 74 -> 84 — the
+  improvement concentrates exactly on the climb-distance axis the
+  curriculum targeted. @600 is saturated for both (98-98.5, noise).
+- Successful episodes are FASTER (video sample medians ~70 steps vs v8's
+  ~130); one of the 3 remaining "always-fail" neurons converted.
+- Video sampler found only 1 failure in 24+ attempts (a 600-step near-miss,
+  dz -214) — failure-hunting now needs targeted probes (--root-ids).
+- Caveat: +3.0 @300 is within ~1.5 sigma of per-eval noise (95% CI +-4);
+  the gap-closure + q4 pattern is the stronger evidence than the headline.
+
+Ops from the v9->v9b arc: curriculum schedules must be episode-length
+invariant (wall-clock or step-anchored, never reset-count); pkill -f
+patterns self-match the issuing remote command (use [.]-classes or PIDs);
+probe scripts must read the NEWEST rotated log.
