@@ -194,6 +194,20 @@ def mode_native(args):
             fbo.clear(0, 0, 0, 1)
             prog["mvp"].write(mvp.T.copy().tobytes())
             load_mesh(rec["root_id"]).render(mode=4)
+            if args.plane:
+                # Section plane participates in NG's pick buffer: clicks on
+                # the EM slice move to the plane point, not background.
+                xs = float(pre["xs_scale"])
+                hx, hy = xs * 900.0 * 4.0 / 2, xs * 867.0 * 4.0 / 2
+                px_, py_, pz_ = pos_nm
+                quad = np.array([
+                    px_ - hx, py_ - hy, pz_, px_ + hx, py_ - hy, pz_,
+                    px_ - hx, py_ + hy, pz_, px_ + hx, py_ + hy, pz_,
+                ], dtype="f4")
+                pvbo = ctx.buffer(quad.tobytes())
+                pvao = ctx.vertex_array(prog, [(pvbo, "3f", "pos")])
+                pvao.render(mode=5)  # TRIANGLE_STRIP
+                pvao.release(); pvbo.release()
             draw = np.frombuffer(depth.read(), dtype="f4").reshape(
                 PANE_H, PANE)[::-1]
             cell = p["action"][1]
@@ -273,6 +287,9 @@ def main() -> int:
     ap.add_argument("--out", default="/scratch/kp0374/native_spike/input_browser.jsonl")
     ap.add_argument("--browser-jsonl",
                     default="/scratch/kp0374/native_spike/input_browser.jsonl")
+    ap.add_argument("--plane", action="store_true",
+                    help="native mode: include the section plane in the pick "
+                         "depth pass (NG-true; NativeEnvironment behavior)")
     args = ap.parse_args()
     return mode_browser(args) if args.mode == "browser" else mode_native(args)
 
