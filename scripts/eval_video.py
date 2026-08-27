@@ -97,7 +97,9 @@ def main() -> int:
     ap.add_argument("--skeleton", required=True)
     ap.add_argument("--state-pkl", required=True)
     ap.add_argument("--out-dir", default="eval_videos")
-    ap.add_argument("--max-steps", type=int, default=300)
+    ap.add_argument("--max-steps", type=int, default=600,
+                    help="Per-episode cap (env TimeLimit overridden to match; "
+                         "600 = the extended eval budget).")
     ap.add_argument("--orientation-seed-base", type=int, default=1000)
     ap.add_argument("--attempts-per-quartile", type=int, default=6)
     ap.add_argument("--root-ids", default="",
@@ -115,6 +117,7 @@ def main() -> int:
 
     cfg = load_config(args.config)
     cfg.setdefault("obs", {})["mode"] = "dino"
+    cfg.setdefault("env", {})["max_episode_steps"] = args.max_steps
 
     frames: list[np.ndarray] = []
     zs: list[float] = []
@@ -188,7 +191,7 @@ def main() -> int:
 
         frames.clear()
         zs.clear()
-        signal.alarm(600)  # hard cap: reset + 300 steps + encode
+        signal.alarm(900)  # hard cap: reset + up to 600 steps + encode
         try:
             obs, _ = env.reset(options={"state": state, "task_info": task_info})
             terminated = truncated = False

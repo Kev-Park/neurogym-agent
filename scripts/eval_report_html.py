@@ -208,11 +208,13 @@ def main() -> int:
         pool = []
         for p in pairs:
             zs = np.asarray(p["z_series"], float)
-            closest = float(np.abs(zs - p["z_max"]).min())
+            d = np.abs(zs - p["z_max"])
+            c300 = float(d[:301].min())      # standard-budget closest approach
+            cfull = float(d.min())           # full-rollout closest approach
             span = p["z_max"] - p["z_min"]
             qi = 0 if p["length_nm"] < q1 else 1 if p["length_nm"] < q2 \
                 else 2 if p["length_nm"] < q3 else 3
-            pool.append([round(closest, 1), round(span, 1), qi])
+            pool.append([round(c300, 1), round(cfull, 1), round(span, 1), qi])
         pool_js = json.dumps(pool, separators=(",", ":"))
 
     thresholds = ""
@@ -237,11 +239,12 @@ def main() -> int:
         b64 = base64.b64encode(vid).decode()
         ok = ep["outcome"] == "success"
         span = ep["z_max"] - ep.get("z_min", ep["z_series"][0])
-        closest = min(abs(z - ep["z_max"]) for z in ep["z_series"])
+        dists = [abs(z - ep["z_max"]) for z in ep["z_series"]]
+        closest, c300 = min(dists), min(dists[:301])
         pill = f'<span class="pill {"pill-ok" if ok else "pill-no"}">{ep["outcome"]}</span>'
         sections.append(f'''
 <h2>{ep["quartile"]} &middot; {ep["length_nm"] / 1e6:.2f}M nm neuron</h2>
-<div class="ep ep-card" data-span="{span:.1f}" data-closest="{closest:.1f}">
+<div class="ep ep-card" data-span="{span:.1f}" data-closest="{closest:.1f}" data-closest300="{c300:.1f}">
 <div><video controls muted playsinline src="data:video/mp4;base64,{b64}"></video></div>
 <div>
 <h3>pair {ep["pair_idx"]} {pill}</h3>
@@ -256,33 +259,42 @@ def main() -> int:
     picker = f'''
 <div class="crit-picker" role="group" aria-label="success criterion">
 <span class="tick" style="font-size:.85rem">criterion:</span>
-<button class="crit-chip" data-k="f5">&plusmn;5% extent (run)</button>
-<button class="crit-chip" data-k="f10">&plusmn;10% extent</button>
-<button class="crit-chip" data-k="f15">&plusmn;15% extent</button>
-<button class="crit-chip" data-k="abs">abs &plusmn;{args.abs_tol:g} vox</button>
+<button class="crit-chip crit-c" data-k="f5">&plusmn;5% extent (run)</button>
+<button class="crit-chip crit-c" data-k="f10">&plusmn;10% extent</button>
+<button class="crit-chip crit-c" data-k="f15">&plusmn;15% extent</button>
+<button class="crit-chip crit-c" data-k="abs">abs &plusmn;{args.abs_tol:g} vox</button>
+</div>
+<div class="crit-picker" role="group" aria-label="step budget">
+<span class="tick" style="font-size:.85rem">step budget:</span>
+<button class="crit-chip crit-b" data-b="b300">@300 (standard)</button>
+<button class="crit-chip crit-b" data-b="bfull">@600 (extended)</button>
 </div>
 <div class="stats">
 <div class="stat"><b id="sel-overall">&ndash;</b><span>pool under selection</span></div>
 <div class="stat"><b><span id="sel-q1">&ndash;</span> / <span id="sel-q2">&ndash;</span> /
 <span id="sel-q3">&ndash;</span> / <span id="sel-q4">&ndash;</span></b><span>q1 / q2 / q3 / q4</span></div>
 </div>
-<p class="crit-note">Selecting a criterion re-evaluates the pool stats above and every
-episode below (band, label, curve color) from the recorded trajectories. Criteria
-TIGHTER than the run&rsquo;s (&plusmn;{args.run_frac:.0%}) are lower bounds — episodes
-terminated at the run band. Video overlays are baked at the run criterion.</p>'''
+<p class="crit-note">Criterion and budget selections re-evaluate the pool stats above and every
+episode below (band, label, curve color) from the recorded trajectories. Success@budget =
+the trajectory entered the band within that many steps (exact: an extended episode&rsquo;s
+first 300 steps ARE the standard episode). Criteria TIGHTER than the run&rsquo;s
+(&plusmn;{args.run_frac:.0%}) are lower bounds — episodes terminated at the run band.
+Video overlays are baked at the run criterion and full budget.</p>'''
 
     js = f'''<script>
 const POOL = {pool_js};
 const CRIT = {{f5:{{t:"f",v:0.05}}, f10:{{t:"f",v:0.10}}, f15:{{t:"f",v:0.15}},
               abs:{{t:"a",v:{args.abs_tol}}}}};
 const CH = {{mt:{MT}, ih:{IH}, ymin:{YMIN}, ymax:{YMAX}}};
+let selC = "f5", selB = "bfull";
 function tol(c, span) {{ return c.t === "a" ? c.v : c.v * span; }}
 function Y(v) {{ v = Math.min(Math.max(v, CH.ymin), CH.ymax);
   return CH.mt + (CH.ymax - v) / (CH.ymax - CH.ymin) * CH.ih; }}
-function apply(key) {{
-  const c = CRIT[key];
+function apply() {{
+  const c = CRIT[selC], b300 = selB === "b300";
   document.querySelectorAll(".ep-card").forEach(el => {{
-    const span = +el.dataset.span, closest = +el.dataset.closest;
+    const span = +el.dataset.span;
+    const closest = b300 ? +el.dataset.closest300 : +el.dataset.closest;
     const ok = closest <= tol(c, span);
     const pill = el.querySelector(".pill");
     pill.textContent = ok ? "success" : "failure";
@@ -300,19 +312,26 @@ function apply(key) {{
   }});
   if (POOL.length) {{
     const w = [0,0,0,0], n = [0,0,0,0]; let tot = 0;
-    POOL.forEach(p => {{ n[p[2]]++; if (p[0] <= tol(c, p[1])) {{ w[p[2]]++; tot++; }} }});
+    POOL.forEach(p => {{
+      const closest = b300 ? p[0] : p[1];
+      n[p[3]]++; if (closest <= tol(c, p[2])) {{ w[p[3]]++; tot++; }}
+    }});
     document.getElementById("sel-overall").textContent =
       (100 * tot / POOL.length).toFixed(1) + "%";
     ["sel-q1","sel-q2","sel-q3","sel-q4"].forEach((id, i) =>
       document.getElementById(id).textContent =
         n[i] ? (100 * w[i] / n[i]).toFixed(0) + "%" : "--");
   }}
-  document.querySelectorAll(".crit-chip").forEach(b =>
-    b.classList.toggle("active", b.dataset.k === key));
+  document.querySelectorAll(".crit-c").forEach(x =>
+    x.classList.toggle("active", x.dataset.k === selC));
+  document.querySelectorAll(".crit-b").forEach(x =>
+    x.classList.toggle("active", x.dataset.b === selB));
 }}
-document.querySelectorAll(".crit-chip").forEach(b =>
-  b.addEventListener("click", () => apply(b.dataset.k)));
-apply("f5");
+document.querySelectorAll(".crit-c").forEach(x =>
+  x.addEventListener("click", () => {{ selC = x.dataset.k; apply(); }}));
+document.querySelectorAll(".crit-b").forEach(x =>
+  x.addEventListener("click", () => {{ selB = x.dataset.b; apply(); }}));
+apply();
 </script>'''
 
     doc = f'''<title>{html.escape(args.title)}</title>

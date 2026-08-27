@@ -120,3 +120,24 @@ def test_projection_scale_range_validation(parquet):
         FlywireSkeletonProvider(parquet, projection_scale_range=(0, 14000))
     with pytest.raises(ValueError):
         FlywireSkeletonProvider(parquet, projection_scale_range=(5000, 100))
+
+def test_spawn_curriculum_anneals(parquet):
+    # A: z=[5,50,25], extent 45. start_frac 0.1 -> d=4.5 -> only z=50 eligible.
+    prov = FlywireSkeletonProvider(
+        parquet, root_ids=["A"],
+        spawn_curriculum={"start_frac": 0.1, "end_resets": 4})
+    rng = np.random.default_rng(0)
+    early = [prov(rng, None)[0]["position"][2] for _ in range(3)]
+    assert all(z == 50.0 for z in early)          # near-target spawns only
+    for _ in range(6):
+        prov(rng, None)                            # anneal past end_resets
+    late = {prov(rng, None)[0]["position"][2] for _ in range(30)}
+    assert late == {5.0, 50.0, 25.0}               # full distribution reached
+
+
+def test_spawn_curriculum_bypassed_by_segment_id(parquet):
+    prov = FlywireSkeletonProvider(
+        parquet, spawn_curriculum={"start_frac": 0.1, "end_resets": 1000})
+    rng = np.random.default_rng(2)
+    zs = {prov(rng, {"segment_id": "A"})[0]["position"][2] for _ in range(30)}
+    assert len(zs) > 1                             # unrestricted node choice

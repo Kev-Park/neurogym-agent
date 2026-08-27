@@ -82,6 +82,7 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     provider = FlywireSkeletonProvider(
         ec["parquet_path"],
         projection_scale_range=tuple(psr) if psr else None,
+        spawn_curriculum=ec.get("spawn_curriculum"),
         exclude_root_ids=exclude,
     )
     rcfg = ZRewardConfig(

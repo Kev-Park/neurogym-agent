@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=24G
 #SBATCH --nodelist=sarekl15-1,sarekl15-2,sarekl15-4,sarekl15-7,sarekl16-1,sarekl16-3,sarekl16-5,sarekl16-6,sarekl16-7,sarekl16-8
-#SBATCH --time=01:00:00
+#SBATCH --time=02:00:00
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=code@thiskevin.com
 #SBATCH --output=slurm_outputs/evalvid-%j.out

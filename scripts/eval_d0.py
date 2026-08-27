@@ -191,8 +191,16 @@ def main() -> int:
     ap.add_argument("--config", default="configs/ppo_zmax_navigate.yaml")
     ap.add_argument("--eval-d0", required=True, help="Parquet with pair_idx, root_id, node_index, length_nm.")
     ap.add_argument("--skeleton", required=True, help="Skeleton parquet for state assembly.")
-    ap.add_argument("--max-steps", type=int, default=300,
-                    help="Per-episode step cap. TimeLimit still applies via config.")
+    ap.add_argument("--max-steps", type=int, default=600,
+                    help="Per-episode step cap (the env TimeLimit is overridden "
+                         "to match). Default 600: episodes roll to the extended "
+                         "budget and the summary reports BOTH the standard @300 "
+                         "and the extended budget — the @300 numbers stay "
+                         "comparable to history because a 600-cap episode's "
+                         "first 300 steps are exactly the 300-cap episode.")
+    ap.add_argument("--report-budgets", default="300",
+                    help="Comma-separated step budgets to report IN ADDITION "
+                         "to the rollout budget (first-crossing post-hoc).")
     ap.add_argument("--orientation-seed-base", type=int, default=1000,
                     help="Seed = base + pair_idx for the initial quaternion.")
     ap.add_argument("--output", default="eval_results.json",
@@ -221,6 +229,9 @@ def main() -> int:
     cfg = load_config(args.config)
     if args.obs is not None:
         cfg.setdefault("obs", {})["mode"] = args.obs
+    # Extended-budget rollouts: the env's TimeLimit must match --max-steps
+    # (training keeps the config's own cap; this override is eval-only).
+    cfg.setdefault("env", {})["max_episode_steps"] = args.max_steps
     env = build_env(cfg)
 
     # Per-pair SIGALRM hard cap (2026-08-25): the single-env loop has no
@@ -422,6 +433,37 @@ def main() -> int:
             flush=True,
         )
     print(f"wrote {args.output}", flush=True)
+
+    # Dual-budget report (2026-08-27): success under the standard @300 budget
+    # (and any others requested) from first-band-entry step indices — exact,
+    # because the extended episode's first N steps ARE the N-cap episode.
+    from ngllib_agent.rewards import ZRewardConfig, effective_z_tolerance
+
+    rcfg = ZRewardConfig(
+        z_tolerance=cfg["reward"]["z_tolerance"],
+        z_tolerance_frac=cfg["reward"].get("z_tolerance_frac"))
+    budgets = sorted({int(b) for b in args.report_budgets.split(",") if b}
+                     | {args.max_steps})
+    lengths_all = np.asarray([r["length_nm"] for r in results])
+    bq1, bq2, bq3 = np.quantile(lengths_all, [0.25, 0.5, 0.75])
+    print("\n== Success by step budget (first band entry) ==", flush=True)
+    print(f'{"budget":<14}{"overall":>9}{"q1":>7}{"q2":>7}{"q3":>7}{"q4":>7}',
+          flush=True)
+    for b in budgets:
+        wins = []
+        for r in results:
+            tol = effective_z_tolerance(
+                rcfg, {"z_max": r["z_max"], "z_min": r["z_min"]})
+            fi = next((i for i, z in enumerate(r["z_series"])
+                       if abs(z - r["z_max"]) <= tol), None)
+            wins.append(fi is not None and fi <= b)
+        cells = []
+        for lo, hi in [(-1, bq1), (bq1, bq2), (bq2, bq3), (bq3, float("inf"))]:
+            sel = [w for w, r in zip(wins, results) if lo < r["length_nm"] <= hi]
+            cells.append(f"{100 * sum(sel) / len(sel):>6.0f}%" if sel else "    --")
+        tag = " (run)" if b == args.max_steps else ""
+        print(f"@{b}{tag:<9}{100 * sum(wins) / len(wins):>8.1f}%"
+              + "".join(cells), flush=True)
 
     # Standard threshold report (2026-08-24): abs band + 5/10/15% of z-extent
     # on every eval, from the recorded trajectories. Sidecar JSON feeds

@@ -48,6 +48,7 @@ class FlywireSkeletonProvider:
         projection_scale: float = 14000.0,
         cross_section_scale: float = 2.0,
         projection_scale_range: tuple[float, float] | None = None,
+        spawn_curriculum: dict | None = None,
         root_ids: list[str] | None = None,
         exclude_root_ids: list[str] | None = None,
     ):
@@ -73,6 +74,21 @@ class FlywireSkeletonProvider:
                 raise ValueError(
                     f"projection_scale_range must be 0 < lo <= hi; got {lo}, {hi}")
             self._projection_scale_range = (lo, hi)
+        # Spawn-distance curriculum (2026-08-27, v9): early episodes spawn
+        # near z_max (short climbs, dense success signal — measured difficulty
+        # tracks CLIMB DISTANCE, R11/B7 analyses), annealing to the full node
+        # distribution. Scheduled on this provider's OWN reset count (workers
+        # have no global step): allowed distance fraction of z-extent =
+        # start_frac + (1 - start_frac) * min(1, resets / end_resets).
+        # A respawned worker restarts its local counter — a transient easy
+        # patch, acceptable. Explicit segment_id resets bypass the curriculum.
+        self._curriculum = None
+        self._n_resets = 0
+        if spawn_curriculum:
+            self._curriculum = {
+                "start_frac": float(spawn_curriculum.get("start_frac", 0.10)),
+                "end_resets": int(spawn_curriculum.get("end_resets", 75)),
+            }
 
         if root_ids is not None:
             self._root_ids = [str(r) for r in root_ids]
@@ -98,7 +114,17 @@ class FlywireSkeletonProvider:
         options = options or {}
         root_id = str(options.get("segment_id") or rng.choice(self._root_ids))
         nodes = self._nodes(root_id)
-        start = nodes[int(rng.integers(len(nodes)))]
+        if self._curriculum is not None and "segment_id" not in options:
+            c = self._curriculum
+            frac = c["start_frac"] + (1.0 - c["start_frac"]) * min(
+                1.0, self._n_resets / c["end_resets"])
+            self._n_resets += 1
+            z_max = float(nodes[:, 2].max())
+            z_min = float(nodes[:, 2].min())
+            eligible = nodes[nodes[:, 2] >= z_max - frac * (z_max - z_min)]
+            start = eligible[int(rng.integers(len(eligible)))]
+        else:
+            start = nodes[int(rng.integers(len(nodes)))]
 
         ps = self._projection_scale
         if self._projection_scale_range is not None:

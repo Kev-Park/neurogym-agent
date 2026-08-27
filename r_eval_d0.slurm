@@ -10,7 +10,7 @@
 # Known-good vulkan fleet minus the operational exclusions (15-5 CUDA-wedged,
 # 15-8 flaky, 16-2 hang factory — CLAUDE.md "Operationally excluded").
 #SBATCH --nodelist=sarekl15-1,sarekl15-2,sarekl15-4,sarekl15-7,sarekl16-1,sarekl16-3,sarekl16-5,sarekl16-6,sarekl16-7,sarekl16-8
-#SBATCH --time=02:30:00
+#SBATCH --time=04:00:00
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=code@thiskevin.com
 #SBATCH --output=slurm_outputs/evald0-%x-%j.out
