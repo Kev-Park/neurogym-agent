@@ -12,7 +12,9 @@ EVAL_OUT=${2:-}
 ST=$(squeue -h -u kp0374 -n ngllib-agent-coord -o %T | head -1)
 CP=$(pgrep -fc 'distributed[.]coordinator')
 IT=$(python3 -c "import json;print(json.load(open('/scratch/kp0374/checkpoints/${RUN}/meta.json')).get('iteration',-1))" 2>/dev/null || echo -1)
-L=$(grep -hE '^iter [0-9]+:' "/scratch/kp0374/coord-state/logs-${RUN}"/learner-001.log 2>/dev/null | tail -1 | cut -c1-90)
+# Newest learner log — respawns/re-sallocs rotate to learner-00N.log.
+LOGF=$(ls -t "/scratch/kp0374/coord-state/logs-${RUN}"/learner-*.log 2>/dev/null | head -1)
+L=$(grep -hE '^iter [0-9]+:' "$LOGF" 2>/dev/null | tail -1 | cut -c1-90)
 BL=""
 if [ -n "$EVAL_OUT" ]; then
     BL=$(grep -hE 'pair [0-9]+/200|success rate|@[0-9]+ |budget' $EVAL_OUT 2>/dev/null | tail -1 | cut -c1-80)
