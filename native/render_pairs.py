@@ -138,8 +138,9 @@ def color_silhouette(img_rgb: np.ndarray, expected_rgb, margin: int = 16,
     exp = exp / (exp.sum() + 1e-6)
     dist = np.abs(chroma - exp[None, None, :]).sum(axis=2)
     mask = bright & (dist < tol)
-    mask[:margin] = False
-    mask[-margin:] = False
+    if margin > 0:  # note: mask[-0:] would clear the WHOLE array
+        mask[:margin] = False
+        mask[-margin:] = False
     return mask
 
 
