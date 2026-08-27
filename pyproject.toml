@@ -15,6 +15,9 @@ dependencies = [
     "gymnasium",
     "pyyaml>=6.0",
     "wandb>=0.16",
+    # native-renderer branch: browser-free backend (ngllib.native)
+    "moderngl>=5.10",
+    "cloud-volume>=8.0",
 ]
 
 [dependency-groups]
@@ -27,7 +30,9 @@ dev = [
 ]
 
 [tool.uv.sources]
-ngllib = { path = "../neurogym", editable = true }
+# native-renderer branch: worktree checkouts sit side by side as
+# wt/neurogym-native + wt/neurogym-agent-native (revert to ../neurogym on merge).
+ngllib = { path = "../neurogym-native", editable = true }
 torch = { index = "pytorch-cu124" }
 torchvision = { index = "pytorch-cu124" }
 

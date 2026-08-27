@@ -94,6 +94,28 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     )
 
     image_size = ec.get("image_size")
+
+    # Backend switch (native-renderer branch): env.backend == "native" builds
+    # the browser-free ngllib.native.NativeEnvironment (CloudVolume +
+    # moderngl/EGL) instead of Playwright+Chrome. Same obs/action contract;
+    # the browser-lifecycle kwargs below have no native counterpart.
+    if ec.get("backend", "browser") == "native":
+        from ngllib.native.environment import NativeEnvironment
+
+        env = NativeEnvironment(
+            orientation=ec.get("orientation", "euler"),
+            left_pane=ec.get("left_pane", False),
+            right_pane=ec.get("right_pane", True),
+            image_size=tuple(image_size) if image_size else None,
+            capture_scale=ec.get("capture_scale", 0.5),
+            reset_state_provider=provider,
+            reward_factory=make_z_reward_factory(rcfg),
+            termination_factory=make_z_termination_factory(rcfg),
+            cache_dir=ec.get("cv_cache"),
+        )
+        env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
+        return _wrap_obs_and_limits(env, cfg, first_episode_limit)
+
     env_kwargs = dict(
         headless=ec.get("headless", True),
         renderer=ec.get("renderer", "gpu"),
@@ -133,6 +155,16 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     env = Environment(**env_kwargs)
 
     env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
+    return _wrap_obs_and_limits(env, cfg, first_episode_limit)
+
+
+def _wrap_obs_and_limits(env, cfg: dict[str, Any], first_episode_limit: int | None):
+    """Obs-mode + resilient + TimeLimit (+ stagger) stack shared by both
+    backends."""
+    import gymnasium as gym
+
+    ec, oc = cfg["env"], cfg.get("obs", {})
+    obs_mode = oc.get("mode", "raw")
 
     # Observation mode (agent_plan.md §10/Round 8). Applied under the resilient
     # wrapper so glitch-truncation returns an already-transformed obs.
