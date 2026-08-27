@@ -9,7 +9,9 @@
 #SBATCH --mem=32G
 # Good vulkan/EGL nodes; exclude-style co-tenancy with running experiments.
 #SBATCH --nodelist=sarekl15-1,sarekl15-2,sarekl15-4,sarekl15-7,sarekl16-1,sarekl16-3,sarekl16-5
-#SBATCH --time=04:00:00
+# Smoke measured ~0.3-0.5 s/step cold-cache (clicks refetch EM/label tiles);
+# 200 pairs x <=600 steps worst-cases past 4h, so give slack.
+#SBATCH --time=10:00:00
 #SBATCH --output=/scratch/kp0374/native_spike/slurm-%x-%j.out
 
 # Stage D: frozen-policy eval on the NATIVE backend (configs/native_eval.yaml)
