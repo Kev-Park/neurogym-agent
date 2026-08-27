@@ -221,7 +221,8 @@ class MeshRenderer:
             for i, col in enumerate([(1, 0, 0, 0.5), (0, 1, 0, 0.5),
                                      (0, 0, 1, 0.5)]):
                 a = np.zeros(3); a[i] = al
-                verts += [*(pos - a), *col, *(pos + a), *col]
+                # One-sided: from the position toward +axis (browser-observed).
+                verts += [*pos, *col, *(pos + a), *col]
             vbo = self.ctx.buffer(np.array(verts, dtype="f4").tobytes())
             vao = self.ctx.vertex_array(
                 self.line_prog, [(vbo, "3f 4f", "pos", "col")])
@@ -484,11 +485,12 @@ def main() -> int:
         """The 2D xy EM pane: tile + gain + segment tint + crosshair."""
         pos_nm = np.asarray(rec["observed_a"]["position"]) * VOXEL_NM
         ext_x, ext_y = pane_extents(rec)
-        # Apply the phase-correlation-calibrated registration offset in
-        # world space (px -> nm at this pane's scale).
+        # Registration correction: register() reports (dy, dx) with
+        # native[c+dy] ~ browser[c], i.e. native content must translate by
+        # -dy px; moving the fetch center by +dy px (in nm) does that.
         pos_nm = pos_nm + np.array([
-            -left_shift_px[1] * ext_x / PANE,
-            -left_shift_px[0] * ext_y / PANE_H, 0.0])
+            left_shift_px[1] * ext_x / PANE,
+            left_shift_px[0] * ext_y / PANE_H, 0.0])
         canvas = np.zeros((PANE, PANE, 3), dtype=np.uint8)
         try:
             tile = em.tile(pos_nm, ext_x, ext_y, max_px=1024)
@@ -505,14 +507,15 @@ def main() -> int:
                 col = np.asarray(segment_color(int(rec["root_id"]))) * 255.0
                 # NG segmentation 2D: selectedAlpha 0.5 over the image.
                 rgb[mask] = 0.5 * col[None, :] + 0.5 * rgb[mask]
-        # 2D-pane axis lines: red x / green y through center, alpha 0.5,
-        # half-length = min(vw,vh)/4 CSS px -> ~108 captured px.
+        # 2D-pane axis lines: ONE-SIDED from the position toward +axis
+        # (browser captures show red +x-only, green +y-only), alpha 0.5,
+        # length = min(vw,vh)/4 CSS px -> ~108 captured px.
         cy, cx = PANE_H // 2, PANE // 2
-        half = int(min(900, 867) / 4 / 2)
-        row = rgb[cy, max(0, cx - half):cx + half]
-        rgb[cy, max(0, cx - half):cx + half] = 0.5 * np.array([255, 0, 0]) + 0.5 * row
-        colm = rgb[max(0, cy - half):cy + half, cx]
-        rgb[max(0, cy - half):cy + half, cx] = 0.5 * np.array([0, 255, 0]) + 0.5 * colm
+        length = int(min(900, 867) / 4 / 2)
+        row = rgb[cy, cx:cx + length]
+        rgb[cy, cx:cx + length] = 0.5 * np.array([255, 0, 0]) + 0.5 * row
+        colm = rgb[cy:cy + length, cx]
+        rgb[cy:cy + length, cx] = 0.5 * np.array([0, 255, 0]) + 0.5 * colm
         canvas[TOOLBAR:] = np.clip(rgb, 0, 255).astype(np.uint8)
         return canvas
 
@@ -653,9 +656,20 @@ def main() -> int:
         left_nat = native_left(rec)
         left_bro = browser_left(rec)
         ssl = block_ssim(left_nat[TOOLBAR:], left_bro[TOOLBAR:])
+        # Registered-SSIM: per-state best (scale, dy, dx) alignment before
+        # scoring — separates static geometry parity from per-state
+        # sub-pane jitter (e.g. NG texel snapping of the slice viewport).
+        _, rs, rdy, rdx = register(left_nat[TOOLBAR:], left_bro[TOOLBAR:])
+        gs = rescale_center(left_nat[TOOLBAR:].mean(axis=2), rs)
+        gs = np.roll(np.roll(gs, -rdy, axis=0), -rdx, axis=1)
+        gb2 = left_bro[TOOLBAR:].mean(axis=2)
+        sslr = block_ssim(np.repeat(gs[..., None], 3, 2),
+                          np.repeat(gb2[..., None], 3, 2))
         metrics.append({"idx": rec["idx"], "root_id": rec["root_id"],
                         "iou": round(v, 4), "tol_iou": round(tv, 4),
                         "ssim": round(ss, 4), "ssim_left": round(ssl, 4),
+                        "ssim_left_reg": round(sslr, 4),
+                        "reg": [round(rs, 3), int(rdy), int(rdx)],
                         "centroid_dydx": [round(x, 1) for x in d] if d else None})
 
     # Side-by-sides: first 12 states + the worst tails (scrutiny set).
@@ -691,6 +705,15 @@ def main() -> int:
     sls = np.array([m["ssim_left"] for m in metrics])
     print(f"[render] 2D-pane block-SSIM: mean {sls.mean():.3f} "
           f"median {np.median(sls):.3f} p10 {np.percentile(sls, 10):.3f}",
+          flush=True)
+    slr = np.array([m["ssim_left_reg"] for m in metrics])
+    regs = np.array([m["reg"] for m in metrics])
+    print(f"[render] 2D-pane block-SSIM (per-state registered): "
+          f"mean {slr.mean():.3f} median {np.median(slr):.3f} "
+          f"p10 {np.percentile(slr, 10):.3f}", flush=True)
+    print(f"[render] per-state registration jitter: scale sd {regs[:, 0].std():.3f} "
+          f"dy med {np.median(regs[:, 1]):+.0f} sd {regs[:, 1].std():.1f} "
+          f"dx med {np.median(regs[:, 2]):+.0f} sd {regs[:, 2].std():.1f}",
           flush=True)
     if deltas:
         dd = np.array(deltas)
