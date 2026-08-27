@@ -163,7 +163,7 @@ class MeshRenderer:
 
     def render(self, rid: str, position_nm, quat, zoom_nm,
                conj: bool = False, em_tile=None, em_extent_nm=None,
-               overlays: bool = True) -> np.ndarray:
+               em_gain: float = 1.0, overlays: bool = True) -> np.ndarray:
         q = list(quat)
         if conj:
             q = [-q[0], -q[1], -q[2], q[3]]
@@ -194,19 +194,21 @@ class MeshRenderer:
             tex = self.ctx.texture(em_tile.shape[::-1], 1,
                                    np.ascontiguousarray(em_tile).tobytes())
             tex.use(0)
-            h = em_extent_nm / 2.0
+            hx, hy = em_extent_nm[0] / 2.0, em_extent_nm[1] / 2.0
             quad = np.array([
-                pos[0] - h, pos[1] - h, pos[2], 0, 0,
-                pos[0] + h, pos[1] - h, pos[2], 1, 0,
-                pos[0] - h, pos[1] + h, pos[2], 0, 1,
-                pos[0] + h, pos[1] + h, pos[2], 1, 1,
+                pos[0] - hx, pos[1] - hy, pos[2], 0, 0,
+                pos[0] + hx, pos[1] - hy, pos[2], 1, 0,
+                pos[0] - hx, pos[1] + hy, pos[2], 0, 1,
+                pos[0] + hx, pos[1] + hy, pos[2], 1, 1,
             ], dtype="f4")
             vbo = self.ctx.buffer(quad.tobytes())
             vao = self.ctx.vertex_array(
                 self.plane_prog, [(vbo, "3f 2f", "pos", "uv")])
             self.plane_prog["mvp"].write(mvp_b)
-            # plane normal = +z; NG: factor = ambient + |dot(l, n)| * 0.8
-            self.plane_prog["lfac"].value = float(0.2 + abs(ldir[2]) * 0.8)
+            # plane normal = +z; NG: factor = ambient + |dot(l, n)| * 0.8;
+            # em_gain folds in the empirically-measured EM compositing gain.
+            self.plane_prog["lfac"].value = float(
+                (0.2 + abs(ldir[2]) * 0.8) * em_gain)
             self.plane_prog["alpha"].value = 1.0
             vao.render(mode=5)  # TRIANGLE_STRIP
             vao.release(); vbo.release(); tex.release()
@@ -283,6 +285,8 @@ class EMTiles:
         self._CloudVolume = CloudVolume
         self._cache = cache_dir
 
+    SEG_URL = "precomputed://gs://flywire_v141_m783"
+
     def _vol(self, mip):
         if mip not in self._vols:
             self._vols[mip] = self._CloudVolume(
@@ -290,18 +294,52 @@ class EMTiles:
                 progress=False, fill_missing=True, bounded=False)
         return self._vols[mip]
 
-    def tile(self, pos_nm, extent_nm, max_px=512):
+    def label_tile(self, pos_nm, extent_x_nm, extent_y_nm, root_id,
+                   out_px=(450, 433)):
+        """Boolean mask of the root segment on the z-slice, or None if the
+        static label chunks aren't readable from the m783 bucket."""
+        if "seg" not in self._vols:
+            try:
+                self._vols["seg"] = self._CloudVolume(
+                    self.SEG_URL, use_https=True, cache=self._cache,
+                    progress=False, fill_missing=True, bounded=False,
+                    agglomerate=False)
+            except Exception as e:
+                print(f"[em] seg volume unavailable: {e}", flush=True)
+                self._vols["seg"] = None
+        vol = self._vols["seg"]
+        if vol is None:
+            return None
+        try:
+            res = vol.resolution  # nm per voxel
+            cx = int(pos_nm[0] / res[0]); cy = int(pos_nm[1] / res[1])
+            z = int(pos_nm[2] / res[2])
+            hx = int(extent_x_nm / res[0] / 2); hy = int(extent_y_nm / res[1] / 2)
+            cut = vol[cx - hx:cx + hx, cy - hy:cy + hy, z:z + 1]
+            lab = np.asarray(cut)[:, :, 0, 0].T
+            mask = (lab == int(root_id)).astype(np.uint8) * 255
+            from PIL import Image as _I
+            m = _I.fromarray(mask).resize(out_px, _I.NEAREST)
+            return np.asarray(m) > 127
+        except Exception as e:
+            print(f"[em] label tile fail: {type(e).__name__}: {e}", flush=True)
+            return None
+
+    def tile(self, pos_nm, extent_x_nm, extent_y_nm=None, max_px=1024):
+        if extent_y_nm is None:
+            extent_y_nm = extent_x_nm
         mip = 1
         for i, r in enumerate(self.RES_XY):
             mip = i + 1
-            if extent_nm / r <= max_px:
+            if max(extent_x_nm, extent_y_nm) / r <= max_px:
                 break
         res = self.RES_XY[mip - 1]
         vol = self._vol(mip)
         cx, cy = int(pos_nm[0] / res), int(pos_nm[1] / res)
         z = int(pos_nm[2] / 40.0)
-        half = int(extent_nm / res / 2)
-        cut = vol[cx - half:cx + half, cy - half:cy + half, z:z + 1]
+        hx = int(extent_x_nm / res / 2)
+        hy = int(extent_y_nm / res / 2)
+        cut = vol[cx - hx:cx + hx, cy - hy:cy + hy, z:z + 1]
         img = np.asarray(cut)[:, :, 0, 0].T.astype(np.uint8)  # row=y, col=x
         return img
 
@@ -383,12 +421,26 @@ def main() -> int:
         rend.load_mesh(rid, mesh.vertices, mesh.faces)
         print(f"[render] mesh {rid}: {len(mesh.vertices)} verts", flush=True)
 
+    def browser_frame(rec):
+        return np.asarray(Image.open(os.path.join(
+            args.pairs_dir, "frames", f"{rec['idx']:04d}_a.png")))[:, :, :3]
+
     def browser_pane(rec):
-        img = np.asarray(Image.open(os.path.join(
-            args.pairs_dir, "frames", f"{rec['idx']:04d}_a.png")))
-        return img[:, img.shape[1] // 2:, :3]  # right pane
+        img = browser_frame(rec)
+        return img[:, img.shape[1] // 2:]  # right (3D) pane
+
+    def browser_left(rec):
+        img = browser_frame(rec)
+        return img[:, : img.shape[1] // 2]  # left (2D EM) pane
 
     em = EMTiles("/scratch/kp0374/native_spike/cv_cache")
+    em_gain = [1.0]  # estimated on the calibration states below
+
+    def pane_extents(rec):
+        # NG slice viewport: 900 CSS px wide x 867 (900 - toolbar 33) tall,
+        # at crossSectionScale canonical voxels/px, 4nm per x/y voxel.
+        xs = rec["observed_a"]["xs_scale"]
+        return xs * 900.0 * 4.0, xs * 867.0 * 4.0
 
     def native_pane(rec, scale_cal, conj=False, overlays=True):
         st = rec["requested_state"]
@@ -397,14 +449,45 @@ def main() -> int:
         zoom_nm = rec["observed_a"]["proj_scale"] * scale_cal
         tile = ext = None
         if overlays:
-            # NG slice quad side = crossSectionScale x 900 CSS px x 4nm.
-            ext = rec["observed_a"]["xs_scale"] * 900.0 * 4.0
+            ext = pane_extents(rec)
             try:
-                tile = em.tile(pos_nm, ext, max_px=1024)
+                tile = em.tile(pos_nm, ext[0], ext[1], max_px=1024)
             except Exception as e:
                 print(f"[render] EM tile fail ({e}); plane skipped", flush=True)
         return rend.render(rec["root_id"], pos_nm, quat, zoom_nm, conj=conj,
-                           em_tile=tile, em_extent_nm=ext, overlays=overlays)
+                           em_tile=tile, em_extent_nm=ext,
+                           em_gain=em_gain[0], overlays=overlays)
+
+    def native_left(rec, seg_overlay=True):
+        """The 2D xy EM pane: tile + gain + segment tint + crosshair."""
+        pos_nm = np.asarray(rec["observed_a"]["position"]) * VOXEL_NM
+        ext_x, ext_y = pane_extents(rec)
+        canvas = np.zeros((PANE, PANE, 3), dtype=np.uint8)
+        try:
+            tile = em.tile(pos_nm, ext_x, ext_y, max_px=1024)
+        except Exception as e:
+            print(f"[render] EM(left) fail ({e})", flush=True)
+            return canvas
+        img = np.asarray(Image.fromarray(tile).resize(
+            (PANE, PANE_H), Image.BILINEAR)).astype(np.float32) * em_gain[0]
+        rgb = np.repeat(img[..., None], 3, axis=2)
+        if seg_overlay:
+            mask = em.label_tile(pos_nm, ext_x, ext_y, rec["root_id"],
+                                 out_px=(PANE, PANE_H))
+            if mask is not None:
+                col = np.asarray(segment_color(int(rec["root_id"]))) * 255.0
+                # NG segmentation 2D: selectedAlpha 0.5 over the image.
+                rgb[mask] = 0.5 * col[None, :] + 0.5 * rgb[mask]
+        # 2D-pane axis lines: red x / green y through center, alpha 0.5,
+        # half-length = min(vw,vh)/4 CSS px -> ~108 captured px.
+        cy, cx = PANE_H // 2, PANE // 2
+        half = int(min(900, 867) / 4 / 2)
+        row = rgb[cy, max(0, cx - half):cx + half]
+        rgb[cy, max(0, cx - half):cx + half] = 0.5 * np.array([255, 0, 0]) + 0.5 * row
+        colm = rgb[max(0, cy - half):cy + half, cx]
+        rgb[max(0, cy - half):cy + half, cx] = 0.5 * np.array([0, 255, 0]) + 0.5 * colm
+        canvas[TOOLBAR:] = np.clip(rgb, 0, 255).astype(np.uint8)
+        return canvas
 
     def masks(rec, scale_cal, conj):
         # Calibration compares MESH-ONLY silhouettes (overlays off) — the
@@ -441,10 +524,28 @@ def main() -> int:
         lo, hi = sc - span / 2, sc + span / 2
     print(f"[calib] chosen conj={conj} scale_cal={sc:.3f} (refined)", flush=True)
 
+    # ---- EM gain estimation: NG's image layer defaults to opacity 0.5, so
+    # the browser's EM grey levels may be a scaled version of raw — measure
+    # the actual browser/native intensity ratio on grey pixels of the 2D
+    # pane instead of assuming.
+    ratios = []
+    for r in calib:
+        natl = native_left(r, seg_overlay=False)[TOOLBAR:].astype(np.float32)
+        brol = browser_left(r)[TOOLBAR:].astype(np.float32)
+        grey = (brol.max(axis=2) - brol.min(axis=2)) < 20
+        sel = (natl.mean(axis=2) > 15) & grey
+        if sel.sum() > 2000:
+            ratios.append(float(brol.mean(axis=2)[sel].mean() /
+                                (natl.mean(axis=2)[sel].mean() + 1e-6)))
+    if ratios:
+        em_gain[0] = float(np.median(ratios))
+    print(f"[calib] em_gain = {em_gain[0]:.3f} "
+          f"(median of {len(ratios)} state ratios)", flush=True)
+
     # ---- full scoring + side-by-sides ------------------------------------
     metrics = []
     deltas = []
-    for k, rec in enumerate(records):
+    for rec in records:
         nat, bro = masks(rec, sc, conj)
         v = iou(nat, bro)
         tv = tol_iou(nat, bro, r=2)
@@ -454,14 +555,31 @@ def main() -> int:
         full_nat = native_pane(rec, sc, conj, overlays=True)
         full_bro = browser_pane(rec)
         ss = block_ssim(full_nat[TOOLBAR:], full_bro[TOOLBAR:])
+        left_nat = native_left(rec)
+        left_bro = browser_left(rec)
+        ssl = block_ssim(left_nat[TOOLBAR:], left_bro[TOOLBAR:])
         metrics.append({"idx": rec["idx"], "root_id": rec["root_id"],
                         "iou": round(v, 4), "tol_iou": round(tv, 4),
-                        "ssim": round(ss, 4),
+                        "ssim": round(ss, 4), "ssim_left": round(ssl, 4),
                         "centroid_dydx": [round(x, 1) for x in d] if d else None})
-        if k < 24:
-            side = np.concatenate([full_nat, full_bro], axis=1)
-            Image.fromarray(side).save(
-                os.path.join(args.out_dir, f"pair_{rec['idx']:04d}.png"))
+
+    # Side-by-sides: first 12 states + the worst tails (scrutiny set).
+    by_idx = {m["idx"]: m for m in metrics}
+    save_set = {m["idx"] for m in metrics[:12]}
+    save_set |= {m["idx"] for m in sorted(metrics, key=lambda m: m["ssim"])[:8]}
+    save_set |= {m["idx"] for m in sorted(metrics, key=lambda m: m["ssim_left"])[:4]}
+    save_set |= {m["idx"] for m in sorted(metrics, key=lambda m: m["tol_iou"])[:4]}
+    rec_by_idx = {r["idx"]: r for r in records}
+    for idx in sorted(save_set):
+        rec = rec_by_idx[idx]
+        nat_full = np.concatenate(
+            [native_left(rec), native_pane(rec, sc, conj, overlays=True)], axis=1)
+        bro_full = browser_frame(rec)
+        stack = np.concatenate([nat_full, bro_full], axis=0)
+        m = by_idx[idx]
+        Image.fromarray(stack).save(os.path.join(
+            args.out_dir,
+            f"pair_{idx:04d}_ss{m['ssim']:.2f}_sl{m['ssim_left']:.2f}.png"))
     ious = np.array([m["iou"] for m in metrics])
     tious = np.array([m["tol_iou"] for m in metrics])
     print(f"[render] color-silhouette IoU over {len(ious)} states: "
@@ -472,8 +590,12 @@ def main() -> int:
           f"median {np.median(tious):.3f} p10 {np.percentile(tious, 10):.3f}",
           flush=True)
     ssims = np.array([m["ssim"] for m in metrics])
-    print(f"[render] full-pane block-SSIM (overlays on): mean {ssims.mean():.3f} "
+    print(f"[render] 3D-pane block-SSIM (overlays on): mean {ssims.mean():.3f} "
           f"median {np.median(ssims):.3f} p10 {np.percentile(ssims, 10):.3f}",
+          flush=True)
+    sls = np.array([m["ssim_left"] for m in metrics])
+    print(f"[render] 2D-pane block-SSIM: mean {sls.mean():.3f} "
+          f"median {np.median(sls):.3f} p10 {np.percentile(sls, 10):.3f}",
           flush=True)
     if deltas:
         dd = np.array(deltas)
