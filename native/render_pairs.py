@@ -54,9 +54,21 @@ PANE_H = PANE - TOOLBAR  # the 3D panel's true captured height (433)
 
 
 class MeshRenderer:
+    """3D-projection pane: mesh + axis lines + EM section plane.
+
+    Parity sources (google/neuroglancer master, 2026-08-27):
+    - mesh/frontend.ts + perspective_view/panel.ts: Gouraud lighting
+      factor = |dot(n, l)| * 0.8 + 0.2, light = -(R(q) @ z) (headlight).
+    - axes_lines.ts + panel.ts: three lines through position, colors pure
+      R/G/B alpha 0.5, width 1px, half-length = zoom * min(w,h)/h/4.
+    - panel.ts drawSliceViews: the cross-section plane is the EM slice
+      textured onto its plane, modulated by the same lighting factor.
+    """
+
     def __init__(self):
         import moderngl
 
+        self._moderngl = moderngl
         self.ctx = moderngl.create_context(standalone=True, backend="egl")
         print(f"[render] GL_RENDERER = {self.ctx.info['GL_RENDERER']}",
               flush=True)
@@ -67,19 +79,48 @@ class MeshRenderer:
         self.prog = self.ctx.program(
             vertex_shader="""#version 330
                 uniform mat4 mvp;
+                uniform vec4 light;   // xyz dir (pre-scaled 0.8), w ambient
                 in vec3 pos; in vec3 nrm;
-                out vec3 v_nrm;
+                out float v_l;
                 void main() {
                     gl_Position = mvp * vec4(pos, 1.0);
-                    v_nrm = nrm;
+                    v_l = abs(dot(normalize(nrm), light.xyz)) + light.w;
                 }""",
             fragment_shader="""#version 330
                 uniform vec3 color;
-                in vec3 v_nrm;
+                in float v_l;
                 out vec4 frag;
+                void main() { frag = vec4(color * v_l, 1.0); }""",
+        )
+        self.line_prog = self.ctx.program(
+            vertex_shader="""#version 330
+                uniform mat4 mvp;
+                in vec3 pos; in vec4 col;
+                out vec4 v_c;
                 void main() {
-                    float l = 0.3 + 0.7 * abs(normalize(v_nrm).z);
-                    frag = vec4(color * l, 1.0);
+                    gl_Position = mvp * vec4(pos, 1.0);
+                    v_c = col;
+                }""",
+            fragment_shader="""#version 330
+                in vec4 v_c; out vec4 frag;
+                void main() { frag = v_c; }""",
+        )
+        self.plane_prog = self.ctx.program(
+            vertex_shader="""#version 330
+                uniform mat4 mvp;
+                in vec3 pos; in vec2 uv;
+                out vec2 v_uv;
+                void main() {
+                    gl_Position = mvp * vec4(pos, 1.0);
+                    v_uv = uv;
+                }""",
+            fragment_shader="""#version 330
+                uniform sampler2D em;
+                uniform float lfac;
+                in vec2 v_uv; out vec4 frag;
+                void main() {
+                    float g = texture(em, v_uv).r * lfac;
+                    frag = vec4(g, g, g, 1.0);
                 }""",
         )
         self._vaos = {}
@@ -108,19 +149,79 @@ class MeshRenderer:
             self.prog, [(vbo, "3f 3f", "pos", "nrm")], index_buffer=ibo)
         self._vaos[rid] = (vao, vbo.size + ibo.size)
 
+    @staticmethod
+    def _rot(q):
+        x, y, z, w = q
+        n = (x * x + y * y + z * z + w * w) ** 0.5 or 1.0
+        x, y, z, w = x / n, y / n, z / n, w / n
+        return np.array([
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ])
+
     def render(self, rid: str, position_nm, quat, zoom_nm,
-               conj: bool = False) -> np.ndarray:
+               conj: bool = False, em_tile=None, em_extent_nm=None,
+               overlays: bool = True) -> np.ndarray:
         q = list(quat)
         if conj:
             q = [-q[0], -q[1], -q[2], q[3]]
         view, proj = projection_camera(position_nm, q, zoom_nm, PANE, PANE_H)
         mvp = (proj @ view).astype("f4")
+        mvp_b = mvp.T.copy().tobytes()  # column-major
+        pos = np.asarray(position_nm, dtype="f4")
         self.fbo.use()
         self.fbo.clear(0.0, 0.0, 0.0, 1.0)
-        self.prog["mvp"].write(mvp.T.copy().tobytes())  # column-major
+
+        # Lighting: headlight along -(R(q) @ z), NG panel.ts.
+        ldir = -(self._rot(q) @ np.array([0.0, 0.0, 1.0]))
+        ldir /= np.linalg.norm(ldir) + 1e-9
+        light = (*(ldir * 0.8), 0.2)
+
+        # Section plane: EM slice quad in the z = position_z plane.
+        if overlays and em_tile is not None:
+            tex = self.ctx.texture(em_tile.shape[::-1], 1,
+                                   np.ascontiguousarray(em_tile).tobytes())
+            tex.use(0)
+            h = em_extent_nm / 2.0
+            quad = np.array([
+                pos[0] - h, pos[1] - h, pos[2], 0, 0,
+                pos[0] + h, pos[1] - h, pos[2], 1, 0,
+                pos[0] - h, pos[1] + h, pos[2], 0, 1,
+                pos[0] + h, pos[1] + h, pos[2], 1, 1,
+            ], dtype="f4")
+            vbo = self.ctx.buffer(quad.tobytes())
+            vao = self.ctx.vertex_array(
+                self.plane_prog, [(vbo, "3f 2f", "pos", "uv")])
+            self.plane_prog["mvp"].write(mvp_b)
+            # plane normal = +z; NG: factor = ambient + |dot(l, n)| * 0.8
+            self.plane_prog["lfac"].value = float(0.2 + abs(ldir[2]) * 0.8)
+            vao.render(mode=5)  # TRIANGLE_STRIP
+            vao.release(); vbo.release(); tex.release()
+
+        self.prog["mvp"].write(mvp_b)
+        self.prog["light"].value = tuple(float(v) for v in light)
         self.prog["color"].value = segment_color(int(rid))
         vao, _ = self._vaos[rid]
         vao.render(mode=4)
+
+        # Axis lines: half-length = zoom * min(w,h)/h / 4 (panel.ts).
+        if overlays:
+            al = zoom_nm * (min(PANE, PANE_H) / PANE_H) / 4.0
+            self.ctx.enable(self._moderngl.BLEND)
+            verts = []
+            for i, col in enumerate([(1, 0, 0, 0.5), (0, 1, 0, 0.5),
+                                     (0, 0, 1, 0.5)]):
+                a = np.zeros(3); a[i] = al
+                verts += [*(pos - a), *col, *(pos + a), *col]
+            vbo = self.ctx.buffer(np.array(verts, dtype="f4").tobytes())
+            vao = self.ctx.vertex_array(
+                self.line_prog, [(vbo, "3f 4f", "pos", "col")])
+            self.line_prog["mvp"].write(mvp_b)
+            vao.render(mode=1)  # LINES
+            vao.release(); vbo.release()
+            self.ctx.disable(self._moderngl.BLEND)
+
         px = np.frombuffer(self.fbo.read(components=4), dtype=np.uint8)
         pane = px.reshape(PANE_H, PANE, 4)[::-1, :, :3]  # GL origin flip
         # Paste below a black toolbar strip: same 450x450 layout as browser.
@@ -156,6 +257,64 @@ def iou(a: np.ndarray, b: np.ndarray) -> float:
     inter = np.logical_and(a, b).sum()
     union = np.logical_or(a, b).sum()
     return float(inter) / float(union) if union else 0.0
+
+
+class EMTiles:
+    """z-slice tiles around a position from the public FlyWire EM volume.
+
+    Real data starts at mip1 (8x8x40nm; mip0 is a placeholder). The mip is
+    chosen per request so the tile stays <= max_px, mirroring NG's use of
+    coarse mips for the 3D section plane.
+    """
+
+    URL = "precomputed://https://bossdb-open-data.s3.amazonaws.com/flywire/fafbv14"
+    RES_XY = [8, 16, 32, 64, 128]  # nm, mips 1..5
+
+    def __init__(self, cache_dir):
+        from cloudvolume import CloudVolume
+
+        self._vols = {}
+        self._CloudVolume = CloudVolume
+        self._cache = cache_dir
+
+    def _vol(self, mip):
+        if mip not in self._vols:
+            self._vols[mip] = self._CloudVolume(
+                self.URL, mip=mip, use_https=True, cache=self._cache,
+                progress=False, fill_missing=True, bounded=False)
+        return self._vols[mip]
+
+    def tile(self, pos_nm, extent_nm, max_px=512):
+        mip = 1
+        for i, r in enumerate(self.RES_XY):
+            mip = i + 1
+            if extent_nm / r <= max_px:
+                break
+        res = self.RES_XY[mip - 1]
+        vol = self._vol(mip)
+        cx, cy = int(pos_nm[0] / res), int(pos_nm[1] / res)
+        z = int(pos_nm[2] / 40.0)
+        half = int(extent_nm / res / 2)
+        cut = vol[cx - half:cx + half, cy - half:cy + half, z:z + 1]
+        img = np.asarray(cut)[:, :, 0, 0].T.astype(np.uint8)  # row=y, col=x
+        return img
+
+
+def block_ssim(a: np.ndarray, b: np.ndarray, block: int = 16) -> float:
+    """Mean SSIM over non-overlapping blocks of the grayscale images."""
+    ga = a.mean(axis=2).astype(np.float64)
+    gb = b.mean(axis=2).astype(np.float64)
+    H = (ga.shape[0] // block) * block
+    W = (ga.shape[1] // block) * block
+    ga = ga[:H, :W].reshape(H // block, block, W // block, block)
+    gb = gb[:H, :W].reshape(H // block, block, W // block, block)
+    ma, mb = ga.mean(axis=(1, 3)), gb.mean(axis=(1, 3))
+    va, vb = ga.var(axis=(1, 3)), gb.var(axis=(1, 3))
+    cov = (ga * gb).mean(axis=(1, 3)) - ma * mb
+    c1, c2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+    s = ((2 * ma * mb + c1) * (2 * cov + c2)) / (
+        (ma ** 2 + mb ** 2 + c1) * (va + vb + c2))
+    return float(s.mean())
 
 
 def dilate(mask: np.ndarray, r: int = 2) -> np.ndarray:
@@ -223,16 +382,29 @@ def main() -> int:
             args.pairs_dir, "frames", f"{rec['idx']:04d}_a.png")))
         return img[:, img.shape[1] // 2:, :3]  # right pane
 
-    def native_pane(rec, scale_cal, conj=False):
+    em = EMTiles("/scratch/kp0374/native_spike/cv_cache")
+
+    def native_pane(rec, scale_cal, conj=False, overlays=True):
         st = rec["requested_state"]
         pos_nm = np.asarray(rec["observed_a"]["position"]) * VOXEL_NM
         quat = st["projectionOrientation"]
         zoom_nm = rec["observed_a"]["proj_scale"] * scale_cal
-        return rend.render(rec["root_id"], pos_nm, quat, zoom_nm, conj=conj)
+        tile = ext = None
+        if overlays:
+            ext = zoom_nm * 2.5  # cover the frustum with margin
+            try:
+                tile = em.tile(pos_nm, ext)
+            except Exception as e:
+                print(f"[render] EM tile fail ({e}); plane skipped", flush=True)
+        return rend.render(rec["root_id"], pos_nm, quat, zoom_nm, conj=conj,
+                           em_tile=tile, em_extent_nm=ext, overlays=overlays)
 
     def masks(rec, scale_cal, conj):
+        # Calibration compares MESH-ONLY silhouettes (overlays off) — the
+        # color mask excludes plane/axes on the browser side anyway.
         col = segment_color(int(rec["root_id"]))
-        nat = color_silhouette(native_pane(rec, scale_cal, conj), col, margin=0)
+        nat = color_silhouette(
+            native_pane(rec, scale_cal, conj, overlays=False), col, margin=0)
         bro = color_silhouette(browser_pane(rec), col, margin=16)
         return nat, bro
 
@@ -272,12 +444,15 @@ def main() -> int:
         d = centroid_delta(nat, bro)
         if d:
             deltas.append(d)
+        full_nat = native_pane(rec, sc, conj, overlays=True)
+        full_bro = browser_pane(rec)
+        ss = block_ssim(full_nat[TOOLBAR:], full_bro[TOOLBAR:])
         metrics.append({"idx": rec["idx"], "root_id": rec["root_id"],
                         "iou": round(v, 4), "tol_iou": round(tv, 4),
+                        "ssim": round(ss, 4),
                         "centroid_dydx": [round(x, 1) for x in d] if d else None})
         if k < 24:
-            side = np.concatenate([native_pane(rec, sc, conj),
-                                   browser_pane(rec)], axis=1)
+            side = np.concatenate([full_nat, full_bro], axis=1)
             Image.fromarray(side).save(
                 os.path.join(args.out_dir, f"pair_{rec['idx']:04d}.png"))
     ious = np.array([m["iou"] for m in metrics])
@@ -288,6 +463,10 @@ def main() -> int:
           flush=True)
     print(f"[render] tolerance-IoU (2px): mean {tious.mean():.3f} "
           f"median {np.median(tious):.3f} p10 {np.percentile(tious, 10):.3f}",
+          flush=True)
+    ssims = np.array([m["ssim"] for m in metrics])
+    print(f"[render] full-pane block-SSIM (overlays on): mean {ssims.mean():.3f} "
+          f"median {np.median(ssims):.3f} p10 {np.percentile(ssims, 10):.3f}",
           flush=True)
     if deltas:
         dd = np.array(deltas)
