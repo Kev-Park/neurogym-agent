@@ -141,3 +141,32 @@ def test_spawn_curriculum_bypassed_by_segment_id(parquet):
     rng = np.random.default_rng(2)
     zs = {prov(rng, {"segment_id": "A"})[0]["position"][2] for _ in range(30)}
     assert len(zs) > 1                             # unrestricted node choice
+
+def test_spawn_curriculum_wall_clock(parquet, monkeypatch):
+    monkeypatch.delenv("CURRICULUM_T0", raising=False)
+    # end_hours=0 -> fully annealed immediately (full node distribution)
+    prov = FlywireSkeletonProvider(
+        parquet, root_ids=["A"],
+        spawn_curriculum={"start_frac": 0.1, "end_hours": 0})
+    rng = np.random.default_rng(0)
+    zs = {prov(rng, None)[0]["position"][2] for _ in range(30)}
+    assert zs == {5.0, 50.0, 25.0}
+    # large end_hours -> restricted to near-target for the whole test
+    prov2 = FlywireSkeletonProvider(
+        parquet, root_ids=["A"],
+        spawn_curriculum={"start_frac": 0.1, "end_hours": 100})
+    zs2 = {prov2(rng, None)[0]["position"][2] for _ in range(10)}
+    assert zs2 == {50.0}
+
+
+def test_spawn_curriculum_t0_env_anchor(parquet, monkeypatch):
+    import time as _t
+
+    # T0 far in the past -> annealed despite a fresh provider (respawn case)
+    monkeypatch.setenv("CURRICULUM_T0", str(_t.time() - 999999))
+    prov = FlywireSkeletonProvider(
+        parquet, root_ids=["A"],
+        spawn_curriculum={"start_frac": 0.1, "end_hours": 3.5})
+    rng = np.random.default_rng(1)
+    zs = {prov(rng, None)[0]["position"][2] for _ in range(30)}
+    assert zs == {5.0, 50.0, 25.0}

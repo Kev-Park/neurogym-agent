@@ -29,7 +29,11 @@ env:
   # Eval resets pass explicit states and are unaffected.
   spawn_curriculum:
     start_frac: 0.10
-    end_resets: 75
+    # Wall-clock anneal (v9b): 3.5h ~= 1.2M steps at cruise, invariant to
+    # episode length (reset-count pacing annealed ~25x too fast in v9 —
+    # near-target episodes are ~30 steps). Anchored to the launcher's
+    # CURRICULUM_T0 so respawned workers don't replay the easy phase.
+    end_hours: 3.5
   orientation: euler          # MultiDiscrete rotate bins map to delta_orient (dim 3)
   headless: true
   renderer: gpu               # needs a vulkan-capable node (CLAUDE.md "Node quirks")

@@ -11,6 +11,8 @@ segment's max-z point (`task_info["z_max"]`). Ported from the legacy
 from __future__ import annotations
 
 import math
+import os
+import time
 from typing import TYPE_CHECKING, Any
 
 import duckdb
@@ -77,17 +79,27 @@ class FlywireSkeletonProvider:
         # Spawn-distance curriculum (2026-08-27, v9): early episodes spawn
         # near z_max (short climbs, dense success signal — measured difficulty
         # tracks CLIMB DISTANCE, R11/B7 analyses), annealing to the full node
-        # distribution. Scheduled on this provider's OWN reset count (workers
-        # have no global step): allowed distance fraction of z-extent =
-        # start_frac + (1 - start_frac) * min(1, resets / end_resets).
-        # A respawned worker restarts its local counter — a transient easy
-        # patch, acceptable. Explicit segment_id resets bypass the curriculum.
+        # distribution. Allowed distance fraction of z-extent =
+        # start_frac + (1 - start_frac) * min(1, progress).
+        #
+        # progress source (v9 lesson: reset-count pacing annealed ~25x too
+        # fast because near-target episodes are ~30 steps, not the ~200
+        # assumed — end_resets is episode-length-DEPENDENT):
+        #   end_hours set  -> wall-clock since the CURRICULUM_T0 env var
+        #                     (epoch seconds, exported by the launcher; shared
+        #                     by every worker and immune to respawns/
+        #                     re-sallocs), or first-call time as fallback.
+        #   else           -> this provider's own reset count / end_resets.
+        # Explicit segment_id resets bypass the curriculum.
         self._curriculum = None
         self._n_resets = 0
         if spawn_curriculum:
+            t0 = os.environ.get("CURRICULUM_T0")
             self._curriculum = {
                 "start_frac": float(spawn_curriculum.get("start_frac", 0.10)),
-                "end_resets": int(spawn_curriculum.get("end_resets", 75)),
+                "end_resets": spawn_curriculum.get("end_resets"),
+                "end_hours": spawn_curriculum.get("end_hours"),
+                "t0": float(t0) if t0 else None,
             }
 
         if root_ids is not None:
@@ -116,8 +128,15 @@ class FlywireSkeletonProvider:
         nodes = self._nodes(root_id)
         if self._curriculum is not None and "segment_id" not in options:
             c = self._curriculum
-            frac = c["start_frac"] + (1.0 - c["start_frac"]) * min(
-                1.0, self._n_resets / c["end_resets"])
+            if c["end_hours"] is not None:
+                if c["t0"] is None:
+                    c["t0"] = time.time()
+                eh = float(c["end_hours"])
+                progress = ((time.time() - c["t0"]) / (eh * 3600.0)
+                            if eh > 0 else 1.0)
+            else:
+                progress = self._n_resets / int(c["end_resets"] or 75)
+            frac = c["start_frac"] + (1.0 - c["start_frac"]) * min(1.0, progress)
             self._n_resets += 1
             z_max = float(nodes[:, 2].max())
             z_min = float(nodes[:, 2].min())

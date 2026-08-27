@@ -29,6 +29,9 @@ STATE_DIR=/scratch/kp0374/coord-state
 mkdir -p "$STATE_DIR" "$CKPT"
 
 export RAY_NUM_CPUS=44
+# Wall-clock anchor for the spawn-distance curriculum: every worker (incl.
+# respawns/re-sallocs) measures anneal progress from this run-start epoch.
+export CURRICULUM_T0=$(date +%s)
 export RAY_HEAD_ENDPOINT_FILE="${STATE_DIR}/ray_head_endpoint-${RUN}.txt"
 export NUM_RENDERERS="$RENDERERS"
 # Long sample timeout ON PURPOSE (2026-08-17): with the watchdog tree-kill
@@ -65,6 +68,7 @@ cat > "$SUP" <<SUPEOF
 #!/bin/bash
 cd /scratch/kp0374/neurogym-agent
 export RAY_NUM_CPUS="${RAY_NUM_CPUS}"
+export CURRICULUM_T0="${CURRICULUM_T0}"
 export RAY_HEAD_ENDPOINT_FILE="${RAY_HEAD_ENDPOINT_FILE}"
 export NUM_RENDERERS="${NUM_RENDERERS}"
 export SAMPLE_TIMEOUT_S="${SAMPLE_TIMEOUT_S}"
