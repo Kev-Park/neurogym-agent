@@ -175,7 +175,14 @@ def main() -> int:
                     help='e.g. "v8@740=87.0,v7-baseline=64.5"')
     ap.add_argument("--results-json", default="",
                     help="Full eval JSON (z_series per pair): powers the live "
-                         "pool re-evaluation under the criterion selector.")
+                         "pool re-evaluation under the criterion selector. "
+                         "Equivalent to a first --pool with the checkpoint name.")
+    ap.add_argument("--pool", action="append", default=[],
+                    help="label=path of an eval JSON; each becomes a top stat "
+                         "card that RECOMPUTES under the criterion/budget "
+                         "selectors. First pool also drives the quartile card. "
+                         "Pools rolled at shorter budgets are lower bounds "
+                         "beyond their own budget.")
     ap.add_argument("--thresholds-json", default="",
                     help="eval_thresholds.py --json output; rendered as a table.")
     ap.add_argument("--run-frac", type=float, default=0.05,
@@ -196,12 +203,12 @@ def main() -> int:
             cells.append(f'<div class="stat"><b>{v}%</b><span>{html.escape(k)}</span></div>')
         stats = f'<div class="stats">{"".join(cells)}</div>'
 
-    # Pool data for live re-evaluation: closest approach + extent + length
-    # quartile per pair. Wedged/glitch pairs keep their recorded outcome
-    # (closest is still honest — they never got there).
-    pool_js = "[]"
-    if args.results_json:
-        with open(args.results_json) as f:
+    # Pool data for live re-evaluation: closest approach (@300 and full) +
+    # extent + length quartile per pair, PER RUN — every run's top stat card
+    # recomputes under the selectors. Wedged/glitch pairs keep their recorded
+    # trajectories (closest is still honest — they never got there).
+    def load_pool(path):
+        with open(path) as f:
             pairs = [r for r in json.load(f)["per_pair"] if "z_series" in r]
         lengths = np.asarray([p["length_nm"] for p in pairs])
         q1, q2, q3 = np.quantile(lengths, [0.25, 0.5, 0.75])
@@ -215,7 +222,18 @@ def main() -> int:
             qi = 0 if p["length_nm"] < q1 else 1 if p["length_nm"] < q2 \
                 else 2 if p["length_nm"] < q3 else 3
             pool.append([round(c300, 1), round(cfull, 1), round(span, 1), qi])
-        pool_js = json.dumps(pool, separators=(",", ":"))
+        return pool
+
+    pool_specs = []
+    if args.results_json:
+        pool_specs.append((args.checkpoint or "this run", args.results_json))
+    for spec in args.pool:
+        label, path = spec.split("=", 1)
+        pool_specs.append((label, path))
+    pools = {label: load_pool(path) for label, path in pool_specs}
+    pool_labels = [label for label, _ in pool_specs]
+    pools_js = json.dumps(pools, separators=(",", ":"))
+    order_js = json.dumps(pool_labels)
 
     thresholds = ""
     if args.thresholds_json:
@@ -270,9 +288,10 @@ def main() -> int:
 <button class="crit-chip crit-b" data-b="bfull">@600 (extended)</button>
 </div>
 <div class="stats">
-<div class="stat"><b id="sel-overall">&ndash;</b><span>pool under selection</span></div>
+{"".join(f'<div class="stat"><b id="sum-{i}">&ndash;</b><span>{html.escape(lab)}</span></div>'
+         for i, lab in enumerate(pool_labels))}
 <div class="stat"><b><span id="sel-q1">&ndash;</span> / <span id="sel-q2">&ndash;</span> /
-<span id="sel-q3">&ndash;</span> / <span id="sel-q4">&ndash;</span></b><span>q1 / q2 / q3 / q4</span></div>
+<span id="sel-q3">&ndash;</span> / <span id="sel-q4">&ndash;</span></b><span>{html.escape(pool_labels[0] if pool_labels else "")} q1 / q2 / q3 / q4</span></div>
 </div>
 <p class="crit-note">Criterion and budget selections re-evaluate the pool stats above and every
 episode below (band, label, curve color) from the recorded trajectories. Success@budget =
@@ -282,7 +301,8 @@ first 300 steps ARE the standard episode). Criteria TIGHTER than the run&rsquo;s
 Video overlays are baked at the run criterion and full budget.</p>'''
 
     js = f'''<script>
-const POOL = {pool_js};
+const POOLS = {pools_js};
+const ORDER = {order_js};
 const CRIT = {{f5:{{t:"f",v:0.05}}, f10:{{t:"f",v:0.10}}, f15:{{t:"f",v:0.15}},
               abs:{{t:"a",v:{args.abs_tol}}}}};
 const CH = {{mt:{MT}, ih:{IH}, ymin:{YMIN}, ymax:{YMAX}}};
@@ -310,18 +330,21 @@ function apply() {{
     band.setAttribute("y", top.toFixed(1));
     band.setAttribute("height", (bot - top).toFixed(1));
   }});
-  if (POOL.length) {{
+  ORDER.forEach((label, idx) => {{
+    const pool = POOLS[label];
     const w = [0,0,0,0], n = [0,0,0,0]; let tot = 0;
-    POOL.forEach(p => {{
+    pool.forEach(p => {{
       const closest = b300 ? p[0] : p[1];
       n[p[3]]++; if (closest <= tol(c, p[2])) {{ w[p[3]]++; tot++; }}
     }});
-    document.getElementById("sel-overall").textContent =
-      (100 * tot / POOL.length).toFixed(1) + "%";
-    ["sel-q1","sel-q2","sel-q3","sel-q4"].forEach((id, i) =>
-      document.getElementById(id).textContent =
-        n[i] ? (100 * w[i] / n[i]).toFixed(0) + "%" : "--");
-  }}
+    const el = document.getElementById("sum-" + idx);
+    if (el) el.textContent = (100 * tot / pool.length).toFixed(1) + "%";
+    if (idx === 0) {{
+      ["sel-q1","sel-q2","sel-q3","sel-q4"].forEach((id, i) =>
+        document.getElementById(id).textContent =
+          n[i] ? (100 * w[i] / n[i]).toFixed(0) + "%" : "--");
+    }}
+  }});
   document.querySelectorAll(".crit-c").forEach(x =>
     x.classList.toggle("active", x.dataset.k === selC));
   document.querySelectorAll(".crit-b").forEach(x =>
