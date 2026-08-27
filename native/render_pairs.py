@@ -117,10 +117,11 @@ class MeshRenderer:
             fragment_shader="""#version 330
                 uniform sampler2D em;
                 uniform float lfac;
+                uniform float alpha;
                 in vec2 v_uv; out vec4 frag;
                 void main() {
                     float g = texture(em, v_uv).r * lfac;
-                    frag = vec4(g, g, g, 1.0);
+                    frag = vec4(g, g, g, alpha);
                 }""",
         )
         self._vaos = {}
@@ -178,7 +179,16 @@ class MeshRenderer:
         ldir /= np.linalg.norm(ldir) + 1e-9
         light = (*(ldir * 0.8), 0.2)
 
-        # Section plane: EM slice quad in the z = position_z plane.
+        self.prog["mvp"].write(mvp_b)
+        self.prog["light"].value = tuple(float(v) for v in light)
+        self.prog["color"].value = segment_color(int(rid))
+        vao, _ = self._vaos[rid]
+        vao.render(mode=4)
+
+        # Section plane AFTER the mesh: translucent (mesh stays visible
+        # through it, as in the browser), depth-TESTED against the mesh but
+        # not depth-WRITTEN (an opaque-first draw occluded everything behind
+        # the plane — the iteration-6 regression).
         if overlays and em_tile is not None:
             tex = self.ctx.texture(em_tile.shape[::-1], 1,
                                    np.ascontiguousarray(em_tile).tobytes())
@@ -196,14 +206,13 @@ class MeshRenderer:
             self.plane_prog["mvp"].write(mvp_b)
             # plane normal = +z; NG: factor = ambient + |dot(l, n)| * 0.8
             self.plane_prog["lfac"].value = float(0.2 + abs(ldir[2]) * 0.8)
+            self.plane_prog["alpha"].value = 0.5
+            self.ctx.enable(self._moderngl.BLEND)
+            self.fbo.depth_mask = False
             vao.render(mode=5)  # TRIANGLE_STRIP
+            self.fbo.depth_mask = True
+            self.ctx.disable(self._moderngl.BLEND)
             vao.release(); vbo.release(); tex.release()
-
-        self.prog["mvp"].write(mvp_b)
-        self.prog["light"].value = tuple(float(v) for v in light)
-        self.prog["color"].value = segment_color(int(rid))
-        vao, _ = self._vaos[rid]
-        vao.render(mode=4)
 
         # Axis lines: half-length = zoom * min(w,h)/h / 4 (panel.ts).
         if overlays:
