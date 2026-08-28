@@ -47,6 +47,10 @@ def build_argparser() -> argparse.ArgumentParser:
     # sps) is host-side, NOT capture (raw capture does ~170/GPU) — so 2 procs
     # saturates the node and more GPUs/procs don't help. Multi-node: scale
     # --num-env-runners = 2 x (renderer nodes), keep the rest.
+    ap.add_argument("--learner-gpu", action="store_true",
+                    help="Run the (driver-local) learner's update on the GPU "
+                         "instead of CPU — halves the synchronous PPO cycle "
+                         "when sampling is fast (native renderer).")
     ap.add_argument("--num-env-runners", type=int, default=2)
     ap.add_argument("--num-envs-per-env-runner", type=int, default=16)
     ap.add_argument("--num-gpus-per-env-runner", type=float, default=0.5)
@@ -162,7 +166,14 @@ def main(argv=None) -> int:
             ),
             sample_timeout_s=args.sample_timeout_s,
         )
-        .learners(num_learners=0)  # learner in the driver (small MLP, CPU)
+        # Learner stays LOGICALLY separated (local learner in the driver;
+        # weights broadcast to runners each iter) — --learner-gpu only moves
+        # its arithmetic to the GPU. PPO here is synchronous, so every
+        # sampler idles during the update; on CPU that phase matched the
+        # sampling phase (~50% duty cycle, native run 870742 measured 47 of
+        # 116 available sps). Browser-era default stays CPU.
+        .learners(num_learners=0,
+                  num_gpus_per_learner=1 if args.learner_gpu else 0)
         # Escalation ladder for browser glitches at 32-browsers/GPU density:
         #   transient  -> absorbed by ResilientStepWrapper (step truncates, reset
         #                 retries 3x) so they never reach RLlib.
