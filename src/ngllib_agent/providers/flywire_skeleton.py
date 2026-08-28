@@ -104,6 +104,22 @@ class FlywireSkeletonProvider:
                 "end_steps": spawn_curriculum.get("end_steps"),
             }
 
+        if root_ids is not None:
+            self._root_ids = [str(r) for r in root_ids]
+        else:
+            rows = self._con.execute(
+                "SELECT DISTINCT root_id FROM skeletons"
+            ).fetchall()
+            self._root_ids = [str(r[0]) for r in rows]
+        # Eval-holdout separation: drop the frozen eval pool's segments from
+        # the training distribution (explicit `segment_id` reset options — the
+        # eval CLI's path — bypass this list on purpose).
+        if exclude_root_ids:
+            excl = {str(r) for r in exclude_root_ids}
+            self._root_ids = [r for r in self._root_ids if r not in excl]
+        if not self._root_ids:
+            raise ValueError(f"no root_ids found in {self.parquet_path}")
+
     def _global_steps(self):
         """total env steps from the progress file (20s TTL), else None."""
         if not self._progress_path:
@@ -132,22 +148,6 @@ class FlywireSkeletonProvider:
             if self._progress_path:
                 return 0.0
         return min(1.0, self._n_resets / c["end_resets"])
-
-        if root_ids is not None:
-            self._root_ids = [str(r) for r in root_ids]
-        else:
-            rows = self._con.execute(
-                "SELECT DISTINCT root_id FROM skeletons"
-            ).fetchall()
-            self._root_ids = [str(r[0]) for r in rows]
-        # Eval-holdout separation: drop the frozen eval pool's segments from
-        # the training distribution (explicit `segment_id` reset options — the
-        # eval CLI's path — bypass this list on purpose).
-        if exclude_root_ids:
-            excl = {str(r) for r in exclude_root_ids}
-            self._root_ids = [r for r in self._root_ids if r not in excl]
-        if not self._root_ids:
-            raise ValueError(f"no root_ids found in {self.parquet_path}")
 
     # -- StateProvider Protocol ------------------------------------------------
 

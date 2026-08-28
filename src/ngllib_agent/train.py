@@ -281,6 +281,7 @@ def main(argv=None) -> int:
     checkpointer = AsyncCheckpointer(ckpt_dir, every=args.checkpoint_every)
 
     # ---- train loop ----------------------------------------------------------
+    _empty_iters = 0
     try:
         for _ in range(args.iters):
             # Iteration-boundary marker (absolute wall ts) for aligning storm
@@ -334,6 +335,14 @@ def main(argv=None) -> int:
                 f"ts={time.time():.3f}",
                 flush=True,
             )
+            # Zombie guard: iterations that sample NOTHING (all runners dead
+            # from a construction-time bug) used to spin silently — 19 empty
+            # iters before anyone noticed (2026-08-28). Die loudly instead.
+            _empty_iters = _empty_iters + 1 if not n_steps else 0
+            if _empty_iters >= 3:
+                print(f"MARK zombie_exit it={it} (3 consecutive zero-sample "
+                      f"iterations) ts={time.time():.3f}", flush=True)
+                return 44
             if detector is not None and t_iter and detector.observe(t_iter):
                 degraded_exits.append(time.time())
                 print(
