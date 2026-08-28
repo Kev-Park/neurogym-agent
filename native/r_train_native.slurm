@@ -51,7 +51,6 @@ uv run --no-sync python -m ngllib_agent.train \
   --num-env-runners 32 \
   --num-envs-per-env-runner 1 \
   --num-gpus-per-env-runner 0.02 \
-  --learner-gpu \
   --vector threads \
   --iters "$ITERS" \
   --train-batch-size 4000 \
