@@ -51,8 +51,9 @@ def _client(i, secs, rids, centers, req_q, resp_q, out_q, barrier):
             d = (rng.integers(9, size=3) - 4) * 0.08
             quat = list(geom.euler_to_quaternion(
                 [e[0] + d[0], e[1] + d[1], e[2] + d[2]]))
-        else:  # zoom (local)
-            ps = min(500_000.0, ps + (float(rng.integers(9)) - 4) * 500.0)
+        else:  # zoom (local; floor mirrors NativeEnvironment's clamp)
+            ps = max(1.0, min(500_000.0,
+                              ps + (float(rng.integers(9)) - 4) * 500.0))
         req_q.put(("obs", i, rid, pos, quat, ps))
         resp_q.get()  # features
         n += 1
