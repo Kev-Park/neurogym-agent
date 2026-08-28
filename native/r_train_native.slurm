@@ -37,7 +37,9 @@ mkdir -p "$CKPT"
 export PYTHONUNBUFFERED=1
 export RAY_NUM_CPUS=44
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
-export NGL_NATIVE_FETCH_WORKERS=1
+# 2 workers: reset-ahead mesh prefetch (~30s tasks) must not starve the
+# per-click tile groups.
+export NGL_NATIVE_FETCH_WORKERS=2
 # Wall-clock spawn-curriculum anchor must survive preemption requeues: first
 # launch stamps it into the checkpoint dir; requeues reuse the stamp so the
 # anneal doesn't replay the easy phase.

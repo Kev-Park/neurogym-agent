@@ -112,6 +112,7 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
             reward_factory=make_z_reward_factory(rcfg),
             termination_factory=make_z_termination_factory(rcfg),
             cache_dir=ec.get("cv_cache"),
+            reset_ahead=ec.get("reset_ahead", True),
         )
         env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
         return _wrap_obs_and_limits(env, cfg, first_episode_limit)
