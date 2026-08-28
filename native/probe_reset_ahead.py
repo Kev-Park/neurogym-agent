@@ -21,20 +21,26 @@ def main() -> int:
     cfg.setdefault("obs", {})["mode"] = "pos"
     env = build_env(cfg)
 
-    rot = np.array([1, 0, 5, 2, 4, 4])
-    for ep in range(5):
+    # Training-shaped load: click-heavy stepping (position changes -> tile
+    # groups compete with the mesh prefetch on the fetch pool), no idle.
+    rng = np.random.default_rng(7)
+    for ep in range(6):
         t0 = time.monotonic()
         obs, info = env.reset()
         t_reset = time.monotonic() - t0
         rid = info["task_info"].get("segment_id")
         t0 = time.monotonic()
-        for _ in range(6):
-            obs, r, term, trunc, _ = env.step(rot)
-        t_steps = (time.monotonic() - t0) / 6
+        n_steps = 60
+        for i in range(n_steps):
+            if i % 2 == 0:  # half clicks, half rotates
+                a = np.array([0, rng.integers(1024), 4, 4, 4, 4])
+            else:
+                a = np.array([1, 0, rng.integers(9), rng.integers(9),
+                              rng.integers(9), 4])
+            obs, r, term, trunc, _ = env.step(a)
+        t_steps = (time.monotonic() - t0) / n_steps
         print(f"[ra] episode {ep}: reset={t_reset:6.1f}s  step={t_steps:.2f}s  "
               f"segment={rid}", flush=True)
-        # give the next episode's prefetch time to land, as a real episode would
-        time.sleep(20)
     env.close()
     print("[ra] PROBE-OK", flush=True)
     return 0
