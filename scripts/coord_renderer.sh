@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # Renderer role for coordinator-driven distributed PPO.
 #
 # Runs INSIDE a `srun --overlap` step spawned by the M4 coordinator on a
@@ -11,7 +11,7 @@
 # actual scancel.
 
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd "${COORD_WORKDIR:-/scratch/kp0374/neurogym-agent}"
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 

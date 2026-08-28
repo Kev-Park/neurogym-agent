@@ -23,6 +23,7 @@ mkdir -p "$STATE_DIR" "$CKPT"
 
 export RAY_NUM_CPUS=44
 export CURRICULUM_PROGRESS_FILE="${CKPT}/meta.json"
+export COORD_WORKDIR=/scratch/kp0374/wt/neurogym-agent-native
 export RAY_HEAD_ENDPOINT_FILE="${STATE_DIR}/ray_head_endpoint-${RUN}.txt"
 export NUM_RENDERERS="$RENDERERS"
 export SAMPLE_TIMEOUT_S="${SAMPLE_TIMEOUT_S:-600}"
@@ -44,6 +45,7 @@ cat > "$SUP" <<SUPEOF
 cd /scratch/kp0374/wt/neurogym-agent-native
 export RAY_NUM_CPUS="${RAY_NUM_CPUS}"
 export CURRICULUM_PROGRESS_FILE="${CURRICULUM_PROGRESS_FILE}"
+export COORD_WORKDIR="${COORD_WORKDIR}"
 export RAY_HEAD_ENDPOINT_FILE="${RAY_HEAD_ENDPOINT_FILE}"
 export NUM_RENDERERS="${NUM_RENDERERS}"
 export SAMPLE_TIMEOUT_S="${SAMPLE_TIMEOUT_S}"

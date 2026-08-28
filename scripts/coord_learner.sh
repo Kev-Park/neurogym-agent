@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # Learner role for coordinator-driven distributed PPO.
 #
 # Runs INSIDE a `srun --overlap` step spawned by the M4 coordinator.
@@ -6,7 +6,7 @@
 #   1. Start Ray head on this node.
 #   2. Write "IP:PORT" to $RAY_HEAD_ENDPOINT_FILE (renderers poll for it).
 #   3. Wait for renderers to join (short poll on ray status).
-#   4. Run ppo_smoke.py with RAY_ADDRESS set — it connects to the local head.
+#   4. Run ppo_smoke.py with RAY_ADDRESS set â€” it connects to the local head.
 #   5. Print ray status snapshot before PPO (diagnostic #3: verify multi-node
 #      cluster + per-node actor placement).
 #   6. On PPO completion, exec `sleep` so the process stays alive until the
@@ -18,12 +18,14 @@
 #   RAY_HEAD_ENDPOINT_FILE  path to endpoint dropfile (default:
 #                           /scratch/kp0374/coord-state/ray_head_endpoint.txt)
 #   NUM_RENDERERS           expected renderer count (used to wait for joins)
-#   NUM_ITERS               PPO iters (default 3 — smoke)
+#   NUM_ITERS               PPO iters (default 3 â€” smoke)
 #   TRAIN_BATCH             PPO train_batch_size (default 512)
 #   BROWSER_RESTART_EVERY   override for env.browser_restart_every (unset -> ngllib default)
 
 set -e
-cd /scratch/kp0374/neurogym-agent
+# COORD_WORKDIR: repo checkout to run from (worktree runs override this;
+# default = the browser-production checkout).
+cd "${COORD_WORKDIR:-/scratch/kp0374/neurogym-agent}"
 export PYTHONUNBUFFERED=1
 # Skip Ray auto-CWD upload (see scripts/ppo_smoke.py comment).
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
@@ -96,7 +98,7 @@ if [ -n "${WORKLOAD_CMD:-}" ]; then
     if [ "$WRC" -ne 0 ]; then
         # A CRASHED workload must look like learner death so the coordinator
         # respawns it (2026-08-18: a CUDA-init crash exited 1, the shell slept,
-        # and the coordinator saw learner=ALIVE forever — zombie run).
+        # and the coordinator saw learner=ALIVE forever â€” zombie run).
         echo "[learner] workload exited $WRC; dying so the coordinator respawns"
         exit "$WRC"
     fi
@@ -107,7 +109,7 @@ else
 fi
 
 echo "[learner] PPO complete; sleeping until coordinator SIGTERM"
-# Do NOT ray stop — coord's teardown will scancel the allocation, which
+# Do NOT ray stop â€” coord's teardown will scancel the allocation, which
 # takes everything down cleanly. Keep this process alive so coord's respawn
 # logic doesn't fire.
 exec sleep 3600
