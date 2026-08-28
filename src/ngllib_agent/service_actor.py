@@ -53,8 +53,8 @@ def create_render_services(cfg: dict, num_gpus: float = 0.05,
             self._core = RenderEncodeService(
                 encoder, cache_dir=cache_dir, fetch_workers=fetch_workers)
 
-        def features(self, client_id, state, canvas=None):
-            return self._core.features(client_id, state, canvas)
+        def features(self, client_id, state, canvas=None, plane=None):
+            return self._core.features(client_id, state, canvas, plane)
 
         def pick(self, state, px, py):
             return self._core.pick(state, px, py)
@@ -100,10 +100,10 @@ class _ServiceProxy:
     def __init__(self, actor):
         self._a = actor
 
-    def features(self, client_id, state, canvas=None):
+    def features(self, client_id, state, canvas=None, plane=None):
         import ray
 
-        return ray.get(self._a.features.remote(client_id, state, canvas))
+        return ray.get(self._a.features.remote(client_id, state, canvas, plane))
 
     def pick(self, state, px, py):
         import ray
