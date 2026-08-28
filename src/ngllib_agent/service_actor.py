@@ -53,17 +53,14 @@ def create_render_services(cfg: dict, num_gpus: float = 0.05,
             self._core = RenderEncodeService(
                 encoder, cache_dir=cache_dir, fetch_workers=fetch_workers)
 
-        def features(self, client_id, state, block_canvas=False):
-            return self._core.features(client_id, state,
-                                       block_canvas=block_canvas)
+        def features(self, client_id, state, canvas=None):
+            return self._core.features(client_id, state, canvas)
 
         def pick(self, state, px, py):
             return self._core.pick(state, px, py)
 
         def warm(self, state):
-            # Reset-ahead warmup: run a normal features pass (loads the
-            # mesh, starts/completes the canvas) and discard the result.
-            self._core.features("warmup", state, block_canvas=False)
+            self._core.warm(state)  # mesh preload (reset-ahead)
             return True
 
         def ping(self):
@@ -103,10 +100,10 @@ class _ServiceProxy:
     def __init__(self, actor):
         self._a = actor
 
-    def features(self, client_id, state, block_canvas=False):
+    def features(self, client_id, state, canvas=None):
         import ray
 
-        return ray.get(self._a.features.remote(client_id, state, block_canvas))
+        return ray.get(self._a.features.remote(client_id, state, canvas))
 
     def pick(self, state, px, py):
         import ray
