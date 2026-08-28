@@ -16,7 +16,9 @@ RUN=${1:-native-svc-mn}
 RENDERERS=${2:-2}
 TARGET_ITERS=${3:-740}
 NODES=$((RENDERERS + 1))
-NUM_ENV_RUNNERS=$((NODES * 16))
+# 32 runners x 3 envs = 96 clients/node: topology-sweep winner (870779;
+# runner/env split within a client count is a wash, 96 > 64 by ~15%).
+NUM_ENV_RUNNERS=$((NODES * 32))
 CKPT=/scratch/kp0374/checkpoints/${RUN}
 STATE_DIR=/scratch/kp0374/coord-state
 mkdir -p "$STATE_DIR" "$CKPT"
@@ -30,8 +32,8 @@ export SAMPLE_TIMEOUT_S="${SAMPLE_TIMEOUT_S:-600}"
 export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --config configs/native_service.yaml \
   --run-name ${RUN} --render-service --learner-gpu \
-  --num-env-runners ${NUM_ENV_RUNNERS} --num-envs-per-env-runner 4 \
-  --num-gpus-per-env-runner 0 --num-cpus-per-env-runner 2.5 \
+  --num-env-runners ${NUM_ENV_RUNNERS} --num-envs-per-env-runner 3 \
+  --num-gpus-per-env-runner 0 --num-cpus-per-env-runner 1.2 \
   --vector threads \
   --iters ${TARGET_ITERS} --train-batch-size 4000 \
   --sample-timeout-s ${SAMPLE_TIMEOUT_S} \
