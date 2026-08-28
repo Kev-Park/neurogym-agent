@@ -232,6 +232,16 @@ def main() -> int:
     # Extended-budget rollouts: the env's TimeLimit must match --max-steps
     # (training keeps the config's own cap; this override is eval-only).
     cfg.setdefault("env", {})["max_episode_steps"] = args.max_steps
+    if cfg.get("env", {}).get("render_service"):
+        # Service-mode config: the eval driver must host the per-node
+        # render+encode service the client env will call.
+        import ray
+
+        from ngllib_agent.service_actor import create_render_services
+
+        os.environ["RAY_ADDRESS"] = "local"
+        ray.init(include_dashboard=False, log_to_driver=True)
+        create_render_services(cfg)
     env = build_env(cfg)
 
     # Per-pair SIGALRM hard cap (2026-08-25): the single-env loop has no
