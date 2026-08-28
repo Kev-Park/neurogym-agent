@@ -66,6 +66,9 @@ def main() -> int:
     ap.add_argument("--meshes", type=int, default=8)
     ap.add_argument("--secs", type=float, default=90.0)
     ap.add_argument("--window-ms", type=float, default=5.0)
+    ap.add_argument("--pipeline", action="store_true",
+                    help="overlap render (main/GL thread) with encode "
+                         "(worker thread): serial alternation caps ~176 sps")
     ap.add_argument("--pool", default="/scratch/kp0374/neurogym-agent/eval_d0_v1.parquet")
     args = ap.parse_args()
 
@@ -106,6 +109,34 @@ def main() -> int:
 
     t_render = t_enc = 0.0
     batches = frames_total = picks = 0
+
+    enc_q = None
+    if args.pipeline:
+        import queue as _queue
+        import threading
+
+        enc_q = _queue.Queue(maxsize=2)
+        stats_lock = threading.Lock()
+
+        def _encoder_loop():
+            nonlocal t_enc, batches, frames_total
+            while True:
+                item = enc_q.get()
+                if item is None:
+                    return
+                frames_, reqs_ = item
+                e0 = time.monotonic()
+                feats = enc.encode(frames_ + frames_)
+                for j, (_, i, *_r) in enumerate(reqs_):
+                    resp_qs[i].put(feats[j])
+                with stats_lock:
+                    t_enc += time.monotonic() - e0
+                    batches += 1
+                    frames_total += len(frames_)
+
+        enc_thread = threading.Thread(target=_encoder_loop, daemon=True)
+        enc_thread.start()
+
     t_end = time.monotonic() + args.secs + 30
     while time.monotonic() < t_end:
         try:
@@ -148,14 +179,16 @@ def main() -> int:
                                       zoom(ps), segment_color(int(rid))))
         t1 = time.monotonic()
         if frames:
-            feats = enc.encode(frames + frames)
-            for j, (_, i, *_rest) in enumerate(obs_reqs):
-                resp_qs[i].put(feats[j])
-            batches += 1
-            frames_total += len(frames)
-        t2 = time.monotonic()
+            if enc_q is not None:
+                enc_q.put((frames, obs_reqs))  # encode overlaps next render
+            else:
+                feats = enc.encode(frames + frames)
+                for j, (_, i, *_rest) in enumerate(obs_reqs):
+                    resp_qs[i].put(feats[j])
+                batches += 1
+                frames_total += len(frames)
+                t_enc += time.monotonic() - t1
         t_render += t1 - t0
-        t_enc += t2 - t1
     total_steps, max_el = 0, 1e-9
     for _ in range(args.k):
         try:

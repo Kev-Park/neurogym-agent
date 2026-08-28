@@ -16,6 +16,6 @@
 set -e
 cd /scratch/kp0374/wt/neurogym-agent-native
 export PYTHONUNBUFFERED=1
-uv run --no-sync python native/probe_render_service.py --k 32 --secs 90
-uv run --no-sync python native/probe_render_service.py --k 64 --secs 90
+uv run --no-sync python native/probe_render_service.py --k 32 --secs 90 --pipeline
+uv run --no-sync python native/probe_render_service.py --k 64 --secs 90 --pipeline
 echo "RENDERSVC-COMPLETE"
