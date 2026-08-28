@@ -56,6 +56,11 @@ def build_argparser() -> argparse.ArgumentParser:
                          "instead of CPU — halves the synchronous PPO cycle "
                          "when sampling is fast (native renderer).")
     ap.add_argument("--num-env-runners", type=int, default=2)
+    ap.add_argument("--num-cpus-per-env-runner", type=float, default=1.0,
+                    help="Ray CPU reservation per runner. Service-mode "
+                         "runners need no GPU, so this is what forces them "
+                         "to SPREAD across renderer nodes instead of "
+                         "packing onto the head.")
     ap.add_argument("--num-envs-per-env-runner", type=int, default=16)
     ap.add_argument("--num-gpus-per-env-runner", type=float, default=0.5)
     ap.add_argument("--vector", choices=["spawn", "threads"], default="threads",
@@ -168,6 +173,7 @@ def main(argv=None) -> int:
             num_envs_per_env_runner=args.num_envs_per_env_runner,
             gym_env_vectorize_mode=vectorize_mode,
             num_gpus_per_env_runner=args.num_gpus_per_env_runner,
+            num_cpus_per_env_runner=args.num_cpus_per_env_runner,
             rollout_fragment_length=(
                 int(args.rollout_fragment_length)
                 if str(args.rollout_fragment_length).isdigit()
