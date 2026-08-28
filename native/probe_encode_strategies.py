@@ -55,6 +55,9 @@ def mode_per_runner(args):
 
     cfg = load_config(args.config)
     cfg.setdefault("obs", {})["mode"] = "raw"
+    # raw mode keeps env image_size (84x84 in the config) — force full panes
+    cfg["env"].update({"image_size": None, "left_pane": True,
+                       "right_pane": True, "capture_scale": 0.5})
     m = args.m
     venv = make_env_creator(cfg, vector_mode="threads")({"num_envs": m})
     enc = get_dino_encoder()
@@ -87,6 +90,8 @@ def _service_client(i, cfg_path, secs, req_q, resp_q, out_q, barrier):
 
     cfg = load_config(cfg_path)
     cfg.setdefault("obs", {})["mode"] = "raw"
+    cfg["env"].update({"image_size": None, "left_pane": True,
+                       "right_pane": True, "capture_scale": 0.5})
     env = build_env(cfg)
     obs, _ = env.reset(seed=100 + i)
     rng = np.random.default_rng(i)
