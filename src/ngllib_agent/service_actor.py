@@ -60,6 +60,12 @@ def create_render_services(cfg: dict, num_gpus: float = 0.05,
         def pick(self, state, px, py):
             return self._core.pick(state, px, py)
 
+        def warm(self, state):
+            # Reset-ahead warmup: run a normal features pass (loads the
+            # mesh, starts/completes the canvas) and discard the result.
+            self._core.features("warmup", state, block_canvas=False)
+            return True
+
         def ping(self):
             return True
 
@@ -106,6 +112,10 @@ class _ServiceProxy:
         import ray
 
         return ray.get(self._a.pick.remote(state, px, py))
+
+    def warm(self, state):
+        # Fire-and-forget: the ObjectRef is dropped on purpose.
+        self._a.warm.remote(state)
 
 
 def service_factory():

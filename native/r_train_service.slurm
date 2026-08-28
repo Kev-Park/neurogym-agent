@@ -43,8 +43,8 @@ uv run --no-sync python -m ngllib_agent.train \
   --config configs/native_service.yaml \
   --run-name "$RUN" \
   --render-service \
-  --num-env-runners 4 \
-  --num-envs-per-env-runner 16 \
+  --num-env-runners 16 \
+  --num-envs-per-env-runner 4 \
   --num-gpus-per-env-runner 0 \
   --learner-gpu \
   --vector threads \
