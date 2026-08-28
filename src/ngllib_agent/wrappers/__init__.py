@@ -5,6 +5,7 @@ from .dino_obs import (
     DEFAULT_POS_STATE_SCALE,
     DinoObservationWrapper,
     PosStateWrapper,
+    ServiceFeaturesWrapper,
     pos_state_from_obs,
     split_panes,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "ResilientStepWrapper",
     "DinoObservationWrapper",
     "PosStateWrapper",
+    "ServiceFeaturesWrapper",
     "DEFAULT_POS_STATE_SCALE",
     "pos_state_from_obs",
     "split_panes",

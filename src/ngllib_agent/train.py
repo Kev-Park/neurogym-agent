@@ -47,6 +47,10 @@ def build_argparser() -> argparse.ArgumentParser:
     # sps) is host-side, NOT capture (raw capture does ~170/GPU) — so 2 procs
     # saturates the node and more GPUs/procs don't help. Multi-node: scale
     # --num-env-runners = 2 x (renderer nodes), keep the rest.
+    ap.add_argument("--render-service", action="store_true",
+                    help="Start one per-node render+encode service actor "
+                         "(requires env.render_service: true in the config; "
+                         "runners then need no GPU).")
     ap.add_argument("--learner-gpu", action="store_true",
                     help="Run the (driver-local) learner's update on the GPU "
                          "instead of CPU — halves the synchronous PPO cycle "
@@ -146,6 +150,11 @@ def main(argv=None) -> int:
     register_env("ngl-znav", make_env_creator(cfg, vector_mode=args.vector))
 
     ray.init(include_dashboard=False, log_to_driver=True, ignore_reinit_error=True)
+
+    if args.render_service:
+        from .service_actor import create_render_services
+
+        create_render_services(cfg)
 
     vectorize_mode = (
         "sync" if args.num_envs_per_env_runner <= 1 else "vector_entry_point"

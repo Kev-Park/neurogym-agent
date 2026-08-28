@@ -100,6 +100,49 @@ class DinoObservationWrapper:
         return _Impl(env)
 
 
+class ServiceFeaturesWrapper:
+    """gymnasium `ObservationWrapper` for service-mode native envs: the env
+    already returns `image_features` (encoded by the per-node render
+    service); this just assembles the same policy-facing Dict as
+    `DinoObservationWrapper` — no torch in the client process."""
+
+    def __new__(cls, env, feature_dim: int,
+                pos_state_scale: np.ndarray | None = None):
+        import gymnasium as gym
+        from gymnasium import spaces
+
+        scale = (
+            np.asarray(pos_state_scale, np.float32)
+            if pos_state_scale is not None
+            else DEFAULT_POS_STATE_SCALE
+        )
+
+        class _Impl(gym.ObservationWrapper):
+            def __init__(self, env):
+                super().__init__(env)
+                self._scale = scale
+                self.observation_space = spaces.Dict(
+                    {
+                        "image_features": spaces.Box(
+                            -np.inf, np.inf, shape=(2 * feature_dim,),
+                            dtype=np.float32
+                        ),
+                        "pos_state": spaces.Box(
+                            -np.inf, np.inf, shape=(8,), dtype=np.float32
+                        ),
+                    }
+                )
+
+            def observation(self, obs):
+                return {
+                    "image_features": np.asarray(
+                        obs["image_features"], np.float32),
+                    "pos_state": pos_state_from_obs(obs, self._scale),
+                }
+
+        return _Impl(env)
+
+
 class PosStateWrapper:
     """gymnasium `ObservationWrapper`: Dict obs -> flat scaled pos_state Box(8,)."""
 

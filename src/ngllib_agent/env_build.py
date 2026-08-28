@@ -16,6 +16,7 @@ from .wrappers import (
     MultiDiscreteActionWrapper,
     PosStateWrapper,
     ResilientStepWrapper,
+    ServiceFeaturesWrapper,
 )
 
 
@@ -102,6 +103,13 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     if ec.get("backend", "browser") == "native":
         from ngllib.native.environment import NativeEnvironment
 
+        # env.render_service: true -> this env is a service CLIENT: no GL,
+        # no DINO in the runner; states go to the per-node render service
+        # (created by train.py / eval drivers via create_render_services).
+        svc_factory = None
+        if ec.get("render_service"):
+            from .service_actor import service_factory as svc_factory  # noqa: F811
+
         env = NativeEnvironment(
             orientation=ec.get("orientation", "euler"),
             left_pane=ec.get("left_pane", False),
@@ -113,6 +121,9 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
             termination_factory=make_z_termination_factory(rcfg),
             cache_dir=ec.get("cv_cache"),
             reset_ahead=ec.get("reset_ahead", True),
+            render_service=svc_factory,
+            service_feature_dim=int(
+                oc.get("dino", {}).get("feature_dim", 384)),
         )
         env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
         return _wrap_obs_and_limits(env, cfg, first_episode_limit)
@@ -171,15 +182,22 @@ def _wrap_obs_and_limits(env, cfg: dict[str, Any], first_episode_limit: int | No
     # wrapper so glitch-truncation returns an already-transformed obs.
     scale = oc.get("pos_state_scale")
     if obs_mode == "dino":
-        from .obs import get_dino_encoder  # torch import stays lazy
-
         dc = oc.get("dino", {})
-        encoder = get_dino_encoder(
-            model_name=dc.get("model_name", "dinov2_vits14"),
-            input_size=dc.get("input_size", 224),
-            device=dc.get("device"),
-        )
-        env = DinoObservationWrapper(env, encoder, pos_state_scale=scale)
+        if "image_features" in getattr(env.observation_space, "spaces", {}):
+            # Service-mode native env: features already encoded per-node;
+            # same policy-facing Dict, no torch in this process.
+            env = ServiceFeaturesWrapper(
+                env, feature_dim=int(dc.get("feature_dim", 384)),
+                pos_state_scale=scale)
+        else:
+            from .obs import get_dino_encoder  # torch import stays lazy
+
+            encoder = get_dino_encoder(
+                model_name=dc.get("model_name", "dinov2_vits14"),
+                input_size=dc.get("input_size", 224),
+                device=dc.get("device"),
+            )
+            env = DinoObservationWrapper(env, encoder, pos_state_scale=scale)
     elif obs_mode == "pos":
         env = PosStateWrapper(env, pos_state_scale=scale)
     elif obs_mode != "raw":

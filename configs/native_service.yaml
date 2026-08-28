@@ -1,0 +1,61 @@
+# Service-mode native config: v9-identical hyperparameters; rendering +
+# DINO encoding happen in the per-node render service (measured 255 sps
+# vs ~150 per-env). Envs are pure state machines (no GPU in runners).
+# Differences vs configs/native.yaml: env.render_service + obs.dino.feature_dim.
+
+env:
+  backend: native
+  render_service: true
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
+  projection_scale_range: [3500, 14000]
+  spawn_curriculum:
+    start_frac: 0.10
+    end_hours: 3.5
+  orientation: euler
+  headless: true
+  renderer: gpu
+  left_pane: true
+  right_pane: true
+  image_size: null
+  max_episode_steps: 300
+
+obs:
+  mode: dino
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+    feature_dim: 384
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+model:
+  pos_hidden_dim: 64
+  trunk_hiddens: [256, 256]
+  normalize_entropy: true
+
+action:
+  grid_rows: 32
+  grid_cols: 32
+  pane_3d_bounds: [900, 0, 1800, 900]   # x0, y0, x1, y1
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  z_tolerance: 10.0
+  z_tolerance_frac: 0.05
+  success: 1.0
+  z_shaping_coef: 0.001
+  step_penalty: 0.0
+
+ppo:
+  train_batch_size: 2000
+  sgd_minibatch_size: 256
+  num_sgd_iter: 4
+  entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01
