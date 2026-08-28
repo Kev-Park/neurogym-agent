@@ -5,7 +5,8 @@
 
 env:
   backend: native
-  cv_cache: /scratch/kp0374/native_spike/cv_cache
+  # no cv_cache: the NFS disk cache taxed cold fetches 4-30x (2026-08-28);
+  # the env's in-RAM chunk LRU covers repeats
   parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
   holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
   projection_scale_range: [3500, 14000]
