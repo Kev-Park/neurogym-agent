@@ -341,6 +341,14 @@ def main(argv=None) -> int:
                     meta_path,
                 )
                 return 43
+            # --iters is an ABSOLUTE target. RLlib's training_iteration
+            # resumes from the checkpoint, but this loop used to count
+            # RELATIVE iterations — a resumed run trained --iters MORE
+            # (native-v9-test overran 740 -> 764+ before being caught).
+            if it >= args.iters:
+                print(f"MARK target_reached it={it} iters={args.iters} "
+                      f"ts={time.time():.3f}", flush=True)
+                break
     finally:
         checkpointer.finalize()
         wandb.finish()
