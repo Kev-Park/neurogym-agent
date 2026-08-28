@@ -104,6 +104,19 @@ def service_factory():
     """Zero-arg factory for NativeEnvironment(render_service=...): resolves
     THIS node's service actor. Runs inside the env-runner process."""
     import ray
+    from ray.util import list_named_actors
 
     node_id = ray.get_runtime_context().get_node_id()
-    return _ServiceProxy(ray.get_actor(_service_name(node_id)))
+    try:
+        return _ServiceProxy(ray.get_actor(_service_name(node_id)))
+    except ValueError:
+        # NodeID string sources have disagreed across Ray versions; fall
+        # back to the registry. One service per node, so a single match is
+        # unambiguous (always the case single-node).
+        names = [n for n in list_named_actors()
+                 if str(n).startswith(SERVICE_NAME_PREFIX)]
+        if len(names) == 1:
+            return _ServiceProxy(ray.get_actor(names[0]))
+        raise ValueError(
+            f"cannot resolve render service for node {node_id}; "
+            f"registered: {names}")
