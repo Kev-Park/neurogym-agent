@@ -55,16 +55,23 @@ def main() -> int:
         venv.reset(seed=1)
         reset_s = time.monotonic() - t0
 
-        def sample():
-            return np.stack([venv.single_action_space.sample()
-                             for _ in range(m)])
+        single = (m == 1)  # num_envs=1 returns the plain (non-vector) env
+
+        def do_step():
+            if single:
+                _, _, term, trunc, _ = venv.step(venv.action_space.sample())
+                if term or trunc:
+                    venv.reset()
+            else:
+                venv.step(np.stack([venv.single_action_space.sample()
+                                    for _ in range(m)]))
 
         for _ in range(args.warmup_steps):
-            venv.step(sample())
+            do_step()
         n = 0
         t0 = time.monotonic()
         while time.monotonic() - t0 < args.secs:
-            venv.step(sample())
+            do_step()
             n += 1
         el = time.monotonic() - t0
         sps = m * n / el

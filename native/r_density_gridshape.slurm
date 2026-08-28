@@ -23,7 +23,7 @@ cd "$WT"
 export PYTHONUNBUFFERED=1
 
 # rounds: K:M:fetch-workers-per-runner
-for round in 4:8:3 16:2:1 32:1:1 12:4:2; do
+for round in ${ROUNDS:-4:8:3 16:2:1 32:1:1 12:4:2}; do
   K=${round%%:*}; rest=${round#*:}; M=${rest%%:*}; FW=${rest##*:}
   echo "ROUND K=$K M=$M FW=$FW total_envs=$((K * M))"
   export NGL_NATIVE_FETCH_WORKERS=$FW
