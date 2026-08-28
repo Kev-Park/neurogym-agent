@@ -12,7 +12,7 @@ env:
   projection_scale_range: [3500, 14000]
   spawn_curriculum:
     start_frac: 0.10
-    end_hours: 3.5
+    end_steps: 1200000   # step-anchored anneal (sps-invariant)
   orientation: euler
   headless: true
   renderer: gpu

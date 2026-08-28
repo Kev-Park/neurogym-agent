@@ -9,9 +9,12 @@ env:
   parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
   holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
   projection_scale_range: [3500, 14000]
+  # Step-anchored anneal (2026-08-29): invariant to episode length AND
+  # sampling speed (wall-clock pacing broke whenever sps improved).
+  # 1.2M steps = the schedule v9b's 3.5h was calibrated to at its sps.
   spawn_curriculum:
     start_frac: 0.10
-    end_hours: 3.5
+    end_steps: 1200000
   orientation: euler
   headless: true
   renderer: gpu

@@ -40,12 +40,8 @@ export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 # 2 workers: reset-ahead mesh prefetch (~30s tasks) must not starve the
 # per-click tile groups.
 export NGL_NATIVE_FETCH_WORKERS=2
-# Wall-clock spawn-curriculum anchor must survive preemption requeues: first
-# launch stamps it into the checkpoint dir; requeues reuse the stamp so the
-# anneal doesn't replay the easy phase.
-T0_FILE="$CKPT/curriculum_t0"
-[ -f "$T0_FILE" ] || date +%s > "$T0_FILE"
-export CURRICULUM_T0=$(cat "$T0_FILE")
+# Step-anchored curriculum (see providers/flywire_skeleton.py).
+export CURRICULUM_PROGRESS_FILE="$CKPT/meta.json"
 
 uv run --no-sync python -m ngllib_agent.train \
   --config configs/native.yaml \

@@ -10,7 +10,10 @@ segment's max-z point (`task_info["z_max"]`). Ported from the legacy
 
 from __future__ import annotations
 
+import json
 import math
+import os
+import time
 from typing import TYPE_CHECKING, Any
 
 import duckdb
@@ -77,18 +80,58 @@ class FlywireSkeletonProvider:
         # Spawn-distance curriculum (2026-08-27, v9): early episodes spawn
         # near z_max (short climbs, dense success signal — measured difficulty
         # tracks CLIMB DISTANCE, R11/B7 analyses), annealing to the full node
-        # distribution. Scheduled on this provider's OWN reset count (workers
-        # have no global step): allowed distance fraction of z-extent =
-        # start_frac + (1 - start_frac) * min(1, resets / end_resets).
-        # A respawned worker restarts its local counter — a transient easy
-        # patch, acceptable. Explicit segment_id resets bypass the curriculum.
+        # distribution: allowed distance fraction of z-extent =
+        # start_frac + (1 - start_frac) * anneal.
+        #
+        # Scheduling (2026-08-29): `end_steps` anneals on GLOBAL env steps —
+        # the driver publishes num_env_steps_sampled_lifetime into the
+        # progress file (meta.json) each iteration, and workers read it here
+        # via $CURRICULUM_PROGRESS_FILE with a short TTL. Step-anchored
+        # pacing is invariant to BOTH episode length (reset-count pacing
+        # annealed ~25x too fast on short easy-phase episodes) and sampling
+        # speed (wall-clock pacing broke every time sps improved).
+        # `end_resets` (local reset count) remains as the fallback when no
+        # progress file is configured (unit tests, ad-hoc envs).
+        # Explicit segment_id resets bypass the curriculum.
         self._curriculum = None
         self._n_resets = 0
+        self._progress_path = os.environ.get("CURRICULUM_PROGRESS_FILE")
+        self._progress_cache = (0.0, None)  # (monotonic ts, total_steps)
         if spawn_curriculum:
             self._curriculum = {
                 "start_frac": float(spawn_curriculum.get("start_frac", 0.10)),
                 "end_resets": int(spawn_curriculum.get("end_resets", 75)),
+                "end_steps": spawn_curriculum.get("end_steps"),
             }
+
+    def _global_steps(self):
+        """total env steps from the progress file (20s TTL), else None."""
+        if not self._progress_path:
+            return None
+        now = time.monotonic()
+        ts, cached = self._progress_cache
+        if now - ts < 20.0:
+            return cached
+        steps = None
+        try:
+            with open(self._progress_path) as f:
+                steps = json.load(f).get("total_steps")
+        except Exception:
+            steps = None
+        self._progress_cache = (now, steps)
+        return steps
+
+    def _anneal_frac(self) -> float:
+        c = self._curriculum
+        end_steps = c.get("end_steps")
+        if end_steps:
+            steps = self._global_steps()
+            if steps is not None:
+                return min(1.0, float(steps) / float(end_steps))
+            # progress file not yet written (first iteration) -> still easy
+            if self._progress_path:
+                return 0.0
+        return min(1.0, self._n_resets / c["end_resets"])
 
         if root_ids is not None:
             self._root_ids = [str(r) for r in root_ids]
@@ -116,8 +159,7 @@ class FlywireSkeletonProvider:
         nodes = self._nodes(root_id)
         if self._curriculum is not None and "segment_id" not in options:
             c = self._curriculum
-            frac = c["start_frac"] + (1.0 - c["start_frac"]) * min(
-                1.0, self._n_resets / c["end_resets"])
+            frac = c["start_frac"] + (1.0 - c["start_frac"]) * self._anneal_frac()
             self._n_resets += 1
             z_max = float(nodes[:, 2].max())
             z_min = float(nodes[:, 2].min())

@@ -306,6 +306,9 @@ def main(argv=None) -> int:
             atomic_json(
                 {
                     "iteration": it,
+                    # Global env-step counter: the curriculum's step-anchored
+                    # anneal reads this via $CURRICULUM_PROGRESS_FILE.
+                    "total_steps": er.get("num_env_steps_sampled_lifetime"),
                     "wandb_id": run.id,
                     "run_name": args.run_name,
                     "degraded_exits": degraded_exits,
