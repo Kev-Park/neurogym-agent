@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 
 SERVICE_NAME_PREFIX = "ngl_render_service"
 
+# Named-but-not-detached actors are ref-counted: if the caller drops the
+# handles, Ray garbage-collects the service right after creation (observed:
+# ping OK, then empty registry). Driver-lifetime globals keep them alive;
+# deliberately NOT lifetime="detached" so a dead driver can't leak a
+# stale-code service onto a shared node.
+_SERVICES: list = []
+
 
 def _service_name(node_id: str) -> str:
     # Ray NodeID, not IP: multi-homed cluster nodes report different
@@ -80,6 +87,7 @@ def create_render_services(cfg: dict, num_gpus: float = 0.05,
         import ray as _ray
 
         _ray.get(a.ping.remote(), timeout=600)  # DINO + GL warm before runners
+    _SERVICES.extend(actors)
     return actors
 
 
