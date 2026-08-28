@@ -32,6 +32,9 @@ mkdir -p "$CKPT"
 export PYTHONUNBUFFERED=1
 export RAY_NUM_CPUS=44
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
+# Stale /tmp ray_current_cluster markers from dead coordinator runs make
+# plain ray.init() try to connect to a dead head — force local.
+export RAY_ADDRESS=local
 T0_FILE="$CKPT/curriculum_t0"
 [ -f "$T0_FILE" ] || date +%s > "$T0_FILE"
 export CURRICULUM_T0=$(cat "$T0_FILE")

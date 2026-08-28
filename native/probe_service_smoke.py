@@ -11,6 +11,10 @@ import time
 import numpy as np
 
 os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
+# A dead coordinator can leave a ray_current_cluster marker in the node's
+# /tmp; plain ray.init() then tries to CONNECT to the dead head. Force a
+# fresh local cluster.
+os.environ["RAY_ADDRESS"] = "local"
 
 
 def main() -> int:
