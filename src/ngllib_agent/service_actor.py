@@ -20,8 +20,10 @@ logger = logging.getLogger(__name__)
 SERVICE_NAME_PREFIX = "ngl_render_service"
 
 
-def _service_name(node_ip: str) -> str:
-    return f"{SERVICE_NAME_PREFIX}_{node_ip}"
+def _service_name(node_id: str) -> str:
+    # Ray NodeID, not IP: multi-homed cluster nodes report different
+    # interfaces from ray.nodes() vs get_node_ip_address().
+    return f"{SERVICE_NAME_PREFIX}_{node_id}"
 
 
 def create_render_services(cfg: dict, num_gpus: float = 0.05,
@@ -60,7 +62,7 @@ def create_render_services(cfg: dict, num_gpus: float = 0.05,
     for node in ray.nodes():
         if not node.get("Alive") or node.get("Resources", {}).get("GPU", 0) < 1:
             continue
-        name = _service_name(node["NodeManagerAddress"])
+        name = _service_name(node["NodeID"])
         try:
             actors.append(ray.get_actor(name))
             continue
@@ -102,6 +104,6 @@ def service_factory():
     """Zero-arg factory for NativeEnvironment(render_service=...): resolves
     THIS node's service actor. Runs inside the env-runner process."""
     import ray
-    from ray.util import get_node_ip_address
 
-    return _ServiceProxy(ray.get_actor(_service_name(get_node_ip_address())))
+    node_id = ray.get_runtime_context().get_node_id()
+    return _ServiceProxy(ray.get_actor(_service_name(node_id)))
