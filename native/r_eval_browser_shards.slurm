@@ -26,8 +26,11 @@ cd "$WT"
 export PYTHONUNBUFFERED=1
 PKL=$1
 PREFIX=$2
-SHARD_SIZE=25
-OFFSET=$((SLURM_ARRAY_TASK_ID * SHARD_SIZE))
+# Gap-filling reruns use smaller shards from a base offset, e.g.
+#   sbatch --array=0-4 --export=ALL,SHARD_SIZE=5,OFFSET_BASE=25 ...
+SHARD_SIZE=${SHARD_SIZE:-25}
+OFFSET_BASE=${OFFSET_BASE:-0}
+OFFSET=$((OFFSET_BASE + SLURM_ARRAY_TASK_ID * SHARD_SIZE))
 
 uv run --no-sync python scripts/eval_d0.py \
   --config configs/ppo_zmax_navigate.yaml \
@@ -36,4 +39,4 @@ uv run --no-sync python scripts/eval_d0.py \
   --state-pkl "$PKL" \
   --obs dino --stochastic \
   --offset "$OFFSET" --limit "$SHARD_SIZE" \
-  --output "${PREFIX}_shard${SLURM_ARRAY_TASK_ID}.json"
+  --output "${PREFIX}_shard_off${OFFSET}.json"

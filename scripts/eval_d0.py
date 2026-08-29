@@ -374,7 +374,9 @@ def main() -> int:
         # Incremental flush: the single-env eval loop has no vector-level hang
         # backstop (a playwright wedge lost pairs 143-200 of one run to
         # log-scraping) — keep the JSON current so a dead job loses nothing.
-        if (i + 1) % 10 == 0:
+        # Short (sharded) runs flush EVERY pair: at 10-pair cadence a wedged
+        # 25-pair shard threw away 5 completed pairs (2026-08-28).
+        if len(pairs) <= 50 or (i + 1) % 10 == 0:
             with open(args.output, "w") as f:
                 json.dump({"summary": {"partial": True, "n_done": len(results)},
                            "per_pair": results}, f)
