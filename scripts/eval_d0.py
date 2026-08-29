@@ -220,6 +220,12 @@ def main() -> int:
                     help="torch RNG seed so --stochastic runs are reproducible.")
     ap.add_argument("--limit", type=int, default=0,
                     help="If >0, only run this many pairs (for smoke tests).")
+    ap.add_argument("--offset", type=int, default=0,
+                    help="Skip this many pairs first. With --limit this "
+                         "shards the pool across jobs — the browser backend "
+                         "loses whole runs to unkillable playwright greenlet "
+                         "wedges (2026-08-28: two 200-pair evals died at "
+                         "pair ~37), so shard + merge instead of one long run.")
     args = ap.parse_args()
 
     # Build env same shape as training.
@@ -260,6 +266,8 @@ def main() -> int:
     # Load eval pairs.
     d0_tbl = pq.read_table(args.eval_d0)
     pairs = d0_tbl.to_pylist()
+    if args.offset > 0:
+        pairs = pairs[args.offset:]
     if args.limit > 0:
         pairs = pairs[:args.limit]
     print(f"[eval] {len(pairs)} pairs, config={args.config}", flush=True)
