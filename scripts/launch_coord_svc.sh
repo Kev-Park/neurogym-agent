@@ -14,8 +14,15 @@ cd /scratch/kp0374/wt/neurogym-agent-native
 
 RUN=${1:-native-svc-mn}
 RENDERERS=${2:-2}
-TARGET_ITERS=${3:-740}
+TARGET_ITERS=${3:-250}   # 250 x 12000 = 3.0M steps (v9-equivalent)
 NODES=$((RENDERERS + 1))
+# ROLLOUT FRAGMENT: rollout_fragment_length=auto is train_batch / total
+# envs. v9-test (96.5% on the native Chrome renderer) had 32 envs @ batch
+# 4000 = 125 steps per env; 96 envs @ 4000 gives 42, which truncates GAE
+# far more often than the ~17-step effective horizon (gamma .99, lambda
+# .95) and leaves most fragments with no episode end. batch 12000 restores
+# 125 while keeping all 96 envs; 250 iters holds total experience at v9
+# parity (3.0M steps) and the same ~46k minibatch updates.
 # 32 runners x 3 envs = 96 clients/node: topology-sweep winner (870779;
 # runner/env split within a client count is a wash, 96 > 64 by ~15%).
 NUM_ENV_RUNNERS=$((NODES * 32))
@@ -39,7 +46,7 @@ export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --num-env-runners ${NUM_ENV_RUNNERS} --num-envs-per-env-runner 3 \
   --num-gpus-per-env-runner 0 --num-cpus-per-env-runner 1.2 \
   --vector threads \
-  --iters ${TARGET_ITERS} --train-batch-size 4000 \
+  --iters ${TARGET_ITERS} --train-batch-size ${TRAIN_BATCH:-12000} \
   --sample-timeout-s ${SAMPLE_TIMEOUT_S} \
   --checkpoint-dir ${CKPT} --checkpoint-every 10 \
   --wandb-project neurogym-agent --resume"
