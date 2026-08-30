@@ -9,12 +9,17 @@ env:
   parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
   holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
   projection_scale_range: [3500, 14000]
-  # Step-anchored anneal (2026-08-29): invariant to episode length AND
-  # sampling speed (wall-clock pacing broke whenever sps improved).
-  # 1.2M steps = the schedule v9b's 3.5h was calibrated to at its sps.
+  # Step-anchored anneal: invariant to wall-clock, episode length, and
+  # sampling speed. 492k = MEASURED from native-v9-test (the policy that
+  # transfers to Chrome at 96.5%): its per-env reset-count schedule had the
+  # fleet's average env finish annealing at global step 492,000 (iter 123
+  # of 740, from its wandb history). The service runs' 1.2M reached full
+  # difficulty at ~40% of training instead of 17%, and are the ones sitting
+  # at ~86% Chrome — this matches v9-test's effective schedule while
+  # keeping the robust step-anchored mechanism.
   spawn_curriculum:
     start_frac: 0.10
-    end_steps: 1200000
+    end_steps: 492000
   orientation: euler
   headless: true
   renderer: gpu
