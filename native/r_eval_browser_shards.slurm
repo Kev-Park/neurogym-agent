@@ -32,11 +32,6 @@ SHARD_SIZE=${SHARD_SIZE:-25}
 OFFSET_BASE=${OFFSET_BASE:-0}
 OFFSET=$((OFFSET_BASE + SLURM_ARRAY_TASK_ID * SHARD_SIZE))
 
-uv run --no-sync python scripts/eval_d0.py \
-  --config configs/ppo_zmax_navigate.yaml \
-  --eval-d0 /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
-  --skeleton /scratch/kp0374/neurogym-agent/segment_positions.parquet \
-  --state-pkl "$PKL" \
-  --obs dino --stochastic \
-  --offset "$OFFSET" --limit "$SHARD_SIZE" \
-  --output "${PREFIX}_shard_off${OFFSET}.json"
+# Supervised: relaunches across playwright wedges, resuming from the last
+# flushed pair (only an external kill clears a wedged greenlet).
+bash native/eval_shard_supervised.sh "$PKL" "$PREFIX" "$OFFSET" "$SHARD_SIZE"
