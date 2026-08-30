@@ -24,6 +24,10 @@ STATE_DIR=/scratch/kp0374/coord-state
 mkdir -p "$STATE_DIR" "$CKPT"
 
 export RAY_NUM_CPUS=44
+# Fetch workers are PER RUNNER: at 32 runners/node the ngllib default (6)
+# spawns 192 fetch procs on 44 cores and throttled a plane-on run to 72 sps.
+# 2 lets a runner's canvas+plane job overlap the next without thrashing.
+export NGL_NATIVE_FETCH_WORKERS=2
 export CURRICULUM_PROGRESS_FILE="${CKPT}/meta.json"
 export COORD_WORKDIR=/scratch/kp0374/wt/neurogym-agent-native
 export RAY_HEAD_ENDPOINT_FILE="${STATE_DIR}/ray_head_endpoint-${RUN}.txt"
@@ -47,6 +51,7 @@ cat > "$SUP" <<SUPEOF
 cd /scratch/kp0374/wt/neurogym-agent-native
 export RAY_NUM_CPUS="${RAY_NUM_CPUS}"
 export CURRICULUM_PROGRESS_FILE="${CURRICULUM_PROGRESS_FILE}"
+export NGL_NATIVE_FETCH_WORKERS="${NGL_NATIVE_FETCH_WORKERS}"
 export COORD_WORKDIR="${COORD_WORKDIR}"
 export RAY_HEAD_ENDPOINT_FILE="${RAY_HEAD_ENDPOINT_FILE}"
 export NUM_RENDERERS="${NUM_RENDERERS}"
