@@ -77,24 +77,31 @@ def main() -> int:
           f"cos_right={np.median(cosr):.4f} l2rel={np.median(rel):.4f}",
           flush=True)
 
-    # canvas staleness under a click-heavy stream (the service-only effect)
-    base = svc_env
-    while hasattr(base, "env"):
-        base = base.env
-    base = getattr(base, "unwrapped", base)
-    svc_env.reset()
-    stale = fresh = 0
-    for i in range(40):
-        a = (np.array([0, int(rng.integers(1024)), 4, 4, 4, 4]) if i % 2 == 0
-             else np.array([1, 0, int(rng.integers(9)), int(rng.integers(9)),
-                            int(rng.integers(9)), 4]))
-        svc_env.step(a)
-        key = base._tile_state_key() if hasattr(base, "_tile_state_key") else None
-        if key is not None and key == getattr(base, "_svc_key", None):
-            fresh += 1
-        else:
-            stale += 1
-    print(f"[obs] canvas freshness over 40 steps: fresh={fresh} stale={stale}",
+    # 2D-pane staleness under a click-heavy stream, BOTH paths (local is the
+    # control: without it a service number is unreadable).
+    def unwrap(e):
+        while hasattr(e, "env"):
+            e = e.env
+        return getattr(e, "unwrapped", e)
+
+    def freshness(env, attr, steps=40):
+        base = unwrap(env)
+        env.reset()
+        fresh = 0
+        for i in range(steps):
+            a = (np.array([0, int(rng.integers(1024)), 4, 4, 4, 4])
+                 if i % 2 == 0 else
+                 np.array([1, 0, int(rng.integers(9)), int(rng.integers(9)),
+                           int(rng.integers(9)), 4]))
+            env.step(a)
+            if base._tile_state_key() == getattr(base, attr, None):
+                fresh += 1
+        return fresh, steps - fresh
+
+    sf, ss = freshness(svc_env, "_svc_key")
+    lf, ls = freshness(loc_env, "_tile_key")
+    print(f"[obs] 2D-pane freshness over 40 click-heavy steps: "
+          f"SERVICE fresh={sf} stale={ss} | LOCAL fresh={lf} stale={ls}",
           flush=True)
     svc_env.close(); loc_env.close()
     print("[obs] PROBE-OK", flush=True)
