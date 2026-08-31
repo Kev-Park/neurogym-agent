@@ -4,6 +4,7 @@
 # the head GPU, via the production-validated coordinator (re-salloc/respawn).
 #
 #   bash scripts/launch_coord_svc.sh [run-name] [renderer-nodes] [target-iters]
+# Env: SVC_CONFIG (default configs/native_service.yaml), TRAIN_BATCH, LR.
 #
 # Learning characteristics are v9-identical (configs/native_service.yaml);
 # only the plumbing differs. Per renderer node: 1 service actor (GPU) + its
@@ -41,7 +42,7 @@ export RAY_HEAD_ENDPOINT_FILE="${STATE_DIR}/ray_head_endpoint-${RUN}.txt"
 export NUM_RENDERERS="$RENDERERS"
 export SAMPLE_TIMEOUT_S="${SAMPLE_TIMEOUT_S:-600}"
 export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
-  --config configs/native_service.yaml \
+  --config ${SVC_CONFIG:-configs/native_service.yaml} \
   --run-name ${RUN} --render-service --learner-gpu \
   --num-env-runners ${NUM_ENV_RUNNERS} --num-envs-per-env-runner 3 \
   --num-gpus-per-env-runner 0 --num-cpus-per-env-runner 1.2 \
