@@ -18,6 +18,10 @@
 # via the standard eval_d0 harness — numbers compare 1:1 against the same
 # checkpoint's browser-backend eval.
 #
+# --stochastic is the DEFAULT here to match the browser shard path: argmax
+# on the 1024-way click head is degenerate for a policy that only ever
+# acted by sampling (eval_d0 says so in its docstring). Omitting it scored
+# a healthy right-pane-only policy at 3.1% vs 83% on Chrome (2026-08-31).
 # Usage: sbatch r_eval_native.slurm <state-pkl> [extra eval_d0 args...]
 # Env: EVAL_CONFIG picks the config -- right-pane-only policies need
 # configs/native_v9test_noleft.yaml to match their observation space.
@@ -31,6 +35,6 @@ uv run --no-sync python scripts/eval_d0.py \
   --eval-d0 /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
   --skeleton /scratch/kp0374/neurogym-agent/segment_positions.parquet \
   --state-pkl "$PKL" \
-  --obs dino \
+  --obs dino --stochastic \
   --output /scratch/kp0374/native_spike/eval_native_$SLURM_JOB_ID.json \
   "$@"
