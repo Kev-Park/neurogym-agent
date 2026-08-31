@@ -7,8 +7,16 @@
 #SBATCH --gres=gpu:3090:1
 #SBATCH --cpus-per-task=44
 #SBATCH --mem=200G
-#SBATCH --nodelist=sarekl15-1,sarekl15-2,sarekl15-4,sarekl15-7,sarekl16-1,sarekl16-3,sarekl16-5
-#SBATCH --time=24:00:00
+# EXCLUDE, not --nodelist (2026-08-31): --gres=gpu:3090:1 already confines
+# this to the sarekl15/16 fleet, so excluding the Mesa-only and
+# behaviorally-bad nodes leaves exactly the good pool AND lets backfill
+# take whichever frees first. Pinning a nodelist while those nodes are
+# reserved for a higher-priority partition gave job 871493 a StartTime
+# estimate NINE DAYS out (CLAUDE.md "Backfill pitfall").
+#SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
+# ~4h at 170-210 sps for 740 iters; over-requesting deprioritizes the job
+# and keeps it out of short backfill windows.
+#SBATCH --time=08:00:00
 #SBATCH --requeue
 #SBATCH --open-mode=append
 #SBATCH --output=/scratch/kp0374/native_spike/slurm-%x-%j.out
