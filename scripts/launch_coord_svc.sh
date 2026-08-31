@@ -36,6 +36,10 @@ export RAY_NUM_CPUS=44
 # spawns 192 fetch procs on 44 cores and throttled a plane-on run to 72 sps.
 # 2 lets a runner's canvas+plane job overlap the next without thrashing.
 export NGL_NATIVE_FETCH_WORKERS=2
+# Service mode builds ONE MeshStore per node (not per env), so it can afford
+# a big decoded-mesh LRU. Unbounded it grows without limit (see
+# r_train_native.slurm); 2G/node is ~40-80 neurons of working set.
+export NGL_NATIVE_MESH_LRU_MB=2048
 export CURRICULUM_PROGRESS_FILE="${CKPT}/meta.json"
 export COORD_WORKDIR=/scratch/kp0374/wt/neurogym-agent-native
 export RAY_HEAD_ENDPOINT_FILE="${STATE_DIR}/ray_head_endpoint-${RUN}.txt"
@@ -61,6 +65,7 @@ cd /scratch/kp0374/wt/neurogym-agent-native
 export RAY_NUM_CPUS="${RAY_NUM_CPUS}"
 export CURRICULUM_PROGRESS_FILE="${CURRICULUM_PROGRESS_FILE}"
 export NGL_NATIVE_FETCH_WORKERS="${NGL_NATIVE_FETCH_WORKERS}"
+export NGL_NATIVE_MESH_LRU_MB="${NGL_NATIVE_MESH_LRU_MB}"
 export COORD_WORKDIR="${COORD_WORKDIR}"
 export RAY_HEAD_ENDPOINT_FILE="${RAY_HEAD_ENDPOINT_FILE}"
 export NUM_RENDERERS="${NUM_RENDERERS}"
