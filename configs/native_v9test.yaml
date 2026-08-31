@@ -11,7 +11,7 @@ env:
   parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
   holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
   projection_scale_range: [3500, 14000]
-  # v9-test REPLICA: per-env RESET-COUNT annealing (heterogeneous —
+  # v9-test REPLICA: per-env RESET-COUNT annealing (heterogeneous -
   # envs sit at different difficulties simultaneously), which is what
   # v9-test actually used (its end_hours was ignored by the provider).
   # No end_steps => _anneal_frac falls back to end_resets.
