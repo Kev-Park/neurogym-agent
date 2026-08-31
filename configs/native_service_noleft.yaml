@@ -1,3 +1,11 @@
+# SETTLED ABLATION - DO NOT USE FOR NEW RUNS (2026-08-31).
+# Right-pane-only was tested and REFUTED: native-svc-noleft scored
+# simulator 79.0% / Chrome 67.5% @600, vs 86-87.5% on Chrome for
+# two-pane policies. Removing the 2D EM pane cost ~19pp on Chrome and
+# did NOT narrow the sim2real gap (11.5pp vs ~11pp). The pane is not
+# task-irrelevant. Kept only as the record of that experiment; the
+# default (obs.use_left_pane unset -> true) is the two-pane obs.
+#
 # v9-test replica, RIGHT PANE ONLY - MULTI-NODE SERVICE variant (2026-08-31).
 # Twin of native_v9test_noleft.yaml: same hypothesis (drop the 2D EM pane,
 # see that file's header), same no-cache setting, but rendering + DINO run

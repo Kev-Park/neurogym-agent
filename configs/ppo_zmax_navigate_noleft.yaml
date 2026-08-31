@@ -1,3 +1,11 @@
+# SETTLED ABLATION - DO NOT USE FOR NEW RUNS (2026-08-31).
+# Right-pane-only was tested and REFUTED: native-svc-noleft scored
+# simulator 79.0% / Chrome 67.5% @600, vs 86-87.5% on Chrome for
+# two-pane policies. Removing the 2D EM pane cost ~19pp on Chrome and
+# did NOT narrow the sim2real gap (11.5pp vs ~11pp). The pane is not
+# task-irrelevant. Kept only as the record of that experiment; the
+# default (obs.use_left_pane unset -> true) is the two-pane obs.
+#
 # Chrome (native-renderer) EVAL config for RIGHT-PANE-ONLY policies.
 # Identical to ppo_zmax_navigate.yaml except obs.use_left_pane: false,
 # so the observation space matches policies trained without the 2D EM

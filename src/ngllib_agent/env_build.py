@@ -64,10 +64,12 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         # panes 450² still ≫ DINO's 224² input, visually pristine, and +31%
         # aggregate sps (M=16 A/B: 26.5 -> 34.8; single-env step 99 -> 49ms).
         # Config env.capture_scale overrides.
-        # obs.use_left_pane: false trains on the 3D pane ONLY. The 2D EM
-        # pane is not task-essential but IS task-correlated, so feeding it
-        # lets the policy depend on the 384 dims that differ most between
-        # the simulator and Chrome (and whose de-sync is unmanaged today).
+        # obs.use_left_pane: false trains on the 3D pane ONLY. Default TRUE:
+        # right-pane-only was tested 2026-08-31 and lost ~19pp on Chrome
+        # (67.5% vs 86-87.5%) while leaving the sim2real gap unchanged, so
+        # the 2D EM pane carries real signal -- plausibly a z cue, since the
+        # cross-section's appearance varies with depth and the task is
+        # z-navigation. Keep both panes unless re-testing that ablation.
         _use_left = bool(oc.get("use_left_pane", True))
         ec = {**ec, "left_pane": _use_left, "right_pane": True,
               "image_size": None,
