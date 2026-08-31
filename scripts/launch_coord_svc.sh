@@ -47,6 +47,7 @@ export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --num-gpus-per-env-runner 0 --num-cpus-per-env-runner 1.2 \
   --vector threads \
   --iters ${TARGET_ITERS} --train-batch-size ${TRAIN_BATCH:-12000} \
+  --lr ${LR:-5.0e-4} \
   --sample-timeout-s ${SAMPLE_TIMEOUT_S} \
   --checkpoint-dir ${CKPT} --checkpoint-every 10 \
   --wandb-project neurogym-agent --resume"

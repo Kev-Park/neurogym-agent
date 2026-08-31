@@ -67,6 +67,8 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="M>1 topology: process-per-env vs ThreadedVectorEnv (R4). "
                          "PINNED: threads (see --num-env-runners note).")
     # Sampling
+    ap.add_argument("--lr", type=float, default=None,
+                    help="Override ppo.lr. Scale WITH train-batch-size: native-v9-frag tripled the batch at fixed lr and underfit (sim 94.5 vs 99.5), which invalidated its fragment-length test.")
     ap.add_argument("--train-batch-size", type=int, default=None,
                     help="Defaults to config ppo.train_batch_size.")
     ap.add_argument("--rollout-fragment-length", default="auto")
@@ -211,7 +213,7 @@ def main(argv=None) -> int:
             gamma=pc.get("gamma", 0.99),
             lambda_=pc.get("lambda", 0.95),
             clip_param=pc.get("clip_param", 0.2),
-            lr=pc.get("lr", 3.0e-4),
+            lr=(args.lr or pc.get("lr", 3.0e-4)),
             kl_target=pc.get("kl_target", 0.01),
             # float or [[timestep, value], ...] schedule (see config comment)
             entropy_coeff=pc.get("entropy_coeff", 0.0),
