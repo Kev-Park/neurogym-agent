@@ -1,0 +1,66 @@
+# Native-backend config (eval + training). Identical to
+# configs/ppo_zmax_navigate.yaml except env.backend: native (+ cv_cache),
+# so both eval numbers and training runs are attributable to the renderer
+# swap alone. Keep the two files in lockstep.
+
+env:
+  backend: native
+  # v9-test REPLICA: trained WITH the NFS cv_cache (4-30x slower fetches
+  # => much staler 2D pane AND section plane). Deliberate here only.
+  cv_cache: /scratch/kp0374/native_spike/cv_cache
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
+  projection_scale_range: [3500, 14000]
+  # v9-test REPLICA: per-env RESET-COUNT annealing (heterogeneous —
+  # envs sit at different difficulties simultaneously), which is what
+  # v9-test actually used (its end_hours was ignored by the provider).
+  # No end_steps => _anneal_frac falls back to end_resets.
+  spawn_curriculum:
+    start_frac: 0.10
+    end_resets: 75
+  orientation: euler
+  headless: true
+  renderer: gpu
+  left_pane: false
+  right_pane: true
+  image_size: [84, 84]
+  max_episode_steps: 300
+
+obs:
+  mode: pos
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+model:
+  pos_hidden_dim: 64
+  trunk_hiddens: [256, 256]
+  normalize_entropy: true
+
+action:
+  grid_rows: 32
+  grid_cols: 32
+  pane_3d_bounds: [900, 0, 1800, 900]   # x0, y0, x1, y1
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  z_tolerance: 10.0
+  z_tolerance_frac: 0.05
+  success: 1.0
+  z_shaping_coef: 0.001
+  step_penalty: 0.0
+
+ppo:
+  train_batch_size: 2000
+  sgd_minibatch_size: 256
+  num_sgd_iter: 4
+  entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01

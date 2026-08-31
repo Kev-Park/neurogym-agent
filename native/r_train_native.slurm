@@ -44,7 +44,7 @@ export NGL_NATIVE_FETCH_WORKERS=2
 export CURRICULUM_PROGRESS_FILE="$CKPT/meta.json"
 
 uv run --no-sync python -m ngllib_agent.train \
-  --config configs/native.yaml \
+  --config ${TRAIN_CONFIG:-configs/native.yaml} \
   --run-name "$RUN" \
   --num-env-runners 32 \
   --num-envs-per-env-runner 1 \
