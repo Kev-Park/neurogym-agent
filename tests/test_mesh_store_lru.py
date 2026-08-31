@@ -66,28 +66,29 @@ def test_hit_does_not_refetch_and_renews_recency():
     per_mesh = 10_000 * 3 * 4 * 2
     s = _store(3 * per_mesh, vol)
 
-    s.get("a"); s.get("b"); s.get("c")
-    s.get("a")                       # hit: no fetch, "a" becomes newest
+    # ids must be int-able: MeshStore.get does mesh.get(int(root_id)).
+    s.get("101"); s.get("102"); s.get("103")
+    s.get("101")                     # hit: no fetch, 101 becomes newest
     assert vol.fetches == 3
-    s.get("d")                       # evicts "b", not "a"
-    assert set(s._meshes) == {"a", "c", "d"}
+    s.get("104")                     # evicts 102, not 101
+    assert set(s._meshes) == {"101", "103", "104"}
 
 
 def test_never_evicts_the_entry_just_inserted():
     """A single mesh larger than the whole budget must still be returned."""
     vol = _FakeVol()
     s = _store(1024, vol)            # budget far below one mesh
-    v, f = s.get("big")
+    v, f = s.get("999")
     assert v.shape == (10_000, 3)
-    assert list(s._meshes) == ["big"]
+    assert list(s._meshes) == ["999"]
 
 
 def test_drop_reclaims_bytes():
     vol = _FakeVol()
     s = _store(10 << 20, vol)
-    s.get("x")
+    s.get("77")
     assert s.cached_bytes > 0
-    s.drop("x")
+    s.drop("77")
     assert s.cached_bytes == 0
-    s.drop("x")                      # idempotent
+    s.drop("77")                     # idempotent
     assert s.cached_bytes == 0
