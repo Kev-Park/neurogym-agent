@@ -19,13 +19,20 @@ env:
   parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
   holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
   projection_scale_range: [3500, 14000]
-  # v9-test's own mechanism: per-env RESET-COUNT annealing. Valid here
-  # because the topology is v9-test's (32 envs), so 75 resets/env lands at
-  # the same ~490k global steps. The multi-node twin uses the step-anchored
-  # equivalent instead (288 envs would stretch this to ~3.8M).
+  # STEP-ANCHORED, not v9-test's per-env reset count (changed 2026-08-31
+  # after job 871074 was preempted at iteration 111). end_resets anneals on
+  # a counter that lives in the env process, so a --requeue resume rebuilds
+  # every provider with _n_resets=0 and the curriculum restarts from easy
+  # mid-run. On the preempt partition that is not a rare event, and it is an
+  # uncontrolled discontinuity in exactly the variable under test.
+  # 492k = MEASURED from native-v9-test: its per-env schedule had the average
+  # env finish annealing at global step ~492,000. _anneal_frac reads
+  # total_steps from meta.json, which survives requeue, so this reproduces
+  # v9-test's effective schedule AND is resume-safe. Matches the multi-node
+  # twin, so the two arms now differ only in topology.
   spawn_curriculum:
     start_frac: 0.10
-    end_resets: 75
+    end_steps: 492000
   orientation: euler
   headless: true
   renderer: gpu
