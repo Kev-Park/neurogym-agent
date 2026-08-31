@@ -58,11 +58,13 @@ class DinoObservationWrapper:
         from gymnasium import spaces
 
         base = env.unwrapped
-        if not (getattr(base, "left_pane", True) and getattr(base, "right_pane", True)):
-            raise ValueError(
-                "DinoObservationWrapper needs both panes rendered "
-                "(env left_pane=True, right_pane=True) to split EM|3D."
-            )
+        use_left = bool(getattr(base, "left_pane", True))
+        if not getattr(base, "right_pane", True):
+            raise ValueError("DinoObservationWrapper requires right_pane=True.")
+        # Right-pane-only is a first-class mode: the 2D EM pane is not
+        # task-essential but IS task-correlated, so including it invites a
+        # policy dependency on the 384 dims that differ most between the
+        # simulator and Chrome (see ngllib.native.environment de-sync note).
         if getattr(base, "orientation", "euler") != "euler":
             raise ValueError("DinoObservationWrapper requires orientation='euler' (pos_state dim 8).")
 
@@ -71,7 +73,7 @@ class DinoObservationWrapper:
             if pos_state_scale is not None
             else DEFAULT_POS_STATE_SCALE
         )
-        feat_dim = 2 * int(encoder.feature_dim)
+        feat_dim = (2 if use_left else 1) * int(encoder.feature_dim)
 
         class _Impl(gym.ObservationWrapper):
             def __init__(self, env):
@@ -90,8 +92,11 @@ class DinoObservationWrapper:
                 )
 
             def observation(self, obs):
-                left, right = split_panes(obs["image"])
-                feats = self._encoder.encode([left, right])  # (2, D)
+                if use_left:
+                    panes = list(split_panes(obs["image"]))  # [EM, 3D]
+                else:
+                    panes = [obs["image"]]                   # 3D pane only
+                feats = self._encoder.encode(panes)
                 return {
                     "image_features": feats.reshape(-1).astype(np.float32),
                     "pos_state": pos_state_from_obs(obs, self._scale),
@@ -117,6 +122,13 @@ class ServiceFeaturesWrapper:
             else DEFAULT_POS_STATE_SCALE
         )
 
+        # The env already sized image_features by pane count (1 pane when
+        # the 2D EM pane is off); mirror it rather than assuming two.
+        _inner = env.observation_space
+        _feat_shape = (_inner["image_features"].shape
+                       if hasattr(_inner, "spaces") and "image_features" in _inner.spaces
+                       else (2 * feature_dim,))
+
         class _Impl(gym.ObservationWrapper):
             def __init__(self, env):
                 super().__init__(env)
@@ -124,7 +136,7 @@ class ServiceFeaturesWrapper:
                 self.observation_space = spaces.Dict(
                     {
                         "image_features": spaces.Box(
-                            -np.inf, np.inf, shape=(2 * feature_dim,),
+                            -np.inf, np.inf, shape=_feat_shape,
                             dtype=np.float32
                         ),
                         "pos_state": spaces.Box(

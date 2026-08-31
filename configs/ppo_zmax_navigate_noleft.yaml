@@ -1,0 +1,115 @@
+# Chrome (native-renderer) EVAL config for RIGHT-PANE-ONLY policies.
+# Identical to ppo_zmax_navigate.yaml except obs.use_left_pane: false,
+# so the observation space matches policies trained without the 2D EM
+# pane. env.left_pane was already false (Chrome still renders both
+# panes in the DOM - this only crops the capture), so click geometry
+# and pane_3d_bounds are unchanged.
+#
+# PPO Z-navigate config (Milestone 1 single-process smoke).
+# Multi-node / coordinator fields land in later milestones.
+#
+# Env-runner topology is set on the train.py CLI (not here). PINNED default
+# (2026-07-11, REFINEMENT.md R4-frontier): 2 EnvRunner processes x 16 threaded
+# envs each per shared GPU (--vector threads, --num-gpus-per-env-runner 0.5).
+# Multi-node: --num-env-runners = 2 x renderer-nodes.
+
+env:
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  # Frozen eval pool held OUT of training resets (200 of 124k root_ids) so
+  # eval_d0 scores unseen neurons. Added 2026-08-24 — runs before this
+  # (incl. coord-test-v7) trained WITHOUT the holdout.
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
+  # Spawn zoom sampled log-uniform per episode (2026-08-24; was fixed 14000).
+  # Zoomed-in spawns make zoom-relevant states part of the training
+  # distribution — the fixed-scale v7 policy never learned the zoom verb
+  # (0.14% usage). 3500 = 4x zoomed-in vs default; ~5 zoom actions of
+  # headroom (bins +/-2000/step). Eval StateBuilder samples the same range
+  # (seeded per pair) — evals under this range are protocol v2, not
+  # comparable to v7's fixed-14000 numbers.
+  projection_scale_range: [3500, 14000]
+  # Spawn-distance curriculum (v9, 2026-08-27): spawn nodes start within
+  # start_frac of z-extent below z_max (~2x the 5% success band) and anneal
+  # to the full distribution over end_resets PER-ENV resets (~75 resets/env
+  # x 96 envs x ~150-200 steps/ep ~= first ~1.2M global steps), then hold
+  # the true distribution for the rest of training. Measured difficulty
+  # tracks climb distance (R11/B7) — this is reverse-curriculum-from-goal.
+  # Eval resets pass explicit states and are unaffected.
+  spawn_curriculum:
+    start_frac: 0.10
+    end_resets: 75
+  orientation: euler          # MultiDiscrete rotate bins map to delta_orient (dim 3)
+  headless: true
+  renderer: gpu               # needs a vulkan-capable node (CLAUDE.md "Node quirks")
+  left_pane: false
+  right_pane: true
+  image_size: [84, 84]        # downsized for RLlib's default CNN in the smoke; DINO/224 later
+  max_episode_steps: 300
+  # Settle window for viewer-state reads (2026-08-17): 2s default was tuned
+  # pre-capture-0.5; faster stepping raised the miss rate (glitch storms of
+  # 'missing fields'). 4s converts misses into cheap in-place waits.
+  state_ready_timeout_s: 4.0
+
+# Observation pipeline (agent_plan.md §10/Round 8).
+#   raw  — ngllib Dict obs untouched (sanity_env_loop)
+#   pos  — scaled 8-dim pos_state only (infra smokes; default RLModule MLP)
+#   dino — env-side frozen DINO split-pane features + pos_state (real training;
+#          forces left+right panes at native res; pair with HierarchicalPPOModule)
+obs:
+  mode: pos
+  use_left_pane: false
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+  # pos_state_scale: static divisors for [pos_xyz, xs_scale, euler_xyz, proj_scale];
+  # raw viewer coords are ~1e5 / ~1e4 (legacy fed them unscaled — deliberate deviation).
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+# HierarchicalPPOModule (used when obs.mode == dino)
+model:
+  pos_hidden_dim: 64        # legacy DinoFeaturesExtractor default
+  trunk_hiddens: [256, 256]
+  # Per-branch max-entropy normalization (2026-08-24): removes the entropy
+  # regularizer's structural pull toward the high-entropy click branch
+  # (ln1024 vs zoom's ln9) that starved the zoom verb in v7 (0.14% usage).
+  # Zoom gets no explicit reward — it must earn its keep implicitly; this
+  # only stops the bonus from taxing it. Changes entropy scale [0,~8]->[0,2]:
+  # entropy_coeff below is scaled x4 to compensate.
+  normalize_entropy: true
+
+action:
+  grid_rows: 32
+  grid_cols: 32
+  pane_3d_bounds: [900, 0, 1800, 900]   # x0, y0, x1, y1
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  z_tolerance: 10.0
+  # Proportional success band (2026-08-24): tol = max(z_tolerance, frac *
+  # z-extent). +/-5% of extent = +/-93 vox on the median eval neuron; the
+  # data said the abs +/-10 band (median +/-0.54% of extent) made the q4
+  # deficit a fine-approach artifact. z_tolerance above stays as the floor.
+  # Runs before this (incl. v7) trained/evaled on the absolute band.
+  z_tolerance_frac: 0.05
+  success: 1.0
+  z_shaping_coef: 0.001
+  step_penalty: 0.0
+
+ppo:
+  train_batch_size: 2000
+  sgd_minibatch_size: 256
+  num_sgd_iter: 4
+  # Legacy ent-coef schedule was 0.05 -> 0.001 against unnormalized entropy
+  # (range ~[0,8]); with model.normalize_entropy (range [0,2]) scaled x4.
+  # 2026-08-25 extension (user-approved): v8@370 = 51.0% vs the 64.5%
+  # benchmark — under-trained on the harder varied-zoom distribution with
+  # entropy already flat at 0.004. Re-raised mid-schedule: ~0.037 at the
+  # 1.6M-step resume point, decaying to 0.01 by 3M.
+  entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01
