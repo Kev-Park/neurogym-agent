@@ -19,13 +19,15 @@
 # checkpoint's browser-backend eval.
 #
 # Usage: sbatch r_eval_native.slurm <state-pkl> [extra eval_d0 args...]
+# Env: EVAL_CONFIG picks the config -- right-pane-only policies need
+# configs/native_v9test_noleft.yaml to match their observation space.
 set -e
 WT=/scratch/kp0374/wt/neurogym-agent-native
 cd "$WT"
 export PYTHONUNBUFFERED=1
 PKL=$1; shift || true
 uv run --no-sync python scripts/eval_d0.py \
-  --config configs/native.yaml \
+  --config ${EVAL_CONFIG:-configs/native.yaml} \
   --eval-d0 /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
   --skeleton /scratch/kp0374/neurogym-agent/segment_positions.parquet \
   --state-pkl "$PKL" \

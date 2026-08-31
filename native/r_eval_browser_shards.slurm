@@ -20,6 +20,9 @@
 # wall-clock. Merge with native/merge_eval_shards.py.
 #
 # Usage: sbatch native/r_eval_browser_shards.slurm <state-pkl> <out-prefix>
+# Env: EVAL_CONFIG picks the eval config -- right-pane-only policies need
+# configs/ppo_zmax_navigate_noleft.yaml so the observation space matches
+# what they trained on.
 set -e
 WT=/scratch/kp0374/wt/neurogym-agent-native
 cd "$WT"
@@ -34,4 +37,5 @@ OFFSET=$((OFFSET_BASE + SLURM_ARRAY_TASK_ID * SHARD_SIZE))
 
 # Supervised: relaunches across playwright wedges, resuming from the last
 # flushed pair (only an external kill clears a wedged greenlet).
-bash native/eval_shard_supervised.sh "$PKL" "$PREFIX" "$OFFSET" "$SHARD_SIZE"
+bash native/eval_shard_supervised.sh "$PKL" "$PREFIX" "$OFFSET" "$SHARD_SIZE" \
+  "${EVAL_CONFIG:-configs/ppo_zmax_navigate.yaml}"
