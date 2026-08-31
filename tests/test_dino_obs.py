@@ -101,12 +101,56 @@ def test_dino_wrapper_transforms_obs():
     assert obs2["pos_state"].shape == (8,)
 
 
-def test_dino_wrapper_rejects_single_pane_and_quaternion():
+def test_dino_wrapper_right_pane_only():
+    """left_pane=False is a first-class mode: one pane in, D features out."""
+    enc = _StubEncoder()
+    w = DinoObservationWrapper(_StubEnv(left_pane=False), enc)
+    obs, _ = w.reset()
+    assert obs["image_features"].shape == (enc.feature_dim,)
+    assert enc.calls[-1] == [(32, 64, 3)]   # whole (already-cropped) image
+    assert w.observation_space.contains(obs)
+
+
+def test_service_wrapper_mirrors_env_feature_shape():
+    """ServiceFeaturesWrapper must not assume two panes."""
+    import gymnasium as gym
+    from gymnasium import spaces
+
+    from ngllib_agent.wrappers import ServiceFeaturesWrapper
+
+    class _SvcEnv(gym.Env):
+        def __init__(self, dim):
+            self.observation_space = spaces.Dict(
+                {
+                    "image_features": spaces.Box(-np.inf, np.inf, (dim,), np.float32),
+                    "position": spaces.Box(-np.inf, np.inf, (3,), np.float32),
+                    "xs_scale": spaces.Box(0, np.inf, (1,), np.float32),
+                    "orientation": spaces.Box(-np.inf, np.inf, (3,), np.float32),
+                    "proj_scale": spaces.Box(0, np.inf, (1,), np.float32),
+                }
+            )
+            self.action_space = spaces.Discrete(2)
+            self._dim = dim
+
+        def reset(self, *, seed=None, options=None):
+            o = _raw_obs()
+            o.pop("image")
+            o["image_features"] = np.zeros(self._dim, np.float32)
+            return o, {}
+
+    for panes in (1, 2):
+        w = ServiceFeaturesWrapper(_SvcEnv(panes * 16), feature_dim=16)
+        obs, _ = w.reset()
+        assert obs["image_features"].shape == (panes * 16,)
+        assert w.observation_space.contains(obs)
+
+
+def test_dino_wrapper_rejects_quaternion():
     enc = _StubEncoder()
     with pytest.raises(ValueError):
-        DinoObservationWrapper(_StubEnv(left_pane=False), enc)
-    with pytest.raises(ValueError):
         DinoObservationWrapper(_StubEnv(orientation="quaternion"), enc)
+    with pytest.raises(ValueError):
+        DinoObservationWrapper(_StubEnv(right_pane=False), enc)
 
 
 def test_pos_state_wrapper():
