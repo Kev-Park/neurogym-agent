@@ -18,6 +18,11 @@ env:
   spawn_curriculum:
     start_frac: 0.10
     end_resets: 75
+  # v9-test predates reset-ahead (added 08-28 03:08, mid-run) and ran ONE
+  # fetch worker per runner. Both govern 2D-pane / section-plane staleness,
+  # so a replica that leaves them at today's defaults is not faithful.
+  # Pair with NGL_NATIVE_MESH_LRU_MB/FETCH_WORKERS=1 in the slurm script.
+  reset_ahead: false
   orientation: euler
   headless: true
   renderer: gpu

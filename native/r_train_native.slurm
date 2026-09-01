@@ -47,7 +47,8 @@ export RAY_NUM_CPUS=44
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 # 2 workers: reset-ahead mesh prefetch (~30s tasks) must not starve the
 # per-click tile groups.
-export NGL_NATIVE_FETCH_WORKERS=2
+# FETCH_WORKERS=1 reproduces v9-test (it ran 1/runner; 2 landed 08-28 03:08).
+export NGL_NATIVE_FETCH_WORKERS=${FETCH_WORKERS:-2}
 # MeshStore decoded-mesh LRU is PER STORE and local mode builds one per env:
 # 32 envs x 128MB = 4G. Unbounded (pre-2026-08-31) this reached 206 GiB RSS
 # and the cgroup killed job 871069 at iteration 410 of 740 with no traceback.
