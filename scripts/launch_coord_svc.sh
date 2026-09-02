@@ -49,7 +49,7 @@ export NGL_NATIVE_FETCH_WORKERS=2
 # Service mode builds ONE MeshStore per node (not per env), so it can afford
 # a big decoded-mesh LRU. Unbounded it grows without limit (see
 # r_train_native.slurm); 2G/node is ~40-80 neurons of working set.
-export NGL_NATIVE_MESH_LRU_MB=2048
+export NGL_NATIVE_MESH_LRU_MB=${MESH_LRU_MB_SERVICE:-2048}
 export CURRICULUM_PROGRESS_FILE="${CKPT}/meta.json"
 export COORD_WORKDIR=/scratch/kp0374/wt/neurogym-agent-native
 export RAY_HEAD_ENDPOINT_FILE="${STATE_DIR}/ray_head_endpoint-${RUN}.txt"
@@ -67,7 +67,7 @@ if [ "$MODE" = "local" ]; then
   SVC_FLAG=""
   DEFAULT_CFG="configs/native.yaml"
   GPU_PER_RUNNER="${GPU_PER_RUNNER:-0.02}"
-  export NGL_NATIVE_MESH_LRU_MB="${NGL_NATIVE_MESH_LRU_MB_LOCAL:-128}"
+  export NGL_NATIVE_MESH_LRU_MB="${MESH_LRU_MB_LOCAL:-128}"
 else
   SVC_FLAG="--render-service"
   DEFAULT_CFG="configs/native_service.yaml"
