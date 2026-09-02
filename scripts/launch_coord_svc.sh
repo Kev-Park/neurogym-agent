@@ -55,11 +55,29 @@ export COORD_WORKDIR=/scratch/kp0374/wt/neurogym-agent-native
 export RAY_HEAD_ENDPOINT_FILE="${STATE_DIR}/ray_head_endpoint-${RUN}.txt"
 export NUM_RENDERERS="$RENDERERS"
 export SAMPLE_TIMEOUT_S="${SAMPLE_TIMEOUT_S:-600}"
+# MODE=service (default): ONE GL context + ONE DINO per node, shared by many
+# state-machine clients; runners need no GPU.
+# MODE=local: every runner carries its own GL context and its own DINO, so each
+# needs a GPU slice and VRAM caps density near 32 envs/node (15.3G at 32x1).
+# The two exist to be compared -- see renderer_seam_plan.md 7.0: local mode has
+# never been run multi-node, so whether the shared DINO earns its complexity at
+# multi-node scale is untested.
+MODE=${MODE:-service}
+if [ "$MODE" = "local" ]; then
+  SVC_FLAG=""
+  DEFAULT_CFG="configs/native.yaml"
+  GPU_PER_RUNNER="${GPU_PER_RUNNER:-0.02}"
+  export NGL_NATIVE_MESH_LRU_MB="${NGL_NATIVE_MESH_LRU_MB_LOCAL:-128}"
+else
+  SVC_FLAG="--render-service"
+  DEFAULT_CFG="configs/native_service.yaml"
+  GPU_PER_RUNNER="${GPU_PER_RUNNER:-0}"
+fi
 export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
-  --config ${SVC_CONFIG:-configs/native_service.yaml} \
-  --run-name ${RUN} --render-service --learner-gpu \
+  --config ${SVC_CONFIG:-$DEFAULT_CFG} \
+  --run-name ${RUN} ${SVC_FLAG} --learner-gpu \
   --num-env-runners ${NUM_ENV_RUNNERS} --num-envs-per-env-runner ${ENVS_PER_RUNNER} \
-  --num-gpus-per-env-runner 0 --num-cpus-per-env-runner 1.2 \
+  --num-gpus-per-env-runner ${GPU_PER_RUNNER} --num-cpus-per-env-runner 1.2 \
   --vector threads \
   --iters ${TARGET_ITERS} --train-batch-size ${TRAIN_BATCH:-12000} \
   --lr ${LR:-5.0e-4} \
