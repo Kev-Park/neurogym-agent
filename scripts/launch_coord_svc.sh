@@ -4,7 +4,11 @@
 # the head GPU, via the production-validated coordinator (re-salloc/respawn).
 #
 #   bash scripts/launch_coord_svc.sh [run-name] [renderer-nodes] [target-iters]
-# Env: SVC_CONFIG (default configs/native_service.yaml), TRAIN_BATCH, LR.
+# Env: SVC_CONFIG (default configs/native_service.yaml), TRAIN_BATCH, LR,
+# RUNNERS, ENVS_PER_RUNNER, SALLOC_CPUS, SALLOC_MEM. Shrink the last two
+# to fit alongside other users: a whole-node 48cpu/200G request cannot
+# schedule when the fleet is partially allocated (2026-09-02: every 3090
+# node had only 24 cpus / 48G free, giving a 6-day StartTime estimate).
 #
 # Learning characteristics are v9-identical (configs/native_service.yaml);
 # only the plumbing differs. Per renderer node: 1 service actor (GPU) + its
@@ -110,8 +114,8 @@ for attempt in 1 2 3 4 5; do
     --partition "${PARTITION:-preempt}" \\
     --salloc-time "${SALLOC_TIME:-12:00:00}" \\
     --salloc-gres gpu:3090:1 \\
-    --salloc-cpus-per-node 48 \\
-    --salloc-mem 200G \\
+    --salloc-cpus-per-node "${SALLOC_CPUS:-48}" \\
+    --salloc-mem "${SALLOC_MEM:-200G}" \\
     --exclude ${EXCLUDE_NODES:-sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5} \\
     --target-iterations "${TARGET_ITERS}" \\
     --progress-file "${CKPT}/meta.json" \\
