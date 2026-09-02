@@ -17,16 +17,26 @@ RUN=${1:-native-svc-mn}
 RENDERERS=${2:-2}
 TARGET_ITERS=${3:-250}   # 250 x 12000 = 3.0M steps (v9-equivalent)
 NODES=$((RENDERERS + 1))
-# ROLLOUT FRAGMENT: rollout_fragment_length=auto is train_batch / total
-# envs. v9-test (96.5% on the native Chrome renderer) had 32 envs @ batch
-# 4000 = 125 steps per env; 96 envs @ 4000 gives 42, which truncates GAE
-# far more often than the ~17-step effective horizon (gamma .99, lambda
-# .95) and leaves most fragments with no episode end. batch 12000 restores
-# 125 while keeping all 96 envs; 250 iters holds total experience at v9
-# parity (3.0M steps) and the same ~46k minibatch updates.
-# 32 runners x 3 envs = 96 clients/node: topology-sweep winner (870779;
-# runner/env split within a client count is a wash, 96 > 64 by ~15%).
-NUM_ENV_RUNNERS=$((NODES * 32))
+# ROLLOUT FRAGMENT (corrected 2026-09-02). rollout_fragment_length=auto is
+# train_batch / TOTAL envs, and total envs = RUNNERS x ENVS_PER_RUNNER --
+# NOT per node. The old default (96 runners x 3 = 288 envs @ batch 12000)
+# gave 42-step fragments, not the 125 this comment used to claim: it
+# assumed 96 envs. 42 truncates GAE far more often than the ~17-step
+# effective horizon (gamma .99, lambda .95) and leaves most fragments with
+# no episode end; the two fragment-length experiments that ran short
+# scored 75.5% and 60.3% on Chrome.
+#
+# The constraint is fixed by arithmetic: fragment = batch / envs and
+# total_steps = batch x iters, so at fragment 125 and ~3.0M steps (v9-test
+# parity) envs x iters = 24,000. More parallelism therefore BUYS FEWER PPO
+# iterations at constant experience, and PPO's clipped objective bounds
+# policy movement PER ITERATION -- 288 envs would allow only 83.
+#   288 envs -> 83 iters | 192 -> 125 | 96 -> 250 | 32 (v9-test) -> 740
+# Default picks 96 envs (32 runners x 3 envs) @ batch 12000 -> 125-step
+# fragments, 250 iterations, 3.0M steps. Override with RUNNERS /
+# ENVS_PER_RUNNER / TRAIN_BATCH, keeping batch = 125 x RUNNERS x ENVS.
+NUM_ENV_RUNNERS=${RUNNERS:-32}
+ENVS_PER_RUNNER=${ENVS_PER_RUNNER:-3}
 CKPT=/scratch/kp0374/checkpoints/${RUN}
 STATE_DIR=/scratch/kp0374/coord-state
 mkdir -p "$STATE_DIR" "$CKPT"
@@ -48,7 +58,7 @@ export SAMPLE_TIMEOUT_S="${SAMPLE_TIMEOUT_S:-600}"
 export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --config ${SVC_CONFIG:-configs/native_service.yaml} \
   --run-name ${RUN} --render-service --learner-gpu \
-  --num-env-runners ${NUM_ENV_RUNNERS} --num-envs-per-env-runner 3 \
+  --num-env-runners ${NUM_ENV_RUNNERS} --num-envs-per-env-runner ${ENVS_PER_RUNNER} \
   --num-gpus-per-env-runner 0 --num-cpus-per-env-runner 1.2 \
   --vector threads \
   --iters ${TARGET_ITERS} --train-batch-size ${TRAIN_BATCH:-12000} \
