@@ -5,7 +5,11 @@
 #
 #   bash scripts/launch_coord_svc.sh [run-name] [renderer-nodes] [target-iters]
 # Env: SVC_CONFIG (default configs/native_service.yaml), TRAIN_BATCH, LR,
-# RUNNERS, ENVS_PER_RUNNER, SALLOC_CPUS, SALLOC_MEM. Shrink the last two
+# RUNNERS, ENVS_PER_RUNNER, SALLOC_CPUS, SALLOC_MEM, CHECKPOINT_EVERY.
+# Drop CHECKPOINT_EVERY to 2 on a heavily-preempted fleet: at the default
+# 10, any allocation window shorter than 10 iterations banks NOTHING and
+# the run livelocks, replaying the same iterations forever.
+# Shrink SALLOC_CPUS/SALLOC_MEM to fit a partially-allocated fleet:
 # to fit alongside other users: a whole-node 48cpu/200G request cannot
 # schedule when the fleet is partially allocated (2026-09-02: every 3090
 # node had only 24 cpus / 48G free, giving a 6-day StartTime estimate).
@@ -86,7 +90,7 @@ export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --iters ${TARGET_ITERS} --train-batch-size ${TRAIN_BATCH:-12000} \
   --lr ${LR:-5.0e-4} \
   --sample-timeout-s ${SAMPLE_TIMEOUT_S} \
-  --checkpoint-dir ${CKPT} --checkpoint-every 10 \
+  --checkpoint-dir ${CKPT} --checkpoint-every ${CHECKPOINT_EVERY:-10} \
   --wandb-project neurogym-agent --resume"
 
 LOG="${STATE_DIR}/coord-${RUN}-$(date +%Y%m%d-%H%M%S).log"
