@@ -52,7 +52,7 @@ def sim(a: np.ndarray, b: np.ndarray) -> tuple[float, float]:
     return max(0.0, 1.0 - rmse / 255.0), close
 
 
-def run_arm(env, provider, rng, steps, dwell, label, trials):
+def run_arm(env, provider, rng, steps, dwell, label, trials, step_delay=0.0):
     curves, closes = [], []
     for t in range(trials):
         state, ti = provider(rng, None)
@@ -85,6 +85,8 @@ def run_arm(env, provider, rng, steps, dwell, label, trials):
         # crossSectionScale and segment stay put and the tile key is stable.
         noop = np.array([1, 0, 4, 4, 4, 4])
         for _ in range(steps - 1):
+            if step_delay:
+                time.sleep(step_delay)
             obs, *_ = env.step(noop)
             frames.append(left_pane(obs))
         time.sleep(dwell)
@@ -104,6 +106,13 @@ def main() -> int:
     ap.add_argument("--trials", type=int, default=4)
     ap.add_argument("--dwell", type=float, default=6.0,
                     help="seconds to let the pane settle before the reference")
+    ap.add_argument("--step-delay", type=float, default=0.0,
+                    help="seconds between steps. A single uncontended env "
+                         "steps ~15ms, but in training each env steps ~1.9x/s "
+                         "(410 sps / 216 envs) -- 35x slower. At 0 the window "
+                         "is ~0.18s, too short for ANY fetch to land, so the "
+                         "measurement says nothing about training. Use ~0.5 "
+                         "to reproduce the rate the policy actually sees.")
     args = ap.parse_args()
 
     from ngllib_agent.env_build import build_env, load_config
@@ -123,12 +132,14 @@ def main() -> int:
     # Same seed per arm so both see identical states and clicks.
     nat_env = build_env(nat_cfg)
     nc, nk = run_arm(nat_env, provider, np.random.default_rng(4242),
-                     args.steps, args.dwell, "SIM   ", args.trials)
+                     args.steps, args.dwell, "SIM   ", args.trials,
+                     args.step_delay)
     nat_env.close()
 
     br_env = build_env(br_cfg)
     bc, bk = run_arm(br_env, provider, np.random.default_rng(4242),
-                     args.steps, args.dwell, "CHROME", args.trials)
+                     args.steps, args.dwell, "CHROME", args.trials,
+                     args.step_delay)
     br_env.close()
 
     if nc is None or bc is None:
