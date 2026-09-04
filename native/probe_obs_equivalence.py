@@ -84,15 +84,22 @@ def main() -> int:
             e = e.env
         return getattr(e, "unwrapped", e)
 
-    def freshness(env, attr, steps=40):
+    def freshness(env, attr, steps=40, seed=20260903):
+        """Both arms MUST see the same action stream: a "fresh" step is one
+        where the tile key did not change, and only clicks move position, so
+        a rotation-heavy stream trivially scores 40/40. Sharing one rng
+        across the two calls gave them DIFFERENT streams and made service
+        swing 2..40 run to run while local sat at 0..8 -- unpaired and
+        uninterpretable. Seed per call so the comparison is paired."""
+        r = np.random.default_rng(seed)
         base = unwrap(env)
         env.reset()
         fresh = 0
         for i in range(steps):
-            a = (np.array([0, int(rng.integers(1024)), 4, 4, 4, 4])
+            a = (np.array([0, int(r.integers(1024)), 4, 4, 4, 4])
                  if i % 2 == 0 else
-                 np.array([1, 0, int(rng.integers(9)), int(rng.integers(9)),
-                           int(rng.integers(9)), 4]))
+                 np.array([1, 0, int(r.integers(9)), int(r.integers(9)),
+                           int(r.integers(9)), 4]))
             env.step(a)
             if base._tile_state_key() == getattr(base, attr, None):
                 fresh += 1
