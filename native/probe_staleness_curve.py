@@ -56,17 +56,31 @@ def run_arm(env, provider, rng, steps, dwell, label, trials):
     curves, closes = [], []
     for t in range(trials):
         state, ti = provider(rng, None)
-        env.reset(options={"state": state, "task_info": ti})
-        # One click: action_type 1 (right-click / move-to-mouse) at a random
-        # 3D-pane pixel. This is what actually changes the tile key.
-        click = np.array([0, int(rng.integers(1024)), 4, 4, 4, 4])
-        obs, *_ = env.step(click)
-        frames = []
-        f = left_pane(obs)
-        if f is None:
+        obs0, _ = env.reset(options={"state": state, "task_info": ti})
+        if left_pane(obs0) is None:
             print(f"[stale] {label}: no image in obs; check obs mode", flush=True)
             return None, None
-        frames.append(f)
+        # The tile key is (position, crossSectionScale, root_id), and ONLY a
+        # right-click that HITS the mesh moves position -- clicking
+        # background is a no-op, rotation changes orientation only, and zoom
+        # moves projectionScale, not crossSectionScale. A uniformly random
+        # cell usually misses, which is why an earlier version of this probe
+        # measured a flat 1.000 for both arms: nothing ever moved. Click
+        # near the pane centre (where the neuron sits after reset) and retry
+        # until the observed position actually changes.
+        p0 = np.asarray(obs0["position"], np.float64)
+        obs, moved = obs0, False
+        cells = [512, 528, 496, 480, 544, 464, 560, 448, 576]
+        for c in cells:
+            obs, *_ = env.step(np.array([0, c, 4, 4, 4, 4]))
+            if np.linalg.norm(np.asarray(obs["position"], np.float64) - p0) > 1.0:
+                moved = True
+                break
+        if not moved:
+            print(f"[stale] {label} trial {t}: no click moved position; skipped",
+                  flush=True)
+            continue
+        frames = [left_pane(obs)]
         # No-op-ish steps: rotate by the centre bin (delta 0) so position,
         # crossSectionScale and segment stay put and the tile key is stable.
         noop = np.array([1, 0, 4, 4, 4, 4])
@@ -121,12 +135,12 @@ def main() -> int:
         return 1
     print("\n[stale] mean similarity-to-settled by step index "
           "(1.000 = already settled)", flush=True)
-    print("step   " + " ".join(f"{i:5d}" for i in range(args.steps)), flush=True)
-    print("SIM    " + " ".join(f"{v:5.3f}" for v in nc.mean(0)), flush=True)
-    print("CHROME " + " ".join(f"{v:5.3f}" for v in bc.mean(0)), flush=True)
+    print("[stale] step   " + " ".join(f"{i:5d}" for i in range(args.steps)), flush=True)
+    print("[stale] SIM    " + " ".join(f"{v:5.3f}" for v in nc.mean(0)), flush=True)
+    print("[stale] CHROME " + " ".join(f"{v:5.3f}" for v in bc.mean(0)), flush=True)
     print("\n[stale] mean fraction of pixels within 8/255 of settled")
-    print("SIM    " + " ".join(f"{v:5.3f}" for v in nk.mean(0)), flush=True)
-    print("CHROME " + " ".join(f"{v:5.3f}" for v in bk.mean(0)), flush=True)
+    print("[stale] SIM-px " + " ".join(f"{v:5.3f}" for v in nk.mean(0)), flush=True)
+    print("[stale] CHR-px " + " ".join(f"{v:5.3f}" for v in bk.mean(0)), flush=True)
     print("\n[stale] PROBE-OK", flush=True)
     return 0
 
