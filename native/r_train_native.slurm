@@ -53,6 +53,9 @@ export NGL_NATIVE_FETCH_WORKERS=${FETCH_WORKERS:-2}
 # 32 envs x 128MB = 4G. Unbounded (pre-2026-08-31) this reached 206 GiB RSS
 # and the cgroup killed job 871069 at iteration 410 of 740 with no traceback.
 export NGL_NATIVE_MESH_LRU_MB=128
+# 2D-pane fill policy: atomic (default, the 92.5% behaviour) |
+# progressive (measured -11pp, do not use) | concurrent | random.
+export NGL_NATIVE_PANE_MODE=${PANE_MODE:-atomic}
 # Step-anchored curriculum (see providers/flywire_skeleton.py).
 export CURRICULUM_PROGRESS_FILE="$CKPT/meta.json"
 
