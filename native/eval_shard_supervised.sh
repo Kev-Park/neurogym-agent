@@ -23,6 +23,9 @@ CONFIG=${5:-configs/ppo_zmax_navigate.yaml}
 # Budget per attempt: generous per-pair allowance + browser/DINO startup.
 # A wedge burns this once, then the next attempt resumes from the flush.
 PER_PAIR_S=${PER_PAIR_S:-90}
+# Tier-2 evals run REPEATS rollouts per pair (paired signed-rank/t
+# test); budget and resume accounting both scale with it.
+REPEATS=${REPEATS:-1}
 STARTUP_S=${STARTUP_S:-240}
 MAX_ATTEMPTS=${MAX_ATTEMPTS:-8}
 
@@ -31,7 +34,7 @@ remain=$SIZE
 for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
   [ "$remain" -le 0 ] && break
   out="${PREFIX}_shard_off${cur}.json"
-  budget=$((STARTUP_S + PER_PAIR_S * remain))
+  budget=$((STARTUP_S + PER_PAIR_S * remain * REPEATS))
   echo "[sup] attempt ${attempt}: offset=${cur} remain=${remain} budget=${budget}s"
   timeout -k 30 "$budget" uv run --no-sync python scripts/eval_d0.py \
     --config "$CONFIG" \
@@ -39,13 +42,19 @@ for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
     --skeleton /scratch/kp0374/neurogym-agent/segment_positions.parquet \
     --state-pkl "$PKL" \
     --obs dino --stochastic \
+    --repeats "$REPEATS" \
     --offset "$cur" --limit "$remain" \
     --output "$out"
   rc=$?
-  n=$(python3 - "$out" <<'PY'
+  # Count only pairs with ALL their repeats flushed: a pair cut
+  # off mid-repeat is redone in full, else resume drops rollouts.
+  n=$(python3 - "$out" "$REPEATS" <<'PY'
 import json, sys
+from collections import Counter
 try:
-    print(len(json.load(open(sys.argv[1]))['per_pair']))
+    rows = json.load(open(sys.argv[1]))['per_pair']
+    c = Counter(r['pair_idx'] for r in rows)
+    print(sum(1 for v in c.values() if v >= int(sys.argv[2])))
 except Exception:
     print(0)
 PY

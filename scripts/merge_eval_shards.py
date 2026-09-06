@@ -26,6 +26,10 @@ def main() -> int:
     ap.add_argument("--prefix", required=True,
                     help="shard files are <prefix>_shard*.json")
     ap.add_argument("--expect", type=int, default=200)
+    ap.add_argument("--repeats", type=int, default=1,
+                    help="Repeats per pair the shards ran with (Tier 2). Rows are "
+                         "keyed on (pair_idx, rep), so a pair is only 'missing' "
+                         "when it has fewer than this many repeats.")
     ap.add_argument("--config", default="configs/ppo_zmax_navigate.yaml")
     ap.add_argument("--report-budgets", default="300")
     ap.add_argument("--max-steps", type=int, default=600)
@@ -46,17 +50,22 @@ def main() -> int:
         d = json.load(open(f))
         n = 0
         for r in d.get("per_pair", []):
-            if r["pair_idx"] in seen:
+            key = (r["pair_idx"], int(r.get("rep", 0)))
+            if key in seen:
                 continue
-            seen.add(r["pair_idx"])
+            seen.add(key)
             results.append(r)
             n += 1
         print(f"[merge] {f}: {n} pairs "
               f"({'PARTIAL' if d.get('summary', {}).get('partial') else 'complete'})")
-    results.sort(key=lambda r: r["pair_idx"])
-    missing = sorted(set(range(args.expect)) - seen)
-    print(f"[merge] {len(results)}/{args.expect} pairs; "
-          f"missing pair_idx: {missing if missing else 'none'}")
+    results.sort(key=lambda r: (r["pair_idx"], int(r.get("rep", 0))))
+    from collections import Counter
+    reps_per_pair = Counter(r["pair_idx"] for r in results)
+    missing = sorted(i for i in range(args.expect)
+                     if reps_per_pair.get(i, 0) < args.repeats)
+    print(f"[merge] {len(results)}/{args.expect * args.repeats} episodes "
+          f"({len(reps_per_pair)}/{args.expect} pairs x {args.repeats} repeats); "
+          f"short/missing pair_idx: {missing if missing else 'none'}")
 
     cfg = yaml.safe_load(open(args.config))
     rcfg = ZRewardConfig(
@@ -109,6 +118,8 @@ def main() -> int:
     out = args.output or f"{args.prefix}_merged.json"
     with open(out, "w") as f:
         json.dump({"summary": {"n_pairs": n,
+                               "n_distinct_pairs": len(reps_per_pair),
+                               "repeats": args.repeats,
                                "overall_success_rate": n_success / n if n else 0.0,
                                "quartiles": per_quartile,
                                "missing_pair_idx": missing,

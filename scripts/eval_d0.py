@@ -218,6 +218,13 @@ def main() -> int:
                          "--state-pkl only.")
     ap.add_argument("--torch-seed", type=int, default=0,
                     help="torch RNG seed so --stochastic runs are reproducible.")
+    ap.add_argument("--repeats", type=int, default=1,
+                    help="Rollouts per pair (Tier 2). The pair's initial state is "
+                         "IDENTICAL across repeats -- only the policy's action "
+                         "sampling varies -- so per-pair success RATES form paired "
+                         "samples for a signed-rank/t test, and the spread within a "
+                         "pair measures the rollout noise floor directly. "
+                         "Default 1 = Tier 1 (binary outcome, McNemar).")
     ap.add_argument("--limit", type=int, default=0,
                     help="If >0, only run this many pairs (for smoke tests).")
     ap.add_argument("--offset", type=int, default=0,
@@ -270,7 +277,8 @@ def main() -> int:
         pairs = pairs[args.offset:]
     if args.limit > 0:
         pairs = pairs[:args.limit]
-    print(f"[eval] {len(pairs)} pairs, config={args.config}", flush=True)
+    print(f"[eval] {len(pairs)} pairs x {args.repeats} repeat(s), "
+          f"config={args.config}", flush=True)
 
     # Policy.
     if args.random_policy:
@@ -309,7 +317,12 @@ def main() -> int:
 
     results: list[dict[str, Any]] = []
     t_start = time.monotonic()
-    for i, pair in enumerate(pairs):
+    # Repeats are the INNER axis so a shard flushes a pair's repeats together
+    # (the supervisor resumes on whole pairs). The orientation seed below does
+    # NOT depend on rep: the initial state is held fixed and only the policy's
+    # sampling varies, which is what makes the repeats a within-pair sample.
+    plan = [(p, r) for p in pairs for r in range(args.repeats)]
+    for i, (pair, rep) in enumerate(plan):
         pair_idx = int(pair["pair_idx"])
         root_id = str(pair["root_id"])
         node_index = int(pair["node_index"])
@@ -317,6 +330,11 @@ def main() -> int:
 
         seed = args.orientation_seed_base + pair_idx
         state, task_info = builder.build(root_id, node_index, seed)
+        if args.repeats > 1 and args.state_pkl:
+            # Decorrelate repeats without losing reproducibility: the action
+            # stream is a pure function of (torch_seed, rep, pair_idx).
+            import torch
+            torch.manual_seed(args.torch_seed + 7919 * rep + 31 * pair_idx)
 
         terminated = False
         truncated = False
@@ -356,6 +374,7 @@ def main() -> int:
 
         results.append({
             "pair_idx": pair_idx,
+            "rep": rep,
             "root_id": root_id,
             "node_index": node_index,
             "length_nm": length_nm,
@@ -383,7 +402,7 @@ def main() -> int:
         rate_so_far = sum(1 for r in results if r["terminated"]) / len(results)
         elapsed = time.monotonic() - t_start
         print(
-            f"[eval] pair {i+1}/{len(pairs)} "
+            f"[eval] pair {i+1}/{len(plan)} (idx={pair_idx} rep={rep}) "
             f"root_id={root_id} steps={steps_taken} "
             f"term={terminated} trunc={truncated} "
             f"return={ep_return:.3f} "
@@ -425,6 +444,8 @@ def main() -> int:
 
     summary = {
         "n_pairs": n,
+        "n_distinct_pairs": len({r["pair_idx"] for r in results}),
+        "repeats": args.repeats,
         "overall_success_rate": overall,
         "mean_episode_return": float(np.mean([r["episode_return"] for r in results])) if n else 0.0,
         "quartiles": per_quartile,
