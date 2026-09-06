@@ -68,14 +68,20 @@ def signflip_p(w, rng, n_iter):
     if n == 0:
         return 1.0
     obs = float(w.sum())
-    if n <= 18:  # exact enumeration
+    exact = n <= 18
+    if exact:
         signs = (((np.arange(2 ** n, dtype=np.int64)[:, None]
                    >> np.arange(n)) & 1) * 2 - 1).astype(np.int8)
     else:
         signs = (rng.integers(0, 2, size=(n_iter, n)) * 2 - 1).astype(np.int8)
     null = signs @ w
-    return float(min(1.0, (np.sum(np.abs(null) >= abs(obs) - 1e-12) + 1)
-                     / (null.size + 1)))
+    hits = int(np.sum(np.abs(null) >= abs(obs) - 1e-12))
+    if exact:
+        return float(min(1.0, hits / null.size))
+    # Add-one only on the SAMPLED null: it keeps a Monte-Carlo p away from an
+    # impossible 0, but on the enumerated null it would inflate a known-exact
+    # tail (18/256 -> 19/257) and quietly bias every small-n comparison.
+    return float(min(1.0, (hits + 1) / (null.size + 1)))
 
 
 def signed_ranks(d):
