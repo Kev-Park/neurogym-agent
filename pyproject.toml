@@ -24,6 +24,9 @@ dev = [
     # its own ffmpeg binary — compute nodes have no system ffmpeg.
     "imageio>=2.34",
     "imageio-ffmpeg>=0.5",
+    # FlyWire proofreading-history harvest (scripts/harvest_edit_history.py);
+    # token already on cluster at ~/.cloudvolume/secrets/cave-secret.json.
+    "caveclient>=5.0",
 ]
 
 [tool.uv.sources]
