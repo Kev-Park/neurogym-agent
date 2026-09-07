@@ -37,6 +37,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 VOXEL_NM = np.array([4.0, 4.0, 40.0])  # FAFB anisotropy for nm distances
+# ChunkedGraph operation coords come back at 16x16x40nm voxels — 4x coarser
+# in x/y than the 4x4x40 skeleton grid (verified empirically 2026-09-06:
+# per-root ranges off by exactly 4 in x/y, aligned in z). Scale to the
+# skeleton grid at harvest so every downstream consumer shares one space.
+EDIT_TO_SKEL = np.array([4.0, 4.0, 1.0])
 
 
 def main() -> int:
@@ -83,8 +88,9 @@ def main() -> int:
                             "root_id": rid, "operation_id": op_id,
                             "is_merge": is_merge, "timestamp": ts,
                             "role": role,
-                            "x": float(c[0]), "y": float(c[1]),
-                            "z": float(c[2]),
+                            "x": float(c[0]) * EDIT_TO_SKEL[0],
+                            "y": float(c[1]) * EDIT_TO_SKEL[1],
+                            "z": float(c[2]) * EDIT_TO_SKEL[2],
                         })
             op_meta[rid] = len(op_ids)
         except Exception as e:  # noqa: BLE001 — record and continue; the
