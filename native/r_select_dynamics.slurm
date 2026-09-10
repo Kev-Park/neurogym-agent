@@ -19,15 +19,21 @@ WT=/scratch/kp0374/wt/neurogym-agent-native
 cd "$WT"
 export PYTHONUNBUFFERED=1
 OUT=/scratch/kp0374/native_spike/dyn_browser_$SLURM_JOB_ID.jsonl
-FRAMES=/scratch/kp0374/native_spike/dyn_frames_$SLURM_JOB_ID
+# FRAME_DIR=none skips the PNG dump, for long windows where the frame count
+# would be in the thousands and only the timing numbers are wanted.
+if [ "$FRAME_DIR" = "none" ]; then
+  FRAMEARG=""
+else
+  FRAMEARG="--frame-dir /scratch/kp0374/native_spike/dyn_frames_$SLURM_JOB_ID"
+fi
 N=${N_STATES:-4}
 STEPS=${STEPS:-8}
 
 uv run --no-sync python native/probe_select_dynamics.py --mode browser \
   --config configs/native_select.yaml \
   --pool /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
-  --n-states "$N" --steps "$STEPS" --out "$OUT" --frame-dir "$FRAMES"
+  --n-states "$N" --steps "$STEPS" --out "$OUT" $FRAMEARG
 
 uv run --no-sync python native/probe_select_dynamics.py --mode native \
   --config configs/native_select.yaml --browser-jsonl "$OUT" \
-  --steps "$STEPS" --frame-dir "$FRAMES"
+  --steps "$STEPS" $FRAMEARG
