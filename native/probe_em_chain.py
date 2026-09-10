@@ -76,7 +76,7 @@ def main() -> int:
     over[cy:cy + length, cx] = True
 
     variants = ["v0_current", "v1_direct_box", "v2_direct_lanczos",
-            "v3_finer_lanczos", "v4_lanczos_jpeg"]
+            "v3_finer_lanczos", "v4_lanczos_jpeg", "v5_z_minus1", "v6_z_plus1"]
     acc = {v: {"ssim": [], "detail": []} for v in variants}
     chrome_detail = []
     mips = []
@@ -94,9 +94,16 @@ def main() -> int:
         ex, ey = pane2d.pane_extents_nm(xs)
         shifted = pane2d.shifted_fetch_center_nm(pos, (ex, ey))
 
+        # EMTiles.tile does z = int(pos_nm[2] / 40.0) -- TRUNCATION. A
+        # fractional z (the start URL's is 192.58) lands between slices, so
+        # truncation and nearest-rounding pick DIFFERENT 40nm slices. Sweeping
+        # +/-1 slice shows whether we are systematically off by one.
+        z_off = np.array([0.0, 0.0, 40.0])
         try:
             t_std = em.tile(shifted, ex, ey, 1024, True)      # what ships today
             t_fine = em.tile(shifted, ex, ey, 4096, True)     # finest available
+            t_zm = em.tile(shifted - z_off, ex, ey, 1024, True)
+            t_zp = em.tile(shifted + z_off, ex, ey, 1024, True)
         except Exception as e:  # noqa: BLE001
             print(f"[{rec['idx']:04d}] fetch failed: {e}", flush=True)
             continue
@@ -135,13 +142,16 @@ def main() -> int:
             "v2_direct_lanczos": chain(t_std, "v2_direct_lanczos"),
             "v3_finer_lanczos": chain(t_fine, "v3_finer_lanczos"),
             "v4_lanczos_jpeg": jpeg_roundtrip(chain(t_std, "v2_direct_lanczos")),
+            "v5_z_minus1": chain(t_zm, "v2_direct_lanczos"),
+            "v6_z_plus1": chain(t_zp, "v2_direct_lanczos"),
         }
         plain = ~over
         for v, img in imgs.items():
             acc[v]["ssim"].append(ssim(img, ref, plain))
             acc[v]["detail"].append(detail(img, plain))
         chrome_detail.append(detail(ref, plain))
-        print(f"[{rec['idx']:04d}] tile {t_std.shape[1]}px (fine {t_fine.shape[1]}px)  " +
+        zfrac = (pos[2] / 40.0) % 1.0
+        print(f"[{rec['idx']:04d}] zfrac={zfrac:.2f}  " +
               "  ".join(f"{v.split('_',1)[0]}={acc[v]['ssim'][-1]:.4f}" for v in variants),
               flush=True)
 
