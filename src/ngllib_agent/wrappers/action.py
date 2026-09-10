@@ -1,12 +1,18 @@
 """MultiDiscrete -> ngllib 0.2 Dict action translation (agent_plan.md §10).
 
-Policy-facing action: `MultiDiscrete([3, num_cells, R, R, R, Z])` — three mutually
-exclusive verbs (right_click / rotate / zoom). Decoded into ngllib's Dict action
-space. Targets an **euler-orientation** `Environment` so the three rotate bins map
-onto `delta_orient` (length 3); quaternion mode is rejected.
+Policy-facing action: `MultiDiscrete([4, num_cells, R, R, R, Z])` — four mutually
+exclusive verbs (right_click / rotate / zoom / double_click). Decoded into
+ngllib's Dict action space. Targets an **euler-orientation** `Environment` so the
+three rotate bins map onto `delta_orient` (length 3); quaternion mode is rejected.
 
 Extends the legacy `action_translator.py` (which had only click+rotate) with the
-zoom verb via `delta_proj_scale`.
+zoom verb via `delta_proj_scale` and double-click (NG `select`, bound to
+dblclick0) via `_NGL_DOUBLE_CLICK`.
+
+The click grid spans the WHOLE window, both panes, not just the 3D pane: NG
+accepts move-to-mouse-position and select on either, and the simulator now
+matches Chrome on both. Cell size is unchanged from the 3D-pane-only grid
+(28.125 px) — the column count doubles with the width.
 """
 
 from __future__ import annotations
@@ -19,14 +25,15 @@ import numpy as np
 # ngllib Dict `action_type` codes (from Environment._build_action_space):
 #   0=left_click, 1=right_click, 2=double_click, 3=edit_state
 _NGL_RIGHT_CLICK = 1
+_NGL_DOUBLE_CLICK = 2
 _NGL_EDIT_STATE = 3
 
 
 @dataclass(frozen=True)
 class ActionSpec:
     grid_rows: int = 32
-    grid_cols: int = 32
-    pane_x0: float = 900.0
+    grid_cols: int = 64
+    pane_x0: float = 0.0
     pane_y0: float = 0.0
     pane_x1: float = 1800.0
     pane_y1: float = 900.0
@@ -42,7 +49,7 @@ class ActionSpec:
     def nvec(self) -> list[int]:
         # [action_type, click_cell, rot_x, rot_y, rot_z, zoom]
         r = self.rotation_bins_per_axis
-        return [3, self.num_cells, r, r, r, self.zoom_bins]
+        return [4, self.num_cells, r, r, r, self.zoom_bins]
 
 
 def _bin_to_signed(bin_index: int, bins_per_axis: int, step: float) -> float:
@@ -51,7 +58,7 @@ def _bin_to_signed(bin_index: int, bins_per_axis: int, step: float) -> float:
 
 
 def cell_to_pixel(cell: int, spec: ActionSpec) -> tuple[float, float]:
-    """Grid cell index -> pixel (x, y) at the cell center on the 3D pane."""
+    """Grid cell index -> pixel (x, y) at the cell center, over both panes."""
     row = cell // spec.grid_cols
     col = cell % spec.grid_cols
     cell_w = (spec.pane_x1 - spec.pane_x0) / spec.grid_cols
@@ -77,7 +84,7 @@ def decode(md_action, spec: ActionSpec, orient_dim: int = 3) -> dict[str, Any]:
         "delta_proj_scale": np.zeros(1, dtype=np.float32),
     }
 
-    if a_type == 0:  # right_click on a 3D-pane cell
+    if a_type == 0:  # right_click: move-to-mouse-position
         act["action_type"] = _NGL_RIGHT_CLICK
         x, y = cell_to_pixel(cell, spec)
         act["mouse_xy"] = np.array([x, y], dtype=np.float32)
@@ -92,6 +99,10 @@ def decode(md_action, spec: ActionSpec, orient_dim: int = 3) -> dict[str, Any]:
     elif a_type == 2:  # zoom (projection scale delta)
         act["action_type"] = _NGL_EDIT_STATE
         act["delta_proj_scale"][0] = _bin_to_signed(dzoom, spec.zoom_bins, spec.zoom_step)
+    elif a_type == 3:  # double_click: NG `select` toggles the segment
+        act["action_type"] = _NGL_DOUBLE_CLICK
+        x, y = cell_to_pixel(cell, spec)
+        act["mouse_xy"] = np.array([x, y], dtype=np.float32)
     else:  # pragma: no cover - MultiDiscrete can't emit this
         raise ValueError(f"action_type out of range: {a_type}")
 

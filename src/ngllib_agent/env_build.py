@@ -21,7 +21,10 @@ from .wrappers import (
 
 
 def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
-    x0, y0, x1, y1 = ac["pane_3d_bounds"]
+    # `click_bounds` supersedes `pane_3d_bounds`: clicks may address either
+    # pane now that the simulator matches Chrome on the 2D pane too. The old
+    # key is still read so existing run configs stay reproducible.
+    x0, y0, x1, y1 = ac.get("click_bounds") or ac["pane_3d_bounds"]
     return ActionSpec(
         grid_rows=ac["grid_rows"],
         grid_cols=ac["grid_cols"],
