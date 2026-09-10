@@ -42,7 +42,7 @@ import time
 import numpy as np
 
 from probe_select_dynamics import block_ssim, make_encoder, panes
-from probe_select_parity import jsonable, make_cfg, sample_states
+from probe_select_parity import jsonable, make_cfg, sample_states, tint_frac
 
 CSS_PANE = 900.0
 PANEL_CX, PANEL_CY = 450.0, 449.5      # pane2d.PANEL_*_CLICK
@@ -127,6 +127,22 @@ def response(frames, pre, floor, margin=0.01):
     return len(frames)
 
 
+def tint_response(frames, base, x0, x1, floor=0.002):
+    """First frame whose tinted AREA moves, as a second opinion on `response`.
+
+    Whole-pane SSIM is the right signal for a position change, which rewrites
+    the pane, but it is blind to a selection: a newly tinted segment covers
+    ~3% of the pane and never moves block_ssim past 0.99. The first per-verb
+    sweep scored double_click as "no response in 60 steps" on BOTH backends for
+    exactly that reason -- a metric artefact, not agreement. Reporting both
+    keeps a verb from looking matched when neither measure can see it.
+    """
+    for i, f in enumerate(frames):
+        if abs(tint_frac(f, x0, x1) - base) > floor:
+            return i
+    return len(frames)
+
+
 def run_verb(inner, state, ti, verb, steps, encoder):
     inner.reset(options={"state": state, "task_info": ti})
     pre, f2, f3 = idle_floor(inner, encoder)
@@ -142,6 +158,8 @@ def run_verb(inner, state, ti, verb, steps, encoder):
         "verb": verb,
         "resp2d": response(p2, q2, f2),
         "resp3d": response(p3, q3, f3),
+        "tresp2d": tint_response(seq, tint_frac(pre, 0, 450), 0, 450),
+        "tresp3d": tint_response(seq, tint_frac(pre, 450, 900), 450, 900),
         "floor2d": round(f2, 4),
         "floor3d": round(f3, 4),
         "sec_per_step": round(secs, 4),
@@ -169,9 +187,9 @@ def mode_browser(args) -> int:
                 print(f"[{k:02d}/{verb}] browser failed: {e}", flush=True)
                 continue
             rec["verbs"].append(m)
-            print(f"[{k:02d}/{verb:<15}] resp 2d={m['resp2d']:>4} "
-                  f"3d={m['resp3d']:>4}  floor {m['floor2d']:.3f}/"
-                  f"{m['floor3d']:.3f}  {m['sec_per_step']:.3f}s/step",
+            print(f"[{k:02d}/{verb:<15}] ssim 2d={m['resp2d']:>4} "
+                  f"3d={m['resp3d']:>4}  tint 2d={m['tresp2d']:>4} "
+                  f"3d={m['tresp3d']:>4}  {m['sec_per_step']:.3f}s/step",
                   flush=True)
         records.append(rec)
         with open(args.out, "w") as f:
@@ -217,17 +235,21 @@ def mode_native(args) -> int:
     win = args.steps + 1
     print("\n============== per-verb response step ==============")
     print(f"window {win} frames    ({win} = no response inside it)")
-    print(f"{'verb':<16}{'2D nat':>8}{'2D brw':>8}{'3D nat':>8}{'3D brw':>8}"
-          f"{'s/step nat':>12}{'s/step brw':>12}")
+    print("ssim = whole-pane change; tint = tinted-area change (sees "
+          "selections that ssim cannot)")
+    print(f"{'verb':<16}{'2Dssim n':>9}{'2Dssim b':>9}{'3Dssim n':>9}"
+          f"{'3Dssim b':>9}{'2Dtint n':>9}{'2Dtint b':>9}{'3Dtint n':>9}"
+          f"{'3Dtint b':>9}")
     for verb in VERBS:
         sel = [(m, b) for v, m, b in rows if v == verb]
         if not sel:
             continue
         def med(key, which):
             return float(np.median([x[which][key] for x in sel]))
-        print(f"{verb:<16}{med('resp2d', 0):>8.1f}{med('resp2d', 1):>8.1f}"
-              f"{med('resp3d', 0):>8.1f}{med('resp3d', 1):>8.1f}"
-              f"{med('sec_per_step', 0):>12.3f}{med('sec_per_step', 1):>12.3f}")
+        print(f"{verb:<16}{med('resp2d', 0):>9.1f}{med('resp2d', 1):>9.1f}"
+              f"{med('resp3d', 0):>9.1f}{med('resp3d', 1):>9.1f}"
+              f"{med('tresp2d', 0):>9.1f}{med('tresp2d', 1):>9.1f}"
+              f"{med('tresp3d', 0):>9.1f}{med('tresp3d', 1):>9.1f}")
     print("\nA verb whose simulator response is LOWER than Chrome's reacts too "
           "fast (no fetch where Chrome needs one); HIGHER means it lags. "
           "Position-changing verbs are the ones to watch: they refetch tiles, "
