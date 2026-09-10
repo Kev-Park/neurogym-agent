@@ -89,6 +89,30 @@ def tint_frac(image, x0: int, x1: int) -> float:
     return float((a.std(axis=2) > 6).mean())
 
 
+def click_to_tile_rc(state, x_css, y_css):
+    """(row, col) in OUR label tile for a click, using the same geometry the
+    environment's pick uses.
+
+    Two conventions meet here and they are not the same: a click is measured
+    from the PANEL centre in click coordinates (pane2d.PANEL_*_CLICK), while
+    the tile is centred on the registration-shifted fetch centre. Deriving the
+    row from the raw CSS toolbar constants instead -- as this probe did at
+    first -- builds the 11.5 px difference between them into the diagnostic,
+    which then reports a large offset even once the pick is correct.
+    """
+    from ngllib.native import pane2d
+
+    pos = np.asarray(state["position"], np.float64) * pane2d.VOXEL_NM
+    xs = float(state["crossSectionScale"])
+    ext = pane2d.pane_extents_nm(xs)
+    centre = pane2d.shifted_fetch_center_nm(pos, ext)
+    world_x = pos[0] + (x_css - pane2d.PANEL_CX_CLICK) * xs * 4.0
+    world_y = pos[1] + (y_css - pane2d.PANEL_CY_CLICK) * xs * 4.0
+    col = (world_x - centre[0]) / (ext[0] / pane2d.PANE) + pane2d.PANE / 2.0
+    row = (world_y - centre[1]) / (ext[1] / pane2d.PANE_H) + pane2d.PANE_H / 2.0
+    return row, col
+
+
 def diagnose_pick(inner, state, x_css, y_css, browser_id, native_id):
     """Locate the browser's answer inside the simulator's own label tile.
 
@@ -111,8 +135,7 @@ def diagnose_pick(inner, state, x_css, y_css, browser_id, native_id):
                        (pane2d.PANE, pane2d.PANE_H))
     if ids is None:
         return None, False
-    col = x_css * pane2d.PANE / CSS_PANE
-    row = (y_css - CSS_TOOLBAR) * pane2d.PANE_H / CSS_VIEW_H
+    row, col = click_to_tile_rc(state, x_css, y_css)
     hit = np.argwhere(ids == int(browser_id))
     if hit.size == 0:
         return None, False
@@ -145,8 +168,8 @@ def pick_offset_votes(inner, state, x_css, y_css, want_id, radius=24):
                        ext[0], ext[1], (pane2d.PANE, pane2d.PANE_H))
     if ids is None:
         return None
-    col = int(round(x_css * pane2d.PANE / CSS_PANE))
-    row = int(round((y_css - CSS_TOOLBAR) * pane2d.PANE_H / CSS_VIEW_H))
+    row, col = click_to_tile_rc(state, x_css, y_css)
+    row, col = int(round(row)), int(round(col))
     n = 2 * radius + 1
     votes = np.zeros((n, n), dtype=np.int32)
     for i, dy in enumerate(range(-radius, radius + 1)):

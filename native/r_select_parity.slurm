@@ -43,6 +43,11 @@ else
     --n-states "$N" --out "$OUT" --frame-dir "$FRAMES"
 fi
 
+# Does the SHOW_ALL pane render at all, independent of streaming?
+uv run --no-sync python native/probe_show_all.py \
+  --pairs-dir /scratch/kp0374/native_spike/pairs_v1 --limit 3 \
+  --out-dir /scratch/kp0374/native_spike/show_all_$SLURM_JOB_ID || true
+
 uv run --no-sync python native/probe_select_parity.py --mode native \
   --config configs/native_select.yaml --browser-jsonl "$OUT" --diagnose \
   --frame-dir "$FRAMES"
