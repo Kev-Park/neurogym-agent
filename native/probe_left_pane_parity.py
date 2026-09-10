@@ -102,7 +102,7 @@ def main() -> int:
     args = ap.parse_args()
 
     from ngllib.native import pane2d
-    from ngllib.native.em import worker_visuals
+    from ngllib.native.em import unpack_ids, worker_pane_parts
 
     PANE, TOOLBAR, PANE_H = pane2d.PANE, pane2d.TOOLBAR, pane2d.PANE_H
 
@@ -132,9 +132,11 @@ def main() -> int:
         b = np.asarray(Image.open(fb))[:, :PANE, :3]
 
         try:
-            canvas, _plane = worker_visuals(
+            em_gray, ids_packed, _plane = worker_pane_parts(
                 args.cache_dir, list(st["position"]),
-                float(st["crossSectionScale"]), str(st["segments"][0]))
+                float(st["crossSectionScale"]))
+            canvas = pane2d.compose_left_parts(
+                em_gray, unpack_ids(ids_packed), (str(st["segments"][0]),))
         except Exception as e:  # noqa: BLE001
             print(f"[{rec['idx']:04d}] render failed: {e}", flush=True)
             continue

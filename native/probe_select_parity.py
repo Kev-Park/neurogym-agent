@@ -84,9 +84,16 @@ def tint_frac(image, x0: int, x1: int) -> float:
     coordinate readout and a scale bar there, which the simulator renders as a
     black strip by design. Counting them made Chrome look ~1.7pp more tinted
     than the simulator on identical content.
+
+    The threshold is 18, not 6. Chrome captures as JPEG, so its greyscale EM
+    carries chroma noise that a spread of 6 counts as "tint" while our clean
+    PNG render has none -- at 6 the dynamics run scored Chrome 0.059 against
+    our 0.032 and looked like a 2x output gap. probe_label_chain measured the
+    actual tinted areas on the same kind of state at 0.0302 vs 0.0272
+    (ratio 0.90), so most of that gap was the codec, not the render.
     """
     a = np.asarray(image, dtype=np.float32)[TOOLBAR:, x0:x1, :3]
-    return float((a.std(axis=2) > 6).mean())
+    return float((a.std(axis=2) > 18).mean())
 
 
 def click_to_tile_rc(state, x_css, y_css):

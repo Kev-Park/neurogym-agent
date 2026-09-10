@@ -7,8 +7,10 @@ run the simulator's pane stayed at its pre-click value on every deselect.
 
 That has two possible causes and the parity probe cannot separate them: the
 render path is broken, or it works and the streamed pane simply had not caught
-up within the settle steps. This calls `worker_visuals` DIRECTLY -- no env, no
-streaming, no staleness -- so the answer is unambiguous.
+up within the settle steps. This composes the pane DIRECTLY from the fetch
+worker's parts -- no env, no streaming, no staleness -- so the answer is
+unambiguous. It now also checks the point of the parts split: one fetch, two
+selections, so a selection change costs no fetch at all.
 
     uv run --no-sync python native/probe_show_all.py \
         --pairs-dir /scratch/kp0374/native_spike/pairs_v1 --limit 3 \
@@ -42,7 +44,7 @@ def main() -> int:
     from PIL import Image
 
     from ngllib.native import pane2d
-    from ngllib.native.em import EMTiles, worker_visuals
+    from ngllib.native.em import EMTiles, unpack_ids, worker_pane_parts
 
     records = [json.loads(line) for line in
                open(os.path.join(args.pairs_dir, "states.jsonl"))][:args.limit]
@@ -60,8 +62,10 @@ def main() -> int:
                            ext[0], ext[1], (pane2d.PANE, pane2d.PANE_H))
         n_ids = 0 if ids is None else int(np.unique(ids).size)
 
-        one, _ = worker_visuals(args.cache_dir, pos, xs, (rid,))
-        allc, _ = worker_visuals(args.cache_dir, pos, xs, ())
+        em_gray, ids_packed, _ = worker_pane_parts(args.cache_dir, pos, xs)
+        tile_ids = unpack_ids(ids_packed)
+        one = pane2d.compose_left_parts(em_gray, tile_ids, (rid,))
+        allc = pane2d.compose_left_parts(em_gray, tile_ids, ())
         t1 = tint_frac(one, pane2d.TOOLBAR)
         ta = tint_frac(allc, pane2d.TOOLBAR)
         ok += ta > 0.5
