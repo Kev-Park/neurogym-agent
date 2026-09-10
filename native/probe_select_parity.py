@@ -81,6 +81,37 @@ def tint_frac(image, x0: int, x1: int) -> float:
     return float((a.std(axis=2) > 6).mean())
 
 
+def diagnose_pick(inner, state, x_css, y_css, browser_id, native_id):
+    """Locate the browser's answer inside the simulator's own label tile.
+
+    A disagreement has two very different causes and this separates them:
+      - the browser's id IS in the tile, a few px from the click => the pick
+        differs by registration or mip quantisation (a near miss),
+      - the browser's id is NOWHERE in the tile => the two are reading
+        different data or the CSS->world mapping is wrong (a real bug).
+    Returns (distance_px or None, browser_id_present_in_tile).
+    """
+    from ngllib.native import pane2d
+    from ngllib.native.em import EMTiles
+
+    em = EMTiles(getattr(inner, "_cache_dir", None))
+    pos = np.asarray(state["position"], np.float64) * pane2d.VOXEL_NM
+    xs = float(state["crossSectionScale"])
+    ext = pane2d.pane_extents_nm(xs)
+    shifted = pane2d.shifted_fetch_center_nm(pos, ext)
+    ids = em.label_ids(shifted, ext[0], ext[1],
+                       (pane2d.PANE, pane2d.PANE_H))
+    if ids is None:
+        return None, False
+    col = x_css * pane2d.PANE / CSS_PANE
+    row = (y_css - CSS_TOOLBAR) * pane2d.PANE_H / CSS_VIEW_H
+    hit = np.argwhere(ids == int(browser_id))
+    if hit.size == 0:
+        return None, False
+    d = np.maximum(np.abs(hit[:, 0] - row), np.abs(hit[:, 1] - col))
+    return float(d.min()), True
+
+
 def settle(inner, steps: int):
     """Step no-ops so the panes catch up before the visual is measured.
 
@@ -254,9 +285,16 @@ def mode_native(args) -> int:
             ok = after == sorted(p["after"])
             agree += ok
             if not ok:
-                disagreements.append(
-                    {"idx": rec["idx"], "probe": p["name"],
-                     "browser": p["after"], "native": after})
+                d = {"idx": rec["idx"], "probe": p["name"],
+                     "browser": p["after"], "native": after}
+                if args.diagnose:
+                    new_b = [i for i in p["after"] if i not in p["before"]]
+                    new_n = [i for i in after if i not in p["before"]]
+                    if new_b:
+                        d["dist_px"], d["present"] = diagnose_pick(
+                            inner, state, x, y, new_b[0],
+                            new_n[0] if new_n else None)
+                disagreements.append(d)
             # Direction of the visual change must match even where the exact
             # tint area cannot (the panes are not pixel-identical).
             tint_dir_n += 1
@@ -278,8 +316,23 @@ def mode_native(args) -> int:
         print(f"2D tint changed the same way   : {tint_dir_ok}/{tint_dir_n}")
         print(f"3D pane changed the same way   : {r3_dir_ok}/{tint_dir_n}")
     for d in disagreements[:20]:
+        extra = ""
+        if "present" in d:
+            extra = (f"  [browser id {d['dist_px']:.0f}px away in our tile]"
+                     if d["present"] else "  [browser id ABSENT from our tile]")
         print(f"  DIFF state {d['idx']} {d['probe']}: "
-              f"browser={d['browser']} native={d['native']}")
+              f"browser={d['browser']} native={d['native']}{extra}")
+    near = [d["dist_px"] for d in disagreements
+            if d.get("present") and d.get("dist_px") is not None]
+    absent = sum(1 for d in disagreements if "present" in d and not d["present"])
+    if near or absent:
+        print(f"\ndisagreements diagnosed      : {len(near) + absent}")
+        print(f"  browser id present in tile : {len(near)} "
+              f"(median {np.median(near):.0f} px from the click)"
+              if near else "  browser id present in tile : 0")
+        print(f"  browser id absent from tile: {absent}")
+        print("  A few px => registration/mip quantisation. Absent => the "
+              "mapping or the data source is wrong.")
     print("\nAgreement is the parity claim: identical pixel -> identical "
           "selected set. The tint lines confirm the change is REFLECTED in "
           "both panes rather than only in the state dict.")
@@ -295,6 +348,8 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=17)
     ap.add_argument("--out", default=None)
     ap.add_argument("--browser-jsonl", default=None)
+    ap.add_argument("--diagnose", action="store_true",
+                    help="on a disagreement, locate the browser id in our tile")
     ap.add_argument("--settle-steps", type=int, default=3,
                     help="no-op steps after the click, so streamed panes catch up")
     ap.add_argument("--frame-dir", default=None,

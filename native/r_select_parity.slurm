@@ -30,5 +30,5 @@ uv run --no-sync python native/probe_select_parity.py --mode browser \
   --n-states "$N" --out "$OUT" --frame-dir "$FRAMES"
 
 uv run --no-sync python native/probe_select_parity.py --mode native \
-  --config configs/native_select.yaml --browser-jsonl "$OUT" \
+  --config configs/native_select.yaml --browser-jsonl "$OUT" --diagnose \
   --frame-dir "$FRAMES"
