@@ -53,13 +53,14 @@ PROBE_PX = [
 ]
 
 DBL = 2  # ngllib Dict action_type for double_click
+NOOP = 0  # left_click: a state no-op on both backends, used to let panes settle
 
 
-def dict_action(x: float, y: float) -> dict:
+def dict_action(x: float, y: float, action_type: int = DBL) -> dict:
     """Bare ngllib Dict action -- stepped on `env.unwrapped` so the probe can
     address arbitrary pixels instead of grid cells."""
     return {
-        "action_type": DBL,
+        "action_type": action_type,
         "mouse_xy": np.array([x, y], dtype=np.float32),
         "modifiers": np.zeros(3, dtype=np.int8),
         "delta_pos": np.zeros(3, dtype=np.float32),
@@ -78,6 +79,20 @@ def tint_frac(image, x0: int, x1: int) -> float:
     """
     a = np.asarray(image, dtype=np.float32)[:, x0:x1, :3]
     return float((a.std(axis=2) > 6).mean())
+
+
+def settle(inner, steps: int):
+    """Step no-ops so the panes catch up before the visual is measured.
+
+    The simulator streams its 2D pane (atomic mode: a step shows the last
+    COMPLETED canvas), and Chrome streams chunks, so neither reflects a
+    selection in the very same step that made it. Applied identically to both
+    so the comparison stays symmetric.
+    """
+    obs = None
+    for _ in range(steps):
+        obs = inner.step(dict_action(0.0, 0.0, NOOP))[0]
+    return obs
 
 
 def save_frames(out_dir: str, tag: str, before, after) -> None:
@@ -173,6 +188,7 @@ def mode_browser(args) -> int:
                 t_before = tint_frac(obs["image"], 0, 450)
                 r_before = tint_frac(obs["image"], 450, 900)
                 obs2 = inner.step(dict_action(x, y))[0]
+                obs2 = settle(inner, args.settle_steps) or obs2
                 after = sorted(browser_segments(inner))
                 t_after = tint_frac(obs2["image"], 0, 450)
                 r_after = tint_frac(obs2["image"], 450, 900)
@@ -223,6 +239,7 @@ def mode_native(args) -> int:
                 t_before = tint_frac(obs["image"], 0, 450)
                 r_before = tint_frac(obs["image"], 450, 900)
                 obs2 = inner.step(dict_action(x, y))[0]
+                obs2 = settle(inner, args.settle_steps) or obs2
                 after = sorted(str(s) for s in inner._json_state["segments"])
                 t_after = tint_frac(obs2["image"], 0, 450)
                 r_after = tint_frac(obs2["image"], 450, 900)
@@ -278,6 +295,8 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=17)
     ap.add_argument("--out", default=None)
     ap.add_argument("--browser-jsonl", default=None)
+    ap.add_argument("--settle-steps", type=int, default=3,
+                    help="no-op steps after the click, so streamed panes catch up")
     ap.add_argument("--frame-dir", default=None,
                     help="dump before/after frames per probe for inspection")
     args = ap.parse_args()
