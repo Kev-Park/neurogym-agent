@@ -219,7 +219,10 @@ def make_cfg(args):
     from ngllib_agent.env_build import load_config
 
     cfg = load_config(args.config)
-    cfg.setdefault("obs", {})["mode"] = "raw"
+    # obs mode matters for TIMING, not for the frames: DINO inference is the
+    # dominant per-step cost in training, and a lag measured in STEPS is only
+    # meaningful at the step cost training actually pays.
+    cfg.setdefault("obs", {})["mode"] = getattr(args, "obs", None) or "raw"
     cfg["env"].update({"image_size": None, "left_pane": True,
                        "right_pane": True, "capture_scale": 0.5})
     return cfg

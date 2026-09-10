@@ -28,11 +28,12 @@ else
 fi
 N=${N_STATES:-4}
 STEPS=${STEPS:-8}
+OBS=${OBS:-raw}
 
 uv run --no-sync python native/probe_select_dynamics.py --mode browser \
   --config configs/native_select.yaml \
   --pool /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
-  --n-states "$N" --steps "$STEPS" --out "$OUT" $FRAMEARG
+  --n-states "$N" --steps "$STEPS" --obs "$OBS" --out "$OUT" $FRAMEARG
 
 uv run --no-sync python native/probe_select_dynamics.py --mode native \
   --config configs/native_select.yaml --browser-jsonl "$OUT" \

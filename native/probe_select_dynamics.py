@@ -115,7 +115,7 @@ def settle_step(frames, ssim_thresh: float) -> int:
     return len(frames) - 1
 
 
-def baseline(inner, n: int = 3):
+def baseline(inner, n: int = 3, encoder=None):
     """Frames BEFORE the click, to measure each backend's own idle jitter.
 
     Chrome re-renders streamed chunks between identical steps and the
@@ -123,8 +123,8 @@ def baseline(inner, n: int = 3):
     Chrome regardless of the click. Calibrating the response threshold against
     each backend's own pre-click variability removes that.
     """
-    seq = [np.asarray(inner.step(dict_action(_CX, _CY, NOOP))[0]["image"],
-                      dtype=np.uint8) for _ in range(n)]
+    seq = [frame_of(inner, inner.step(dict_action(_CX, _CY, NOOP))[0], encoder)
+           for _ in range(n)]
     tints = [tint_frac(f, 0, 450) for f in seq]
     t3 = [tint_frac(f, 450, 900) for f in seq]
     jit2 = max(abs(a - b) for a in tints for b in tints) if n > 1 else 0.0
@@ -146,7 +146,41 @@ def tint_response(seq, base_tint, jitter, x0, x1, floor=0.002) -> int:
     return len(seq)
 
 
-def capture_sequence(inner, pre, x, y, steps: int):
+def make_encoder(cfg):
+    """The production DINO encoder, or None under raw obs.
+
+    A lag in STEPS only means something at the step cost training actually
+    pays, and DINO inference is most of that cost. The probe cannot step the
+    wrapped env -- the action wrapper takes MultiDiscrete, while these probes
+    address arbitrary pixels -- so it steps the bare env and runs the encoder
+    itself on the frame, which is the same work in the same place.
+
+    It matters more than it looks. The step-cost ratio, not the fetch, drives
+    the step-count gap: with both backends paying the same encoder cost D, the
+    ratio of steps-per-second tends to 1 as D grows, so the step-count gap
+    shrinks toward the ratio of the fetch latencies themselves.
+    """
+    oc = cfg.get("obs", {})
+    if oc.get("mode") != "dino":
+        return None
+    from ngllib_agent.obs import get_dino_encoder
+
+    dc = oc.get("dino", {})
+    return get_dino_encoder(model_name=dc.get("model_name", "dinov2_vits14"),
+                            input_size=dc.get("input_size", 224),
+                            device=dc.get("device"))
+
+
+def frame_of(inner, obs, encoder=None):
+    """The raw two-pane frame, having paid the production per-step obs cost."""
+    img = np.asarray(obs["image"], dtype=np.uint8)
+    if encoder is not None:
+        mid = img.shape[1] // 2
+        encoder.encode([img[:, :mid], img[:, mid:]])
+    return img
+
+
+def capture_sequence(inner, pre, x, y, steps: int, encoder=None):
     """(frames, seconds_per_step) from the click frame onward.
 
     `pre` is the frame the reset produced, kept out of the sequence but used as
@@ -155,11 +189,10 @@ def capture_sequence(inner, pre, x, y, steps: int):
     import time
 
     t0 = time.monotonic()
-    seq = [np.asarray(inner.step(dict_action(x, y, DBL))[0]["image"],
-                      dtype=np.uint8)]
+    seq = [frame_of(inner, inner.step(dict_action(x, y, DBL))[0], encoder)]
     for _ in range(steps):
-        seq.append(np.asarray(inner.step(dict_action(_CX, _CY, NOOP))[0]["image"],
-                              dtype=np.uint8))
+        seq.append(frame_of(inner, inner.step(dict_action(_CX, _CY, NOOP))[0],
+                            encoder))
     return seq, (time.monotonic() - t0) / (steps + 1)
 
 
@@ -214,6 +247,10 @@ def mode_browser(args) -> int:
     cfg["env"]["backend"] = "browser"
     env = build_env(cfg)
     inner = env.unwrapped
+    # Step the WRAPPED env under --obs dino so the per-step cost is the one
+    # training pays; step the bare env under raw, where there is no wrapper
+    # work to include.
+    encoder = make_encoder(cfg)
 
     records = []
     for k, rid, state, ti in sample_states(cfg, args):
@@ -222,8 +259,9 @@ def mode_browser(args) -> int:
         for name, x, y in PROBE_PX:
             try:
                 inner.reset(options={"state": state, "task_info": ti})
-                pre, bt2, bt3, j2, j3 = baseline(inner)
-                seq, sps = capture_sequence(inner, pre, x, y, args.steps)
+                pre, bt2, bt3, j2, j3 = baseline(inner, encoder=encoder)
+                seq, sps = capture_sequence(inner, pre, x, y, args.steps,
+                                            encoder)
                 after = sorted(browser_segments(inner))
             except Exception as e:  # noqa: BLE001
                 print(f"[{k:02d}/{name}] browser failed: {e}", flush=True)
@@ -257,6 +295,7 @@ def mode_native(args) -> int:
     cfg["env"]["backend"] = "native"
     env = build_env(cfg)
     inner = env.unwrapped
+    encoder = make_encoder(cfg)
 
     records = [json.loads(line) for line in open(args.browser_jsonl)]
     s2, s3 = [], []        # settle step, per backend, per pane
@@ -272,8 +311,9 @@ def mode_native(args) -> int:
             x, y = p["xy"]
             try:
                 inner.reset(options={"state": state, "task_info": ti})
-                pre, bt2, bt3, j2, j3 = baseline(inner)
-                seq, sps = capture_sequence(inner, pre, x, y, args.steps)
+                pre, bt2, bt3, j2, j3 = baseline(inner, encoder=encoder)
+                seq, sps = capture_sequence(inner, pre, x, y, args.steps,
+                                            encoder)
             except Exception as e:  # noqa: BLE001
                 print(f"[{rec['idx']:02d}/{p['name']}] native failed: {e}",
                       flush=True)
@@ -371,6 +411,9 @@ def main() -> int:
     ap.add_argument("--n-states", type=int, default=4)
     ap.add_argument("--steps", type=int, default=8,
                     help="no-op steps captured after the click")
+    ap.add_argument("--obs", choices=["raw", "dino"], default="raw",
+                    help="dino steps the wrapped env, so seconds/step is the "
+                         "cost training actually pays")
     ap.add_argument("--settle-ssim", type=float, default=0.99)
     ap.add_argument("--seed", type=int, default=17)
     ap.add_argument("--out", default=None)
