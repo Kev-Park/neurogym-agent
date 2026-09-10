@@ -120,7 +120,7 @@ def diagnose_pick(inner, state, x_css, y_css, browser_id, native_id):
     return float(d.min()), True
 
 
-def pick_offset_votes(inner, state, x_css, y_css, want_id, radius=12):
+def pick_offset_votes(inner, state, x_css, y_css, want_id, radius=24):
     """Vote grid: for which (dy, dx) shift of our pick does OUR tile return
     the id CHROME picked?
 
@@ -417,9 +417,60 @@ def mode_native(args) -> int:
     return 0 if total and agree == total else 1
 
 
+# ----------------------------------------------------------------- rects mode
+def mode_rects(args) -> int:
+    """Print the DOM geometry the click mapping depends on.
+
+    execute_click places events at `rect.left + x, rect.top + y` of
+    `.neuroglancer-layer-group-viewer`, so `mouse_xy` is relative to THAT
+    element -- not the page. Whether the simulator must subtract the toolbar
+    height when mapping a click to the pane depends entirely on whether that
+    element includes the layer bar, which is a fact to read off the page rather
+    than infer.
+    """
+    os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
+    from ngllib_agent.env_build import build_env
+
+    cfg = make_cfg(args)
+    cfg["env"]["backend"] = "browser"
+    env = build_env(cfg)
+    inner = env.unwrapped
+    for k, rid, state, ti in sample_states(cfg, args)[:1]:
+        inner.reset(options={"state": state, "task_info": ti})
+    js = """() => {
+        const out = {innerWidth: window.innerWidth,
+                     innerHeight: window.innerHeight,
+                     devicePixelRatio: window.devicePixelRatio};
+        const g = document.querySelector('.neuroglancer-layer-group-viewer');
+        if (g) { const r = g.getBoundingClientRect();
+                 out.group = [r.left, r.top, r.width, r.height]; }
+        out.panels = [];
+        for (const p of document.querySelectorAll(
+                '.neuroglancer-rendered-data-panel')) {
+            const r = p.getBoundingClientRect();
+            out.panels.push([r.left, r.top, r.width, r.height]);
+        }
+        return out;
+    }"""
+    info = inner.page.evaluate(js)
+    print(json.dumps(info, indent=2))
+    g = info.get("group")
+    if g and info.get("panels"):
+        print("\nmouse_xy origin (group top-left) :", (g[0], g[1]))
+        for i, p in enumerate(info["panels"]):
+            print(f"panel {i} relative to that origin : "
+                  f"left={p[0] - g[0]:.1f} top={p[1] - g[1]:.1f} "
+                  f"w={p[2]:.1f} h={p[3]:.1f}")
+        print("\npanel top == 0 => the click y needs NO toolbar subtraction; "
+              "panel top == the toolbar height => it does.")
+    env.close()
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["browser", "native"], required=True)
+    ap.add_argument("--mode", choices=["browser", "native", "rects"],
+                    required=True)
     ap.add_argument("--config", default="configs/native_select.yaml")
     ap.add_argument("--pool", default="eval_d0_v1.parquet")
     ap.add_argument("--n-states", type=int, default=8)
@@ -433,6 +484,8 @@ def main() -> int:
     ap.add_argument("--frame-dir", default=None,
                     help="dump before/after frames per probe for inspection")
     args = ap.parse_args()
+    if args.mode == "rects":
+        return mode_rects(args)
     if args.mode == "browser":
         if not args.out:
             ap.error("--out required in browser mode")
