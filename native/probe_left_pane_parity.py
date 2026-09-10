@@ -57,6 +57,18 @@ def grey(img: np.ndarray) -> np.ndarray:
     return img[..., :3].astype(np.float64) @ np.array([0.299, 0.587, 0.114])
 
 
+def sharpness(g: np.ndarray, mask: np.ndarray) -> float:
+    """Mean |gradient| over `mask` -- a blunt proxy for retained detail.
+
+    If the simulator's value sits well BELOW Chrome's, we are sampling a coarser
+    mip (or over-blurring in the resample chain) and the lost high frequencies
+    cannot be recovered by any gain or shift.
+    """
+    gy, gx = np.gradient(g)
+    mag = np.hypot(gy, gx)
+    return float(mag[mask].mean()) if mask.any() else float("nan")
+
+
 def best_shift(sim: np.ndarray, ref: np.ndarray, radius: int = 6):
     """(dy, dx, ssim) maximizing similarity — is the baked LEFT_SHIFT_PX right?"""
     best = (0, 0, -1.0)
@@ -132,19 +144,28 @@ def main() -> int:
         tint = canvas[..., :3].std(axis=2) > 6
         plain = ~(cross | toolbar | tint)
 
+        if gs.std() < 1.0:   # blank/failed tile fetch -- not a parity datum
+            print(f"[{rec['idx']:04d}] SKIP: simulator pane is blank "
+                  f"(std={gs.std():.2f}); tile fetch failed", flush=True)
+            continue
+
         ceiling = ssim(ga, gb)                    # Chrome vs itself
         parity = ssim(gs, ga)                     # simulator vs Chrome
         parity_plain = ssim(gs, ga, plain)        # overlays excluded
         dy, dx, parity_shift = best_shift(gs, ga, args.shift_radius)
         gain, offset = fit_gain(gs, ga, plain)
 
+        sh_sim, sh_chrome = sharpness(gs, plain), sharpness(ga, plain)
         rows.append(dict(idx=rec["idx"], ceiling=ceiling, parity=parity,
                          parity_plain=parity_plain, parity_shift=parity_shift,
                          dy=dy, dx=dx, gain=gain, offset=offset,
-                         tint_frac=float(tint.mean())))
+                         tint_frac=float(tint.mean()),
+                         sharp_sim=sh_sim, sharp_chrome=sh_chrome,
+                         sharp_ratio=sh_sim / sh_chrome if sh_chrome else float("nan")))
         print(f"[{rec['idx']:04d}] ceiling(a,b)={ceiling:.4f}  parity={parity:.4f}  "
               f"plain={parity_plain:.4f}  best_shift=({dy:+d},{dx:+d})->{parity_shift:.4f}  "
-              f"gain={gain:.4f} off={offset:+.1f}", flush=True)
+              f"gain={gain:.4f} off={offset:+.1f} sharp={sh_sim:.2f}/{sh_chrome:.2f}",
+              flush=True)
 
     if not rows:
         print("no usable pairs")
@@ -165,6 +186,10 @@ def main() -> int:
     print(f"fitted gain                 : {med('gain'):.4f}   [EM_GAIN={pane2d.EM_GAIN}]")
     print(f"fitted offset               : {med('offset'):+.2f}")
     print(f"tint coverage               : {100 * med('tint_frac'):.1f}% of pane")
+    print(f"detail  sim / chrome        : {med('sharp_sim'):.2f} / {med('sharp_chrome'):.2f}"
+          f"   ratio {med('sharp_ratio'):.3f}")
+    print("  ratio <1 => simulator is BLURRIER (coarser mip or over-smoothing resample);")
+    print("  ratio >1 => simulator is SHARPER (finer mip than NG displays).")
     print("\nReading: if `gap to ceiling` is ~0 the pane is already at parity and the "
           "remaining error is Chrome's own chunk-streaming jitter, not a calibration "
           "defect. A non-zero median best shift means LEFT_SHIFT_PX is mis-set; a "
