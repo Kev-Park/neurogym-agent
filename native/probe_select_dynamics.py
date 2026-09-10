@@ -8,6 +8,12 @@ sees: a rollout spends most of its steps mid-stream, not settled.
 For each probe click this records N CONSECUTIVE frames from both backends and
 compares the trajectories:
 
+  response step the first frame that differs from the PRE-CLICK frame, i.e.
+                how long the pane keeps showing the world as it was before the
+                action. This is the number that matters and the one a settle
+                metric hides: a pane that never updates within the window looks
+                "settled at step 0" while actually showing nothing but stale
+                content.
   settle step   the first frame after which the pane stops changing
                 (block_ssim(frame_i, final) >= --settle-ssim). Chrome streams
                 chunks and downloads meshes; the simulator streams tiles and
@@ -15,6 +21,11 @@ compares the trajectories:
                 sees the consequence of its click at a different LAG than it
                 would in the other -- a sim2real gap invisible to a
                 settled-frame comparison.
+  seconds/step  reported alongside, because the two backends do NOT spend the
+                same wall time per step: a fetch of fixed latency spans many
+                more of the simulator's cheap steps than of Chrome's. Lag has
+                to be read in steps (what the policy experiences) AND in
+                seconds (what the fetch actually costs).
   per-step SSIM native vs browser at the SAME step index, per pane.
   tint curve    tinted fraction per step, per pane; shows WHAT changes when.
 
@@ -104,14 +115,30 @@ def settle_step(frames, ssim_thresh: float) -> int:
     return len(frames) - 1
 
 
-def capture_sequence(inner, x, y, steps: int):
-    """Frames from the click frame through `steps` following no-op steps."""
+def capture_sequence(inner, pre, x, y, steps: int):
+    """(frames, seconds_per_step) from the click frame onward.
+
+    `pre` is the frame the reset produced, kept out of the sequence but used as
+    the reference for the response step.
+    """
+    import time
+
+    t0 = time.monotonic()
     seq = [np.asarray(inner.step(dict_action(x, y, DBL))[0]["image"],
                       dtype=np.uint8)]
     for _ in range(steps):
         seq.append(np.asarray(inner.step(dict_action(_CX, _CY, NOOP))[0]["image"],
                               dtype=np.uint8))
-    return seq
+    return seq, (time.monotonic() - t0) / (steps + 1)
+
+
+def response_step(frames, pre, ssim_thresh: float) -> int:
+    """First frame that differs from the pre-click frame, or len(frames) if the
+    pane never responded within the window."""
+    for i, f in enumerate(frames):
+        if block_ssim(f, pre) < ssim_thresh:
+            return i
+    return len(frames)
 
 
 def save_seq(out_dir, tag, seq):
@@ -122,14 +149,18 @@ def save_seq(out_dir, tag, seq):
         Image.fromarray(f).save(os.path.join(out_dir, f"{tag}_t{i:02d}.png"))
 
 
-def metrics(seq, ssim_thresh):
+def metrics(seq, pre, ssim_thresh, sec_per_step):
     p2 = [panes(f)[0] for f in seq]
     p3 = [panes(f)[1] for f in seq]
+    q2, q3 = panes(pre)
     return {
         "tint2d": [round(tint_frac(f, 0, 450), 5) for f in seq],
         "tint3d": [round(tint_frac(f, 450, 900), 5) for f in seq],
+        "resp2d": response_step(p2, q2, ssim_thresh),
+        "resp3d": response_step(p3, q3, ssim_thresh),
         "settle2d": settle_step(p2, ssim_thresh),
         "settle3d": settle_step(p3, ssim_thresh),
+        "sec_per_step": round(sec_per_step, 4),
     }
 
 
@@ -149,19 +180,23 @@ def mode_browser(args) -> int:
                "task_info": jsonable(ti), "probes": []}
         for name, x, y in PROBE_PX:
             try:
-                inner.reset(options={"state": state, "task_info": ti})
-                seq = capture_sequence(inner, x, y, args.steps)
+                pre = np.asarray(
+                    inner.reset(options={"state": state,
+                                         "task_info": ti})[0]["image"],
+                    dtype=np.uint8)
+                seq, sps = capture_sequence(inner, pre, x, y, args.steps)
                 after = sorted(browser_segments(inner))
             except Exception as e:  # noqa: BLE001
                 print(f"[{k:02d}/{name}] browser failed: {e}", flush=True)
                 continue
-            m = metrics(seq, args.settle_ssim)
+            m = metrics(seq, pre, args.settle_ssim, sps)
             rec["probes"].append({"name": name, "xy": [x, y], "after": after,
                                   **m})
             if args.frame_dir:
-                save_seq(args.frame_dir, f"browser_{k:02d}_{name}", seq)
-            print(f"[{k:02d}/{name:<9}] settle 2d={m['settle2d']} "
-                  f"3d={m['settle3d']}  tint2d={m['tint2d']}", flush=True)
+                save_seq(args.frame_dir, f"browser_{k:02d}_{name}", [pre] + seq)
+            print(f"[{k:02d}/{name:<9}] resp 2d={m['resp2d']} 3d={m['resp3d']}"
+                  f"  settle 2d={m['settle2d']} 3d={m['settle3d']}"
+                  f"  {m['sec_per_step']:.3f}s/step", flush=True)
         records.append(rec)
         with open(args.out, "w") as f:
             for r in records:
@@ -186,6 +221,8 @@ def mode_native(args) -> int:
     records = [json.loads(line) for line in open(args.browser_jsonl)]
     s2, s3 = [], []        # settle step, per backend, per pane
     b2, b3 = [], []
+    r2, r3, rb2, rb3 = [], [], [], []      # response step
+    tn, tb = [], []                        # seconds per step
     cross2, cross3 = [], []   # per-step native-vs-browser SSIM
     rows = []
 
@@ -194,20 +231,23 @@ def mode_native(args) -> int:
         for p in rec["probes"]:
             x, y = p["xy"]
             try:
-                inner.reset(options={"state": state, "task_info": ti})
-                seq = capture_sequence(inner, x, y, args.steps)
+                pre = np.asarray(
+                    inner.reset(options={"state": state,
+                                         "task_info": ti})[0]["image"],
+                    dtype=np.uint8)
+                seq, sps = capture_sequence(inner, pre, x, y, args.steps)
             except Exception as e:  # noqa: BLE001
                 print(f"[{rec['idx']:02d}/{p['name']}] native failed: {e}",
                       flush=True)
                 continue
-            m = metrics(seq, args.settle_ssim)
+            m = metrics(seq, pre, args.settle_ssim, sps)
             if args.frame_dir:
                 save_seq(args.frame_dir, f"native_{rec['idx']:02d}_{p['name']}",
-                         seq)
+                         [pre] + seq)
                 # Frame-by-frame SSIM needs the browser's own frames; they were
                 # saved by the browser pass into the same directory.
                 bs = []
-                for i in range(len(seq)):
+                for i in range(1, len(seq) + 1):   # t00 is the pre-click frame
                     fp = os.path.join(
                         args.frame_dir,
                         f"browser_{rec['idx']:02d}_{p['name']}_t{i:02d}.png")
@@ -224,11 +264,15 @@ def mode_native(args) -> int:
                     cross3.append(c3)
             s2.append(m["settle2d"]); s3.append(m["settle3d"])
             b2.append(p["settle2d"]); b3.append(p["settle3d"])
+            r2.append(m["resp2d"]); r3.append(m["resp3d"])
+            rb2.append(p["resp2d"]); rb3.append(p["resp3d"])
+            tn.append(m["sec_per_step"]); tb.append(p["sec_per_step"])
             rows.append((rec["idx"], p["name"], m, p))
-            print(f"[{rec['idx']:02d}/{p['name']:<9}] settle 2d "
-                  f"native={m['settle2d']} browser={p['settle2d']}  "
-                  f"3d native={m['settle3d']} browser={p['settle3d']}",
-                  flush=True)
+            print(f"[{rec['idx']:02d}/{p['name']:<9}] resp2d "
+                  f"native={m['resp2d']} browser={p['resp2d']}  "
+                  f"resp3d native={m['resp3d']} browser={p['resp3d']}  "
+                  f"s/step native={m['sec_per_step']:.3f} "
+                  f"browser={p['sec_per_step']:.3f}", flush=True)
     env.close()
 
     if not rows:
@@ -236,7 +280,15 @@ def mode_native(args) -> int:
         return 1
 
     print("\n============== selection dynamics ==============")
-    print(f"clicks                    : {len(rows)}   window {args.steps + 1} frames")
+    n_win = args.steps + 1
+    print(f"clicks                    : {len(rows)}   window {n_win} frames")
+    print(f"seconds per step  native {np.median(tn):.3f}  browser {np.median(tb):.3f}"
+          f"   (a fixed-latency fetch spans more of the cheaper steps)")
+    print(f"RESPONSE step 2D  native {np.median(r2):.1f}  browser {np.median(rb2):.1f}"
+          f"   ({n_win} = pane never showed the click inside the window)")
+    print(f"RESPONSE step 3D  native {np.median(r3):.1f}  browser {np.median(rb3):.1f}")
+    print(f"  in seconds   2D  native {np.median(r2) * np.median(tn):.2f}s  "
+          f"browser {np.median(rb2) * np.median(tb):.2f}s")
     print(f"settle step 2D  native {np.median(s2):.1f}  browser {np.median(b2):.1f}"
           f"   (median; {args.steps} = never settled in the window)")
     print(f"settle step 3D  native {np.median(s3):.1f}  browser {np.median(b3):.1f}")
