@@ -340,12 +340,26 @@ def mode_native(args) -> int:
         print("  A curve that RISES with step means the two converge but at "
               "different speeds -- the settled frames match while the interim "
               "ones do not, which is exactly what a settled-frame probe misses.")
-    print("\ntint curves (median over clicks), fraction of pane tinted:")
-    for lab, key in (("2D", "tint2d"), ("3D", "tint3d")):
+    print("\ntint curves (median over clicks), fraction of pane tinted;"
+          " `pre` is the pre-click level:")
+    for lab, key, pkey in (("2D", "tint2d", "pre_tint2d"),
+                           ("3D", "tint3d", "pre_tint3d")):
         nat = np.median([r[2][key] for r in rows], axis=0)
         brw = np.median([r[3][key] for r in rows], axis=0)
-        print(f"  {lab} native : " + "  ".join(f"{v:5.3f}" for v in nat))
-        print(f"  {lab} browser: " + "  ".join(f"{v:5.3f}" for v in brw))
+        pn = np.median([r[2][pkey] for r in rows])
+        pb = np.median([r[3][pkey] for r in rows])
+        print(f"  {lab} native : pre {pn:5.3f} | "
+              + "  ".join(f"{v:5.3f}" for v in nat))
+        print(f"  {lab} browser: pre {pb:5.3f} | "
+              + "  ".join(f"{v:5.3f}" for v in brw))
+    print(f"\nidle jitter (pre-click, own backend): 2D native "
+          f"{np.median([r[2]['jit2d'] for r in rows]):.4f} browser "
+          f"{np.median([r[3]['jit2d'] for r in rows]):.4f}")
+    fn = np.median([r[2]["tint2d"][-1] for r in rows])
+    fb = np.median([r[3]["tint2d"][-1] for r in rows])
+    print(f"steady-state 2D tinted area: native {fn:.4f} browser {fb:.4f} "
+          f"(ratio {fn / fb if fb else float('nan'):.2f}) -- persists to the "
+          f"last frame, so it is a STEADY-STATE output difference, not a lag.")
     return 0
 
 
