@@ -98,6 +98,29 @@ def main() -> int:
         v = [x[1] for x in by_lod[lod]]
         print(f"lod {lod}: {np.median(d):6.2f}s median   "
               f"{int(np.median(v)):>9,} verts median")
+    # The environment does not call vol.mesh.get directly: MeshStore.get takes
+    # a lod REQUEST and walks DOWN until one decodes, because the available
+    # range varies per segment. When the requested level is absent that costs a
+    # failed round-trip first, so the shipping path can be slower than the
+    # per-level numbers above suggest. Time what actually runs.
+    from ngllib.native.em import MeshStore
+
+    print("\n--- MeshStore.get (the shipping path, with fallback) ---")
+    for req in (0, 1, 2):
+        ds = []
+        for rid in list(seen):
+            store = MeshStore(None)      # fresh store: no LRU hit
+            t0 = time.monotonic()
+            try:
+                store.get(str(rid), req)
+            except Exception as e:  # noqa: BLE001
+                print(f"  lod<={req} {rid}: {type(e).__name__}", flush=True)
+                continue
+            ds.append(time.monotonic() - t0)
+        if ds:
+            print(f"  request lod<={req}: {np.median(ds):5.2f}s median "
+                  f"(n={len(ds)})", flush=True)
+
     print("\nChrome's genuine mesh misses landed in ~0.08-0.35 s. A coarse LOD "
           "at or under that makes progressive loading worth building: show the "
           "coarse level on arrival, refine when the fine one lands, which is "
