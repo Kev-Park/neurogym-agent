@@ -76,10 +76,11 @@ def main() -> int:
     over[cy:cy + length, cx] = True
 
     variants = ["v0_current", "v1_direct_box", "v2_direct_lanczos",
-            "v3_finer_lanczos", "v4_lanczos_jpeg", "v5_z_minus1", "v6_z_plus1"]
+            "v3_finer_lanczos", "v4_lanczos_jpeg", "v5_z_minus1", "v6_z_plus1", "v7_affine_fit"]
     acc = {v: {"ssim": [], "detail": []} for v in variants}
     chrome_detail = []
     mips = []
+    fitted_affine = []
 
     for rec in records:
         st = rec["requested_state"]
@@ -145,6 +146,16 @@ def main() -> int:
             "v5_z_minus1": chain(t_zm, "v2_direct_lanczos"),
             "v6_z_plus1": chain(t_zp, "v2_direct_lanczos"),
         }
+        # v7: best chain with a PER-STATE least-squares affine (gain+offset)
+        # onto Chrome. Not shippable as-is -- it peeks at the reference -- but
+        # it upper-bounds what any recalibration of EM_GAIN (plus an offset
+        # term we do not currently have) could ever buy.
+        _b = imgs["v2_direct_lanczos"]
+        _m = ~over
+        _A = np.stack([_b[_m], np.ones(_m.sum())], axis=1)
+        _g, _o = np.linalg.lstsq(_A, ref[_m], rcond=None)[0]
+        imgs["v7_affine_fit"] = _b * _g + _o
+        fitted_affine.append((float(_g), float(_o)))
         plain = ~over
         for v, img in imgs.items():
             acc[v]["ssim"].append(ssim(img, ref, plain))
@@ -170,6 +181,11 @@ def main() -> int:
         d = float(np.median(acc[v]["detail"]))
         print(f"{v:<20}{s:>9.4f}{d:>9.2f}{d / cd:>8.3f}")
     print(f"{'chrome (ref)':<20}{'-':>9}{cd:>9.2f}{1.0:>8.3f}")
+    if fitted_affine:
+        print(f"\nv7 fitted affine (median): gain={np.median([a[0] for a in fitted_affine]):.4f} "
+              f"offset={np.median([a[1] for a in fitted_affine]):+.2f}  "
+              f"[shipping EM_GAIN={GAIN}, no offset term]")
+        print("v7 PEEKS at the reference -- it is an upper bound on recalibration, not a fix.")
     print("\nPick the variant with the highest SSIM whose detail ratio is nearest 1.0. "
           "If v3 wins on detail but not SSIM, we are sharper than Chrome and the "
           "current mip is right; if v1/v2 beat v0, the two-step resample is the defect.")
