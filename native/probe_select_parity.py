@@ -70,14 +70,22 @@ def dict_action(x: float, y: float, action_type: int = DBL) -> dict:
     }
 
 
+TOOLBAR = 17  # captured px; the strip above the data panels
+
+
 def tint_frac(image, x0: int, x1: int) -> float:
     """Fraction of a pane's pixels carrying segment colour (not grey EM).
 
-    The 2D pane is greyscale EM plus a 0.5-alpha segment tint, so channel
+    The panes are greyscale EM plus a 0.5-alpha segment tint, so channel
     spread is a direct read of "is a segment drawn here" -- the OUTPUT half of
     the parity claim.
+
+    The toolbar rows are excluded: Chrome draws coloured layer tabs, the
+    coordinate readout and a scale bar there, which the simulator renders as a
+    black strip by design. Counting them made Chrome look ~1.7pp more tinted
+    than the simulator on identical content.
     """
-    a = np.asarray(image, dtype=np.float32)[:, x0:x1, :3]
+    a = np.asarray(image, dtype=np.float32)[TOOLBAR:, x0:x1, :3]
     return float((a.std(axis=2) > 6).mean())
 
 
@@ -112,6 +120,43 @@ def diagnose_pick(inner, state, x_css, y_css, browser_id, native_id):
     return float(d.min()), True
 
 
+def pick_offset_votes(inner, state, x_css, y_css, want_id, radius=12):
+    """Vote grid: for which (dy, dx) shift of our pick does OUR tile return
+    the id CHROME picked?
+
+    The disagreements are directional -- our pick keeps landing on the target
+    where Chrome lands on a neighbour just past its edge -- which is the
+    signature of a constant offset, not a wrong scale. Rather than argue about
+    which convention is off by how much, shift the sample point over a grid and
+    let the browser's own answers say. A vote mass concentrated away from
+    (0, 0) is a real registration error in the pick; one centred on (0, 0)
+    means the pick is right and the misses are boundary noise.
+
+    Offsets are in CAPTURED px (half a CSS px), the units LEFT_SHIFT_PX uses.
+    """
+    from ngllib.native import pane2d
+    from ngllib.native.em import EMTiles
+
+    em = EMTiles(getattr(inner, "_cache_dir", None))
+    pos = np.asarray(state["position"], np.float64) * pane2d.VOXEL_NM
+    xs = float(state["crossSectionScale"])
+    ext = pane2d.pane_extents_nm(xs)
+    ids = em.label_ids(pane2d.shifted_fetch_center_nm(pos, ext),
+                       ext[0], ext[1], (pane2d.PANE, pane2d.PANE_H))
+    if ids is None:
+        return None
+    col = int(round(x_css * pane2d.PANE / CSS_PANE))
+    row = int(round((y_css - CSS_TOOLBAR) * pane2d.PANE_H / CSS_VIEW_H))
+    n = 2 * radius + 1
+    votes = np.zeros((n, n), dtype=np.int32)
+    for i, dy in enumerate(range(-radius, radius + 1)):
+        for j, dx in enumerate(range(-radius, radius + 1)):
+            r, c = row + dy, col + dx
+            if 0 <= r < ids.shape[0] and 0 <= c < ids.shape[1]:
+                votes[i, j] = int(ids[r, c] == int(want_id))
+    return votes
+
+
 def settle(inner, steps: int):
     """Step no-ops so the panes catch up before the visual is measured.
 
@@ -119,10 +164,15 @@ def settle(inner, steps: int):
     COMPLETED canvas), and Chrome streams chunks, so neither reflects a
     selection in the very same step that made it. Applied identically to both
     so the comparison stays symmetric.
+
+    The no-op clicks land on the 2D pane centre, not (0,0): mousedown0 is a
+    DRAG binding there (translate-via-mouse-drag), so a click with no drag
+    changes nothing, whereas (0,0) is the toolbar strip, where Chrome has real
+    UI to hit.
     """
     obs = None
     for _ in range(steps):
-        obs = inner.step(dict_action(0.0, 0.0, NOOP))[0]
+        obs = inner.step(dict_action(_CX, _CY, NOOP))[0]
     return obs
 
 
@@ -259,6 +309,8 @@ def mode_native(args) -> int:
     agree = total = 0
     tint_dir_ok = tint_dir_n = r3_dir_ok = 0
     disagreements = []
+    votes_sum = None
+    votes_n = 0
 
     for rec in records:
         state = rec["state"]
@@ -302,6 +354,18 @@ def mode_native(args) -> int:
                                == np.sign(t_after - t_before))
             r3_dir_ok += int(np.sign(p["r3_after"] - p["r3_before"])
                              == np.sign(r_after - r_before))
+            if args.diagnose:
+                # What did CHROME pick here? The id it added, or (for a
+                # deselect) the one it hid.
+                new_b = [i for i in p["after"] if i not in p["before"]]
+                want = next((i for i in new_b if not i.startswith("!")), None)
+                if want is None and new_b:
+                    want = new_b[0].lstrip("!")
+                if want is not None:
+                    v = pick_offset_votes(inner, state, x, y, want)
+                    if v is not None:
+                        votes_sum = v if votes_sum is None else votes_sum + v
+                        votes_n += 1
             verdict = "OK  " if ok else "DIFF"
             print(f"[{rec['idx']:02d}/{p['name']:<10}] {verdict} "
                   f"browser={p['after']} native={after}  "
@@ -315,6 +379,20 @@ def mode_native(args) -> int:
               f"({100.0 * agree / total:.1f}%)")
         print(f"2D tint changed the same way   : {tint_dir_ok}/{tint_dir_n}")
         print(f"3D pane changed the same way   : {r3_dir_ok}/{tint_dir_n}")
+    if votes_sum is not None and votes_n:
+        r = (votes_sum.shape[0] - 1) // 2
+        i, j = np.unravel_index(int(np.argmax(votes_sum)), votes_sum.shape)
+        print(f"\npick-offset search over {votes_n} probes "
+              f"(captured px, +y down / +x right)")
+        print(f"  at (0,0)      : {votes_sum[r, r]}/{votes_n} "
+              f"({100.0 * votes_sum[r, r] / votes_n:.0f}%)")
+        print(f"  best offset   : (dy={i - r:+d}, dx={j - r:+d}) -> "
+              f"{votes_sum[i, j]}/{votes_n} "
+              f"({100.0 * votes_sum[i, j] / votes_n:.0f}%)")
+        print("  A best offset far from (0,0) with a clearly higher hit rate "
+              "is a real registration error in the pick; a flat field centred "
+              "on (0,0) means the pick is right and the misses are boundary "
+              "noise.")
     for d in disagreements[:20]:
         extra = ""
         if "present" in d:
