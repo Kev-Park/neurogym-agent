@@ -21,12 +21,14 @@ WT=/scratch/kp0374/wt/neurogym-agent-native
 cd "$WT"
 export PYTHONUNBUFFERED=1
 OUT=/scratch/kp0374/native_spike/select_browser_$SLURM_JOB_ID.jsonl
+FRAMES=/scratch/kp0374/native_spike/select_frames_$SLURM_JOB_ID
 N=${N_STATES:-8}
 
 uv run --no-sync python native/probe_select_parity.py --mode browser \
   --config configs/native_select.yaml \
   --pool /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
-  --n-states "$N" --out "$OUT"
+  --n-states "$N" --out "$OUT" --frame-dir "$FRAMES"
 
 uv run --no-sync python native/probe_select_parity.py --mode native \
-  --config configs/native_select.yaml --browser-jsonl "$OUT"
+  --config configs/native_select.yaml --browser-jsonl "$OUT" \
+  --frame-dir "$FRAMES"

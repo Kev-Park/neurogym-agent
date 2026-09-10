@@ -80,6 +80,15 @@ def tint_frac(image, x0: int, x1: int) -> float:
     return float((a.std(axis=2) > 6).mean())
 
 
+def save_frames(out_dir: str, tag: str, before, after) -> None:
+    from PIL import Image
+
+    os.makedirs(out_dir, exist_ok=True)
+    for suffix, img in (("before", before), ("after", after)):
+        Image.fromarray(np.asarray(img, dtype=np.uint8)).save(
+            os.path.join(out_dir, f"{tag}_{suffix}.png"))
+
+
 def make_cfg(args):
     from ngllib_agent.env_build import load_config
 
@@ -126,13 +135,20 @@ def jsonable(obj):
 
 
 def browser_segments(env) -> list[str]:
-    """Selected set from the live NG viewer state. Chrome keeps segments on the
-    segmentation LAYER, not at the top level like the simulator's flat state."""
+    """Selected list from the live NG viewer state, VERBATIM.
+
+    Chrome keeps segments on the segmentation LAYER, not at the top level like
+    the simulator's flat state. The "!" prefix is preserved: NG tracks
+    `selectedSegments` (everything listed) separately from `visibleSegments`
+    (the unprefixed subset), and `select` toggles VISIBILITY -- deselecting
+    rewrites an entry to "!<id>" instead of removing it. Stripping the prefix
+    would make a toggle-off look like no change at all.
+    """
     st = env._get_json_state()
     segs: list[str] = []
     for layer in st.get("layers", []):
         for s in layer.get("segments", []) or []:
-            segs.append(str(s).lstrip("!"))   # NG prefixes hidden segments
+            segs.append(str(s))
     return segs
 
 
@@ -163,6 +179,9 @@ def mode_browser(args) -> int:
             except Exception as e:  # noqa: BLE001
                 print(f"[{k:02d}/{name}] browser failed: {e}", flush=True)
                 continue
+            if args.frame_dir:
+                save_frames(args.frame_dir, f"browser_{k:02d}_{name}",
+                            obs["image"], obs2["image"])
             rec["probes"].append(
                 {"name": name, "xy": [x, y], "before": before, "after": after,
                  "tint_before": t_before, "tint_after": t_after,
@@ -211,6 +230,9 @@ def mode_native(args) -> int:
                 print(f"[{rec['idx']:02d}/{p['name']}] native failed: {e}",
                       flush=True)
                 continue
+            if args.frame_dir:
+                save_frames(args.frame_dir, f"native_{rec['idx']:02d}_{p['name']}",
+                            obs["image"], obs2["image"])
             total += 1
             ok = after == sorted(p["after"])
             agree += ok
@@ -256,6 +278,8 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=17)
     ap.add_argument("--out", default=None)
     ap.add_argument("--browser-jsonl", default=None)
+    ap.add_argument("--frame-dir", default=None,
+                    help="dump before/after frames per probe for inspection")
     args = ap.parse_args()
     if args.mode == "browser":
         if not args.out:
