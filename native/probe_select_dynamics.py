@@ -115,6 +115,37 @@ def settle_step(frames, ssim_thresh: float) -> int:
     return len(frames) - 1
 
 
+def baseline(inner, n: int = 3):
+    """Frames BEFORE the click, to measure each backend's own idle jitter.
+
+    Chrome re-renders streamed chunks between identical steps and the
+    simulator does not, so a fixed SSIM threshold fires much earlier for
+    Chrome regardless of the click. Calibrating the response threshold against
+    each backend's own pre-click variability removes that.
+    """
+    seq = [np.asarray(inner.step(dict_action(_CX, _CY, NOOP))[0]["image"],
+                      dtype=np.uint8) for _ in range(n)]
+    tints = [tint_frac(f, 0, 450) for f in seq]
+    t3 = [tint_frac(f, 450, 900) for f in seq]
+    jit2 = max(abs(a - b) for a in tints for b in tints) if n > 1 else 0.0
+    jit3 = max(abs(a - b) for a in t3 for b in t3) if n > 1 else 0.0
+    return seq[-1], tints[-1], t3[-1], jit2, jit3
+
+
+def tint_response(seq, base_tint, jitter, x0, x1, floor=0.002) -> int:
+    """First frame whose tinted area moves beyond the backend's own jitter.
+
+    Tint, not SSIM: the tint IS the selection's visible consequence, whereas a
+    whole-pane SSIM is dominated by the unchanged EM and by each backend's
+    streaming noise.
+    """
+    thresh = max(3.0 * jitter, floor)
+    for i, f in enumerate(seq):
+        if abs(tint_frac(f, x0, x1) - base_tint) > thresh:
+            return i
+    return len(seq)
+
+
 def capture_sequence(inner, pre, x, y, steps: int):
     """(frames, seconds_per_step) from the click frame onward.
 
@@ -149,11 +180,21 @@ def save_seq(out_dir, tag, seq):
         Image.fromarray(f).save(os.path.join(out_dir, f"{tag}_t{i:02d}.png"))
 
 
-def metrics(seq, pre, ssim_thresh, sec_per_step):
+def metrics(seq, pre, ssim_thresh, sec_per_step, base=None):
     p2 = [panes(f)[0] for f in seq]
     p3 = [panes(f)[1] for f in seq]
     q2, q3 = panes(pre)
+    extra = {}
+    if base is not None:
+        bt2, bt3, j2, j3 = base
+        extra = {
+            "pre_tint2d": round(bt2, 5), "pre_tint3d": round(bt3, 5),
+            "jit2d": round(j2, 5), "jit3d": round(j3, 5),
+            "tresp2d": tint_response(seq, bt2, j2, 0, 450),
+            "tresp3d": tint_response(seq, bt3, j3, 450, 900),
+        }
     return {
+        **extra,
         "tint2d": [round(tint_frac(f, 0, 450), 5) for f in seq],
         "tint3d": [round(tint_frac(f, 450, 900), 5) for f in seq],
         "resp2d": response_step(p2, q2, ssim_thresh),
@@ -180,21 +221,20 @@ def mode_browser(args) -> int:
                "task_info": jsonable(ti), "probes": []}
         for name, x, y in PROBE_PX:
             try:
-                pre = np.asarray(
-                    inner.reset(options={"state": state,
-                                         "task_info": ti})[0]["image"],
-                    dtype=np.uint8)
+                inner.reset(options={"state": state, "task_info": ti})
+                pre, bt2, bt3, j2, j3 = baseline(inner)
                 seq, sps = capture_sequence(inner, pre, x, y, args.steps)
                 after = sorted(browser_segments(inner))
             except Exception as e:  # noqa: BLE001
                 print(f"[{k:02d}/{name}] browser failed: {e}", flush=True)
                 continue
-            m = metrics(seq, pre, args.settle_ssim, sps)
+            m = metrics(seq, pre, args.settle_ssim, sps, (bt2, bt3, j2, j3))
             rec["probes"].append({"name": name, "xy": [x, y], "after": after,
                                   **m})
             if args.frame_dir:
                 save_seq(args.frame_dir, f"browser_{k:02d}_{name}", [pre] + seq)
-            print(f"[{k:02d}/{name:<9}] resp 2d={m['resp2d']} 3d={m['resp3d']}"
+            print(f"[{k:02d}/{name:<9}] tint-resp 2d={m['tresp2d']} "
+                  f"3d={m['tresp3d']}  ssim-resp 2d={m['resp2d']} 3d={m['resp3d']}"
                   f"  settle 2d={m['settle2d']} 3d={m['settle3d']}"
                   f"  {m['sec_per_step']:.3f}s/step", flush=True)
         records.append(rec)
@@ -231,16 +271,14 @@ def mode_native(args) -> int:
         for p in rec["probes"]:
             x, y = p["xy"]
             try:
-                pre = np.asarray(
-                    inner.reset(options={"state": state,
-                                         "task_info": ti})[0]["image"],
-                    dtype=np.uint8)
+                inner.reset(options={"state": state, "task_info": ti})
+                pre, bt2, bt3, j2, j3 = baseline(inner)
                 seq, sps = capture_sequence(inner, pre, x, y, args.steps)
             except Exception as e:  # noqa: BLE001
                 print(f"[{rec['idx']:02d}/{p['name']}] native failed: {e}",
                       flush=True)
                 continue
-            m = metrics(seq, pre, args.settle_ssim, sps)
+            m = metrics(seq, pre, args.settle_ssim, sps, (bt2, bt3, j2, j3))
             if args.frame_dir:
                 save_seq(args.frame_dir, f"native_{rec['idx']:02d}_{p['name']}",
                          [pre] + seq)
@@ -264,13 +302,13 @@ def mode_native(args) -> int:
                     cross3.append(c3)
             s2.append(m["settle2d"]); s3.append(m["settle3d"])
             b2.append(p["settle2d"]); b3.append(p["settle3d"])
-            r2.append(m["resp2d"]); r3.append(m["resp3d"])
-            rb2.append(p["resp2d"]); rb3.append(p["resp3d"])
+            r2.append(m["tresp2d"]); r3.append(m["tresp3d"])
+            rb2.append(p["tresp2d"]); rb3.append(p["tresp3d"])
             tn.append(m["sec_per_step"]); tb.append(p["sec_per_step"])
             rows.append((rec["idx"], p["name"], m, p))
-            print(f"[{rec['idx']:02d}/{p['name']:<9}] resp2d "
-                  f"native={m['resp2d']} browser={p['resp2d']}  "
-                  f"resp3d native={m['resp3d']} browser={p['resp3d']}  "
+            print(f"[{rec['idx']:02d}/{p['name']:<9}] tint-resp2d "
+                  f"native={m['tresp2d']} browser={p['tresp2d']}  "
+                  f"3d native={m['tresp3d']} browser={p['tresp3d']}  "
                   f"s/step native={m['sec_per_step']:.3f} "
                   f"browser={p['sec_per_step']:.3f}", flush=True)
     env.close()
