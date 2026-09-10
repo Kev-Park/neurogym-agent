@@ -37,4 +37,4 @@ uv run --no-sync python native/probe_select_dynamics.py --mode browser \
 
 uv run --no-sync python native/probe_select_dynamics.py --mode native \
   --config configs/native_select.yaml --browser-jsonl "$OUT" \
-  --steps "$STEPS" $FRAMEARG
+  --steps "$STEPS" --obs "$OBS" $FRAMEARG
