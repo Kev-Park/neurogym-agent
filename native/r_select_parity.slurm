@@ -16,23 +16,32 @@
 # Double-click (NG `select`) I/O parity, both backends in one job: the browser
 # pass writes ground truth, the simulator pass replays it and scores agreement.
 # Sequential, not concurrent — Chrome and the EGL context share the GPU.
+#
+# REUSE_JSONL=<path> skips the browser pass and replays existing ground truth.
+# Chrome's answers do not depend on the simulator, so iterating on the pick
+# only needs the (fast) native pass.
 set -e
 WT=/scratch/kp0374/wt/neurogym-agent-native
 cd "$WT"
 export PYTHONUNBUFFERED=1
-OUT=/scratch/kp0374/native_spike/select_browser_$SLURM_JOB_ID.jsonl
 FRAMES=/scratch/kp0374/native_spike/select_frames_$SLURM_JOB_ID
 N=${N_STATES:-8}
 
-# What coordinate system is mouse_xy actually in? Read it off the DOM.
-uv run --no-sync python native/probe_select_parity.py --mode rects \
-  --config configs/native_select.yaml \
-  --pool /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet --n-states 1
+if [ -n "$REUSE_JSONL" ]; then
+  OUT="$REUSE_JSONL"
+else
+  OUT=/scratch/kp0374/native_spike/select_browser_$SLURM_JOB_ID.jsonl
 
-uv run --no-sync python native/probe_select_parity.py --mode browser \
-  --config configs/native_select.yaml \
-  --pool /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
-  --n-states "$N" --out "$OUT" --frame-dir "$FRAMES"
+  # What coordinate system is mouse_xy actually in? Read it off the DOM.
+  uv run --no-sync python native/probe_select_parity.py --mode rects \
+    --config configs/native_select.yaml \
+    --pool /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet --n-states 1
+
+  uv run --no-sync python native/probe_select_parity.py --mode browser \
+    --config configs/native_select.yaml \
+    --pool /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
+    --n-states "$N" --out "$OUT" --frame-dir "$FRAMES"
+fi
 
 uv run --no-sync python native/probe_select_parity.py --mode native \
   --config configs/native_select.yaml --browser-jsonl "$OUT" --diagnose \
