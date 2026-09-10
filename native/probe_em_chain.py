@@ -18,6 +18,7 @@ overlays. Reports SSIM to Chrome and the detail ratio for each.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 
@@ -74,7 +75,8 @@ def main() -> int:
     over[cy, cx:cx + length] = True
     over[cy:cy + length, cx] = True
 
-    variants = ["v0_current", "v1_direct_box", "v2_direct_lanczos", "v3_finer_lanczos"]
+    variants = ["v0_current", "v1_direct_box", "v2_direct_lanczos",
+            "v3_finer_lanczos", "v4_lanczos_jpeg"]
     acc = {v: {"ssim": [], "detail": []} for v in variants}
     chrome_detail = []
     mips = []
@@ -114,11 +116,25 @@ def main() -> int:
                 im = im.resize((PANE, PANE_H), Image.LANCZOS)
             return np.asarray(im).astype(np.float64) * GAIN
 
+        def jpeg_roundtrip(arr, quality=85):
+            """Chrome captures with screenshot_format='jpeg' by default, so the
+            REFERENCE frames carry JPEG artifacts. Those add spurious
+            high-frequency energy. If pushing our render through the same codec
+            raises SSIM, part of the 'detail deficit' is us failing to match
+            compression noise -- which is not something to chase in the
+            renderer."""
+            buf = io.BytesIO()
+            Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).save(
+                buf, format="JPEG", quality=quality)
+            buf.seek(0)
+            return np.asarray(Image.open(buf)).astype(np.float64)
+
         imgs = {
             "v0_current": chain(t_std, "v0_current"),
             "v1_direct_box": chain(t_std, "v1_direct_box"),
             "v2_direct_lanczos": chain(t_std, "v2_direct_lanczos"),
             "v3_finer_lanczos": chain(t_fine, "v3_finer_lanczos"),
+            "v4_lanczos_jpeg": jpeg_roundtrip(chain(t_std, "v2_direct_lanczos")),
         }
         plain = ~over
         for v, img in imgs.items():
