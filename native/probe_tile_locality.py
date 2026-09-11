@@ -72,6 +72,34 @@ def main() -> int:
             line.append(f"+{int(f * 100):>3}% {dt:5.2f}s")
         print("  ".join(line), flush=True)
 
+    # Does PREWARMING a larger region make a later nearby move cheap? If so
+    # the latency can be bought without touching a single pixel: the pane is
+    # still produced by the ordinary direct fetch at the exact position, so it
+    # is bit-identical to today, and only the chunk LRU is different. That is
+    # the opposite trade to the region cache, which was fast but cost 0.12 of
+    # block_ssim against Chrome.
+    warm_after = []
+    for rec in records[:args.limit]:
+        st = rec["requested_state"]
+        em = EMTiles(args.cache_dir)
+        pos = np.asarray(st["position"], np.float64) * pane2d.VOXEL_NM
+        xs = float(st["crossSectionScale"])
+        ext = pane2d.pane_extents_nm(xs)
+        try:
+            em.tile(pos, ext[0] * 1.6, ext[1] * 1.6, int(1024 * 1.6), True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[{rec['idx']:04d}] prewarm failed: {e}", flush=True)
+            continue
+        p = pos + np.array([ext[0] * 0.15, 0.0, 0.0])
+        t = time.monotonic()
+        try:
+            em.tile(p, ext[0], ext[1], 1024, True)
+        except Exception:  # noqa: BLE001
+            continue
+        warm_after.append(time.monotonic() - t)
+        print(f"[{rec['idx']:04d}] after 1.6x prewarm, +15% move: "
+              f"{warm_after[-1]:.2f}s", flush=True)
+
     if not cold:
         print("no usable states")
         return 1
