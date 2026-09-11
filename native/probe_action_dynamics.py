@@ -143,6 +143,29 @@ def tint_response(frames, base, x0, x1, floor=0.002):
     return len(frames)
 
 
+def run_sequence(inner, state, ti, verb, steps, encoder, n_moves=6):
+    """Response step of SUCCESSIVE moves, not just the first after a reset.
+
+    run_verb resets, acts once and measures -- the worst case for any cache,
+    because the chunk LRU is cold for wherever the action lands. A rollout does
+    not look like that: it moves repeatedly around one neighbourhood, so by the
+    third or fourth move the chunks are largely resident. If later moves in a
+    sequence respond much faster than the first, the single-shot number
+    overstates the gap a policy actually experiences.
+    """
+    inner.reset(options={"state": state, "task_info": ti})
+    pre, f2, f3 = idle_floor(inner, encoder)
+    out = []
+    for _ in range(n_moves):
+        q2 = panes(pre)[0]
+        seq = [frame_of(inner, inner.step(action(verb))[0], encoder)]
+        for _ in range(steps):
+            seq.append(frame_of(inner, inner.step(NOOP)[0], encoder))
+        out.append(response([panes(f)[0] for f in seq], q2, f2))
+        pre = seq[-1]
+    return out
+
+
 def run_verb(inner, state, ti, verb, steps, encoder):
     inner.reset(options={"state": state, "task_info": ti})
     pre, f2, f3 = idle_floor(inner, encoder)
@@ -183,6 +206,10 @@ def mode_browser(args) -> int:
         for verb in VERBS:
             try:
                 m = run_verb(inner, state, ti, verb, args.steps, encoder)
+                if args.sequence:
+                    m["seq2d"] = run_sequence(inner, state, ti, verb,
+                                              args.steps, encoder,
+                                              args.sequence)
             except Exception as e:  # noqa: BLE001
                 print(f"[{k:02d}/{verb}] browser failed: {e}", flush=True)
                 continue
@@ -217,6 +244,10 @@ def mode_native(args) -> int:
         for b in rec["verbs"]:
             try:
                 m = run_verb(inner, state, ti, b["verb"], args.steps, encoder)
+                if args.sequence:
+                    m["seq2d"] = run_sequence(inner, state, ti, b["verb"],
+                                              args.steps, encoder,
+                                              args.sequence)
             except Exception as e:  # noqa: BLE001
                 print(f"[{rec['idx']:02d}/{b['verb']}] native failed: {e}",
                       flush=True)
@@ -265,6 +296,8 @@ def main() -> int:
     ap.add_argument("--n-states", type=int, default=3)
     ap.add_argument("--steps", type=int, default=60)
     ap.add_argument("--obs", choices=["raw", "dino"], default="dino")
+    ap.add_argument("--sequence", type=int, default=0,
+                    help="measure N successive moves per state instead of one")
     ap.add_argument("--seed", type=int, default=17)
     ap.add_argument("--out", default=None)
     ap.add_argument("--browser-jsonl", default=None)
