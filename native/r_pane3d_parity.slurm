@@ -13,6 +13,6 @@
 
 # 3D pane parity against Chrome, through the production render path.
 set -e
-cd /scratch/kp0374/wt/neurogym-agent-native
+cd "${SLURM_SUBMIT_DIR:-$(pwd)}"
 export PYTHONUNBUFFERED=1
 uv run --no-sync python native/probe_pane3d_parity.py   --pairs-dir /scratch/kp0374/native_spike/pairs_v1 --limit 12

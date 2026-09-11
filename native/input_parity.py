@@ -16,13 +16,12 @@ out of scope until the action space grows.)
     mesh depth buffer at the observed reset state, unproject the clicked
     pixel (exact px, and nearest-hit within a 3px pick radius), predict the
     new position; compare to browser in voxels. Rotate/zoom: ngllib's exact
-    arithmetic (geom.py file-loaded); compare numerically.
+    arithmetic (ngllib.utils.geom); compare numerically.
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import signal
@@ -37,13 +36,6 @@ VOXEL_NM = np.array([4.0, 4.0, 40.0])
 CLICK_CELLS = [528, 264, 792, 0, 1023]  # (r16,c16),(r8,c8),(r24,c24),corners
 ROT_ACTION = [1, 0, 5, 2, 4, 4]         # euler delta (+0.08, -0.16, 0)
 ZOOM_ACTIONS = [[2, 0, 4, 4, 4, 8], [2, 0, 4, 4, 4, 0]]  # +2000 / -2000
-
-
-def _load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
 
 
 def obs_state(obs):
@@ -126,9 +118,8 @@ def mode_browser(args):
 def mode_native(args):
     import moderngl
 
-    NGL = "/scratch/kp0374/wt/neurogym-native/src/ngllib"
-    camera = _load("cam", f"{NGL}/native/camera.py")
-    geom = _load("geom", f"{NGL}/utils/geom.py")
+    from ngllib.simulator import camera
+    from ngllib.utils import geom
     from cloudvolume import CloudVolume
 
     ctx = moderngl.create_context(standalone=True, backend="egl")
