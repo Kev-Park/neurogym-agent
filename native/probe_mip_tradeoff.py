@@ -70,7 +70,7 @@ def main() -> int:
     from ngllib.native import pane2d
     from ngllib.native.em import EMTiles
 
-    mips = [256, 384, 512, 768, 1024]
+    mips = [512, 1024, 1536, 2048, 3072]
     lat: dict[int, list] = {m: [] for m in mips}
     ssim: dict[int, list] = {m: [] for m in mips}
     sharp: dict[int, list] = {m: [] for m in mips}
