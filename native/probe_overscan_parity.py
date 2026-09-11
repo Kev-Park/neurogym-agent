@@ -58,6 +58,7 @@ def main() -> int:
                open(os.path.join(args.pairs_dir, "states.jsonl"))][:args.limit]
 
     same, moved, idmatch = [], [], []
+    ref_vs_chrome, crop_vs_chrome = [], []
     for rec in records:
         st = rec["requested_state"]
         pos = list(st["position"])
@@ -82,6 +83,19 @@ def main() -> int:
             continue
         s0 = block_ssim(crop, em_ref)
         same.append(s0)
+
+        # The question that decides this is NOT crop-vs-direct: both are
+        # approximations of Chrome, and if they are equally close to it then a
+        # sub-pixel difference between them costs nothing. Score both against
+        # the browser frame this state was collected from.
+        fa = os.path.join(args.pairs_dir, "frames", f"{rec['idx']:04d}_a.png")
+        if os.path.exists(fa):
+            from PIL import Image
+
+            ref_frame = np.asarray(Image.open(fa))[
+                pane2d.TOOLBAR:, :pane2d.PANE, :3].mean(axis=2)
+            ref_vs_chrome.append(block_ssim(em_ref, ref_frame))
+            crop_vs_chrome.append(block_ssim(crop, ref_frame))
 
         # ids must survive the crop exactly -- they are label values, and a
         # single wrong id tints the wrong neuron.
@@ -119,6 +133,10 @@ def main() -> int:
     print("\n============== overscan crop vs direct fetch ==============")
     print(f"states                      : {len(same)}")
     print(f"block_ssim, same centre     : {np.median(same):.4f}")
+    if ref_vs_chrome:
+        rc, cc = np.median(ref_vs_chrome), np.median(crop_vs_chrome)
+        print(f"vs CHROME, direct fetch     : {rc:.4f}")
+        print(f"vs CHROME, overscan crop    : {cc:.4f}   (delta {cc - rc:+.4f})")
     if moved:
         print(f"block_ssim, 15% move        : {np.median(moved):.4f}")
     if idmatch:
