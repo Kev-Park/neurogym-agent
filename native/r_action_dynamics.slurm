@@ -31,4 +31,4 @@ uv run --no-sync python native/probe_action_dynamics.py --mode browser \
 
 uv run --no-sync python native/probe_action_dynamics.py --mode native \
   --config configs/native_select.yaml --browser-jsonl "$OUT" \
-  --steps "$STEPS" --obs "$OBS"
+  --steps "$STEPS" --obs "$OBS" --sequence "$SEQ"
