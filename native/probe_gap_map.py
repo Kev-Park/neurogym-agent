@@ -72,6 +72,7 @@ def main() -> int:
     from PIL import Image
 
     from ngllib.native import pane2d
+    from ngllib.native.pane2d import mask_ui, mask_ui_enabled
     from ngllib_agent.env_build import build_env, load_config
 
     cfg = load_config(args.config)
@@ -97,6 +98,13 @@ def main() -> int:
             continue
         ours = np.asarray(obs["image"], np.uint8)
         ref = np.asarray(Image.open(fa))[..., :3]
+        if mask_ui_enabled():
+            # The stored browser frames predate the mask. It is a pure function
+            # of pixel position, so masking them here is exactly equivalent to
+            # Chrome having applied it -- and without this the probe compares a
+            # masked render against an unmasked reference and reports the mask
+            # as a REGRESSION.
+            ref = mask_ui(ref)
         acc2.append(block_map(ours[:, :P], ref[:, :P]))
         acc3.append(block_map(ours[:, P:2 * P], ref[:, P:2 * P]))
         print(f"[{rec['idx']:04d}] mapped", flush=True)

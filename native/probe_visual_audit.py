@@ -93,6 +93,7 @@ def main() -> int:
     from PIL import Image
 
     from ngllib.native import pane2d
+    from ngllib.native.pane2d import mask_ui, mask_ui_enabled
     from ngllib.native.em import unpack_ids, worker_pane_parts
 
     T, P, PH = pane2d.TOOLBAR, pane2d.PANE, pane2d.PANE_H
@@ -110,6 +111,8 @@ def main() -> int:
             continue
         A = np.asarray(Image.open(fa))[..., :3]
         B = np.asarray(Image.open(fb))[..., :3]
+        if mask_ui_enabled():
+            A, B = mask_ui(A), mask_ui(B)   # stored frames predate the mask
 
         try:
             em_gray, ids_p, _plane = worker_pane_parts(
@@ -122,6 +125,12 @@ def main() -> int:
             continue
         canvas = pane2d.compose_left_parts(
             em_gray, unpack_ids(ids_p), (str(st["segments"][0]),))
+        if mask_ui_enabled():
+            # compose_left_parts returns the 2D pane alone, so mask it inside a
+            # full-width frame and take the pane back out.
+            _f = np.zeros((450, 900, 3), np.uint8)
+            _f[:, :pane2d.PANE] = canvas
+            canvas = mask_ui(_f)[:, :pane2d.PANE]
 
         # --- 2D pane, whole (toolbar included) and EM region only ----------
         a2, b2, n2 = A[:, :P], B[:, :P], canvas

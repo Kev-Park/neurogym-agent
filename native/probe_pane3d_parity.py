@@ -60,6 +60,7 @@ def main() -> int:
     from PIL import Image
 
     from ngllib.native import pane2d
+    from ngllib.native.pane2d import mask_ui, mask_ui_enabled
     from ngllib_agent.env_build import build_env, load_config
 
     cfg = load_config(args.config)
@@ -88,8 +89,12 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             print(f"[{rec['idx']:04d}] reset failed: {e}", flush=True)
             continue
-        ours = np.asarray(obs["image"], np.uint8)[T:, P:2 * P, :3]
-        ref = np.asarray(Image.open(fa))[T:, P:2 * P, :3]
+        ours = np.asarray(obs["image"], np.uint8)
+        ref = np.asarray(Image.open(fa))[..., :3]
+        if mask_ui_enabled():
+            ref = mask_ui(ref)      # stored frames predate the mask
+        ours = ours[T:, P:2 * P, :3]
+        ref = ref[T:, P:2 * P, :3]
 
         s, con = block_stats(ours, ref)
         sel = con > 12
