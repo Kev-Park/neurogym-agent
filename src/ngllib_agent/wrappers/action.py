@@ -31,6 +31,11 @@ _NGL_EDIT_STATE = 3
 
 @dataclass(frozen=True)
 class ActionSpec:
+    # 3 = right_click / rotate / zoom (every checkpoint before 2026-09-10);
+    # 4 adds double_click. Part of the spec because it sizes the policy head:
+    # a 3-verb checkpoint cannot be loaded into a 4-verb module. Configs say
+    # which they are (action.verbs); the default is the current action space.
+    verbs: int = 4
     grid_rows: int = 32
     grid_cols: int = 64
     pane_x0: float = 0.0
@@ -46,10 +51,14 @@ class ActionSpec:
     def num_cells(self) -> int:
         return self.grid_rows * self.grid_cols
 
+    def __post_init__(self) -> None:
+        if self.verbs not in (3, 4):
+            raise ValueError(f"verbs must be 3 or 4; got {self.verbs}")
+
     def nvec(self) -> list[int]:
         # [action_type, click_cell, rot_x, rot_y, rot_z, zoom]
         r = self.rotation_bins_per_axis
-        return [4, self.num_cells, r, r, r, self.zoom_bins]
+        return [self.verbs, self.num_cells, r, r, r, self.zoom_bins]
 
 
 def _bin_to_signed(bin_index: int, bins_per_axis: int, step: float) -> float:
@@ -99,7 +108,7 @@ def decode(md_action, spec: ActionSpec, orient_dim: int = 3) -> dict[str, Any]:
     elif a_type == 2:  # zoom (projection scale delta)
         act["action_type"] = _NGL_EDIT_STATE
         act["delta_proj_scale"][0] = _bin_to_signed(dzoom, spec.zoom_bins, spec.zoom_step)
-    elif a_type == 3:  # double_click: NG `select` toggles the segment
+    elif a_type == 3 and spec.verbs == 4:  # double_click: NG `select` toggles the segment
         act["action_type"] = _NGL_DOUBLE_CLICK
         x, y = cell_to_pixel(cell, spec)
         act["mouse_xy"] = np.array([x, y], dtype=np.float32)

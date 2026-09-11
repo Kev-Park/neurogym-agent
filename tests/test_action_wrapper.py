@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from ngllib_agent.wrappers import ActionSpec, cell_to_pixel, decode
 
@@ -95,7 +96,6 @@ def test_wrapper_instantiation_and_decode():
 def test_wrapper_rejects_quaternion():
     import gymnasium as gym
     from gymnasium import spaces
-    import pytest
 
     from ngllib_agent.wrappers import MultiDiscreteActionWrapper
 
@@ -108,3 +108,33 @@ def test_wrapper_rejects_quaternion():
 
     with pytest.raises(ValueError):
         MultiDiscreteActionWrapper(_QStub(), SPEC)
+
+
+def test_three_verb_spec_matches_legacy_checkpoints():
+    """Every checkpoint before 2026-09-10 has a 3-verb head over the 3D-pane
+    grid; the spec must still be able to describe it, and a verb-3 sample
+    must never decode to a double-click there."""
+    legacy = ActionSpec(verbs=3, grid_cols=32, pane_x0=900.0)
+    assert legacy.nvec() == [3, 1024, 9, 9, 9, 9]
+    act = decode([0, 0, 4, 4, 4, 4], legacy)
+    assert act["action_type"] == 1
+
+    with pytest.raises(ValueError):
+        ActionSpec(verbs=5)
+
+
+def test_hierarchical_head_accepts_both_verb_counts():
+    torch = pytest.importorskip("torch")
+    from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
+
+    for verbs in (3, 4):
+        cls = HierarchicalMultiCategorical.for_nvec([verbs, 8, 3, 3, 3, 3])
+        logits = torch.zeros(2, verbs + 8 + 3 * 3 + 3)
+        d = cls.from_logits(logits)
+        a = torch.zeros(2, 6, dtype=torch.long)
+        a[1, 0] = verbs - 1                       # last verb (zoom for 3, select for 4)
+        assert d.logp(a).shape == (2,)
+        assert torch.isfinite(d.entropy()).all()
+        assert torch.isfinite(d.kl(cls.from_logits(logits + 0.1))).all()
+    with pytest.raises(ValueError):
+        HierarchicalMultiCategorical.for_nvec([5, 8, 3, 3, 3, 3])

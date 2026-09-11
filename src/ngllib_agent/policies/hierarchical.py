@@ -41,7 +41,7 @@ from ray.rllib.utils.annotations import override
 class HierarchicalMultiCategorical(TorchMultiCategorical):
     """TorchMultiCategorical with verb-gated logp/entropy/kl.
 
-    Component order must be `[type(3), cell, rot_x, rot_y, rot_z, zoom]`.
+    Component order must be `[type(3|4), cell, rot_x, rot_y, rot_z, zoom]`.
     Use `for_nvec(nvec)` to bind the logit split sizes (RLlib instantiates
     distribution classes via `from_logits(logits)` with no extra args).
     """
@@ -52,8 +52,11 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
     @classmethod
     def for_nvec(cls, nvec, normalize_entropy: bool = False) -> type:
         lens = [int(n) for n in nvec]
-        if len(lens) != 6 or lens[0] != 3:
-            raise ValueError(f"expected nvec [3, cells, R, R, R, Z]; got {lens}")
+        # 3 verbs (right_click / rotate / zoom) or 4 (+ double_click, 2026-09-10).
+        # The verb count sizes the head, so it comes from the ActionSpec the
+        # config declares -- a 3-verb checkpoint loads only into a 3-verb module.
+        if len(lens) != 6 or lens[0] not in (3, 4):
+            raise ValueError(f"expected nvec [3|4, cells, R, R, R, Z]; got {lens}")
 
         class _Bound(cls):
             _input_lens = lens
@@ -73,12 +76,17 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
     def _type_probs(self) -> torch.Tensor:
         return torch.softmax(self._cats[0].logits, dim=-1)
 
+    def _cell_weight(self, p: torch.Tensor) -> torch.Tensor:
+        """Probability mass on the verbs that use the cell head."""
+        return p[..., 0] + (p[..., 3] if p.shape[-1] == 4 else 0.0)
+
     @override(TorchMultiCategorical)
     def logp(self, value: torch.Tensor) -> torch.Tensor:
         parts = torch.unbind(value, dim=-1)
         typ = parts[0].long()
         lp = [cat.logp(act) for cat, act in zip(self._cats, parts)]
-        is_click = (typ == 0).float()
+        # Verbs 0 (right_click) and 3 (double_click) both spend the cell head.
+        is_click = ((typ == 0) | (typ == 3)).float()
         is_rotate = (typ == 1).float()
         is_zoom = (typ == 2).float()
         return (
@@ -105,13 +113,13 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
             n_verb, n_cell, r, _, _, n_zoom = self._input_lens
             return (
                 h[0] / math.log(n_verb)
-                + p[..., 0] * h[1] / math.log(n_cell)
+                + self._cell_weight(p) * h[1] / math.log(n_cell)
                 + p[..., 1] * (h[2] + h[3] + h[4]) / (3.0 * math.log(r))
                 + p[..., 2] * h[5] / math.log(n_zoom)
             )
         return (
             h[0]
-            + p[..., 0] * h[1]
+            + self._cell_weight(p) * h[1]
             + p[..., 1] * (h[2] + h[3] + h[4])
             + p[..., 2] * h[5]
         )
@@ -122,7 +130,7 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
         p = self._type_probs()
         return (
             kls[0]
-            + p[..., 0] * kls[1]
+            + self._cell_weight(p) * kls[1]
             + p[..., 1] * (kls[2] + kls[3] + kls[4])
             + p[..., 2] * kls[5]
         )
