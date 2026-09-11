@@ -79,9 +79,11 @@ def main() -> int:
         if not os.path.exists(fa):
             continue
         st = rec["requested_state"]
-        ti = {"segment_id": str(st["segments"][0])}
+        # No task_info: the env derives it via provider.task_info_from_state.
+        # Passing {"segment_id": ...} alone drops z_max/z_min and the reward
+        # factory raises at reset.
         try:
-            obs, _ = inner.reset(options={"state": st, "task_info": ti})
+            obs, _ = inner.reset(options={"state": st})
         except Exception as e:  # noqa: BLE001
             print(f"[{rec['idx']:04d}] reset failed: {e}", flush=True)
             continue
