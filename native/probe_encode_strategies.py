@@ -13,6 +13,12 @@ Modes:
 RLlib mapping: per-runner == an env-to-module connector inside each
 EnvRunner (idiomatic). service == a custom Ray actor called from env code
 (possible, not native). This probe prices both without RLlib in the loop.
+
+Historical note (2026-09-11): the production render+encode service this
+mode motivated was deleted in the renderer-seam refactor after local mode
+measured ~2x its throughput at matched multi-node topology
+(renderer_seam_plan.md 7.0). The mode here is self-contained (mp queues +
+the DINO encoder) and still runs; it is kept as the measurement record.
 """
 
 from __future__ import annotations

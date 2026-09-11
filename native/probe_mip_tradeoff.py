@@ -6,7 +6,7 @@ re-crop or prewarm (native 11, 41, 41, 41, 40.5, 41 against Chrome's 0 six
 times). Chrome answers instantly because it renders the moved view from COARSE
 mips it already holds and refines afterwards -- multiscale slice rendering.
 
-This codebase implements that as NGL_NATIVE_PANE_MODE=progressive, and the
+This codebase implements that as SimulatorRenderer(pane_mode="progressive"), and the
 pane-mode campaign already measured it: a blurry current pane cost 11pp against
 a sharp stale one. But `progressive` only ever tested the extreme, max_px=256 --
 a 16x voxel reduction. The middle of the curve was never probed.
