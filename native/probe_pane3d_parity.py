@@ -74,6 +74,7 @@ def main() -> int:
     T, P = pane2d.TOOLBAR, pane2d.PANE
     whole, content, fg_n, fg_c = [], [], [], []
     iou, inten, hue = [], [], []
+    iou_mesh, iou_plane = [], []
     records = [json.loads(line) for line in
                open(os.path.join(args.pairs_dir, "states.jsonl"))][:args.limit]
     for rec in records:
@@ -114,6 +115,20 @@ def main() -> int:
         mc = ref.mean(axis=2) > 12
         u = (mn | mc).sum()
         iou.append(float((mn & mc).sum() / u) if u else float("nan"))
+
+        # Split MESH from SECTION PLANE. They mix in the "drawn" mask but have
+        # different causes and different fixes: the plane is a quad whose
+        # extent and pose we control outright, while the mesh's silhouette
+        # depends on NG's per-chunk LOD, which we do not implement. A poor
+        # plane IoU would be our own geometry and cheap to correct; a poor mesh
+        # IoU is the LOD difference and is not.
+        cn = (ours.std(axis=2) > 18) & mn      # coloured => mesh
+        cc = (ref.std(axis=2) > 18) & mc
+        gn = mn & ~cn                          # grey => section plane
+        gc = mc & ~cc
+        um, ug = (cn | cc).sum(), (gn | gc).sum()
+        iou_mesh.append(float((cn & cc).sum() / um) if um else float("nan"))
+        iou_plane.append(float((gn & gc).sum() / ug) if ug else float("nan"))
         both = mn & mc
         if both.sum() > 64:
             a = ours[both].astype(np.float64)
@@ -136,7 +151,9 @@ def main() -> int:
     print(f"block_ssim, content blocks: {np.nanmedian(content):.4f}")
     print(f"fraction drawn  sim/Chrome: {np.median(fg_n):.3f} / "
           f"{np.median(fg_c):.3f}")
-    print(f"silhouette IoU            : {np.nanmedian(iou):.3f}")
+    print(f"silhouette IoU, all drawn : {np.nanmedian(iou):.3f}")
+    print(f"  IoU, MESH pixels only   : {np.nanmedian(iou_mesh):.3f}")
+    print(f"  IoU, section PLANE only : {np.nanmedian(iou_plane):.3f}")
     if inten:
         print(f"brightness sim/Chrome     : {np.nanmedian(inten):.3f}"
               "   (on pixels BOTH draw)")
