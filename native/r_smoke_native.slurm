@@ -14,7 +14,7 @@
 # SimulatorRenderer end-to-end smoke: random policy, a few pairs, dino obs —
 # exercises build_env(backend=native) + full wrapper stack + eval loop.
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 export PYTHONUNBUFFERED=1
 uv run --no-sync python scripts/eval_d0.py \

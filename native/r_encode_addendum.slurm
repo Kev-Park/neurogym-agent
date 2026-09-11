@@ -14,7 +14,7 @@
 # Coarse per-runner-batched shapes (4x8, 2x16) to complete the shape curve
 # (8x4=211 > 16x2=130 sps; batch-size curve says coarser may win more).
 set -e
-cd /scratch/kp0374/wt/neurogym-agent-native
+cd "${SLURM_SUBMIT_DIR:-$(pwd)}"   # the checkout this was submitted from
 export PYTHONUNBUFFERED=1
 export NGL_NATIVE_FETCH_WORKERS=1
 for round in 4:8 2:16; do

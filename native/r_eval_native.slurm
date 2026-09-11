@@ -26,7 +26,7 @@
 # Env: EVAL_CONFIG picks the config -- right-pane-only policies need
 # configs/native_v9test_noleft.yaml to match their observation space.
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 export PYTHONUNBUFFERED=1
 PKL=$1; shift || true

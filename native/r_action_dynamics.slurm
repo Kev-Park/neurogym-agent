@@ -15,7 +15,7 @@
 # select was measured alone and responds fetch-free; the verbs that MOVE the
 # viewer still refetch tiles and are the ones that can diverge.
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 export PYTHONUNBUFFERED=1
 if [ -n "$REUSE_JSONL" ]; then

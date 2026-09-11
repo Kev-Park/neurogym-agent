@@ -16,7 +16,7 @@
 # ../r_eval_video.slurm, which cds into the main repo instead.
 #   sbatch native/r_eval_video_native.slurm <ckpt.pkl> <out-subdir> [extra]
 set -e
-cd /scratch/kp0374/wt/neurogym-agent-native
+cd "${SLURM_SUBMIT_DIR:-$(pwd)}"   # the checkout this was submitted from
 export PYTHONUNBUFFERED=1
 PKL=${1:?state pickle path}
 OUT=${2:?output subdir}

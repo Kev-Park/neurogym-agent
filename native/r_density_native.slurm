@@ -16,7 +16,7 @@
 # Density sweep: dino (production path) at M=4..32, plus a render-only
 # ceiling (pos obs discards the image after render) at M=16.
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 export PYTHONUNBUFFERED=1
 uv run --no-sync python native/probe_native_density.py \

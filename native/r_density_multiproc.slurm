@@ -16,7 +16,7 @@
 # Python is GIL-serialized); node throughput should scale with K instead.
 # Node sps = sum of the K DENSITY lines per round.
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 export PYTHONUNBUFFERED=1
 export NGL_NATIVE_FETCH_WORKERS=3

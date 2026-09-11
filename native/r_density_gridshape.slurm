@@ -18,7 +18,7 @@
 # decides if that shape is even admissible.
 # Node sps per round = sum of its DENSITY lines.
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 export PYTHONUNBUFFERED=1
 

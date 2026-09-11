@@ -21,7 +21,7 @@
 # Chrome's answers do not depend on the simulator, so iterating on the pick
 # only needs the (fast) native pass.
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 export PYTHONUNBUFFERED=1
 FRAMES=/scratch/kp0374/native_spike/select_frames_$SLURM_JOB_ID

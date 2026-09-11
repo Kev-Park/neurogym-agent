@@ -12,6 +12,6 @@
 #SBATCH --output=/scratch/kp0374/native_spike/slurm-%x-%j.out
 
 set -e
-cd /scratch/kp0374/wt/neurogym-agent-native
+cd "${SLURM_SUBMIT_DIR:-$(pwd)}"   # the checkout this was submitted from
 export PYTHONUNBUFFERED=1
 uv run --no-sync python native/probe_gap_map.py   --pairs-dir /scratch/kp0374/native_spike/pairs_v1 --limit 12

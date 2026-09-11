@@ -15,7 +15,7 @@
 # Both passes write into the same frame directory so the native pass can score
 # frame-by-frame SSIM against the browser at matching step indices.
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 export PYTHONUNBUFFERED=1
 OUT=/scratch/kp0374/native_spike/dyn_browser_$SLURM_JOB_ID.jsonl

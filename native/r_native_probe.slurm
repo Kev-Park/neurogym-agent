@@ -15,7 +15,7 @@
 
 # EGL + CloudVolume feasibility probe (spike venv, native-renderer worktree).
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 VENV=/scratch/kp0374/native_spike/.venv
 export PYTHONUNBUFFERED=1
 "$VENV/bin/python" "$WT/native/probe_native_stack.py"

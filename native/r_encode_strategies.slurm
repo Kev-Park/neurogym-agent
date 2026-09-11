@@ -15,7 +15,7 @@
 # per-runner batched shapes (K procs x M envs, node totals = sum of
 # PERRUNNER lines per round), then the per-node service.
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 export PYTHONUNBUFFERED=1
 

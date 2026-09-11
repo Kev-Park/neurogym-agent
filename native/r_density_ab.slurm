@@ -20,7 +20,7 @@
 # could be paid for in aggregate steps/sec, which is the number this project
 # actually optimises. Same node, same density, both arms.
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 export PYTHONUNBUFFERED=1
 M=${THREADS:-16}

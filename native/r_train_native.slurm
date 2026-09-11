@@ -35,7 +35,7 @@
 #
 # Usage: sbatch native/r_train_native.slurm [run-name] [target-iters]
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 RUN=${1:-native-v9-test}
 ITERS=${2:-740}

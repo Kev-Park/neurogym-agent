@@ -24,7 +24,7 @@
 # configs/ppo_zmax_navigate_noleft.yaml so the observation space matches
 # what they trained on.
 set -e
-WT=/scratch/kp0374/wt/neurogym-agent-native
+WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
 export PYTHONUNBUFFERED=1
 PKL=$1

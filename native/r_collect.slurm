@@ -18,5 +18,5 @@ set -e
 cd /scratch/kp0374/neurogym-agent
 export PYTHONUNBUFFERED=1
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python \
-    /scratch/kp0374/wt/neurogym-agent-native/native/collect_pairs.py \
+    "${SLURM_SUBMIT_DIR:-$(pwd)}"/native/collect_pairs.py \
     --n-states 300 --out-dir /scratch/kp0374/native_spike/pairs_v1
