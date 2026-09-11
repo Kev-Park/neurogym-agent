@@ -27,7 +27,7 @@ os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/native_select.yaml")
-    ap.add_argument("--settle-s", type=float, default=2.0)
+    ap.add_argument("--settle-s", type=float, default=10.0)
     args = ap.parse_args()
 
     from ngllib_agent.env_build import build_env, load_config
@@ -54,12 +54,31 @@ def main():
         moved["projectionScale"] = bad_ps
         url = chrome._state_to_url(moved)
         chrome.page.goto(url)
-        time.sleep(args.settle_s)
-        try:
-            after = chrome._get_json_state()
-        except Exception as e:  # noqa: BLE001
-            print(f"ps={bad_ps}: readback failed: {e}", flush=True)
-            verdicts.append((bad_ps, "READBACK-FAILED"))
+        # First run (job 883827): 2 s after the bad navigation the readback had
+        # NO `position` key at all -- the very KeyError('position') glitch the
+        # Chrome env used to truncate episodes on. So poll, and print exactly
+        # which fields NG exposes as time passes, before judging.
+        after = None
+        for t in range(int(args.settle_s * 5)):
+            time.sleep(0.2)
+            try:
+                raw = chrome._get_json_state()
+            except Exception as e:  # noqa: BLE001
+                print(f"ps={bad_ps} t={0.2 * (t + 1):.1f}s: readback failed: {e}", flush=True)
+                continue
+            have = sorted(k for k in ("position", "crossSectionScale", "projectionScale",
+                                      "projectionOrientation") if k in raw)
+            if t % 5 == 4 or len(have) == 4:
+                print(f"ps={bad_ps} t={0.2 * (t + 1):.1f}s: fields present {have}", flush=True)
+            if len(have) == 4:
+                after = raw
+                break
+        if after is None:
+            print(f"ps={bad_ps}: viewer state never regained all fields within "
+                  f"{args.settle_s}s -- NG's parse failure leaves the state UNREADABLE, "
+                  "which the old Chrome env surfaced as a missing-fields glitch and an "
+                  "episode truncation, not as any state transition.", flush=True)
+            verdicts.append((bad_ps, "UNREADABLE: whole state unavailable after a rejected zoom"))
             continue
         pos_moved = [round(a - b, 3) for a, b in
                      zip(after["position"], start["position"])]
