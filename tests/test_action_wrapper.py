@@ -8,7 +8,8 @@ SPEC = ActionSpec()
 
 
 def test_nvec():
-    assert SPEC.nvec() == [3, 1024, 9, 9, 9, 9]
+    # 4 verbs (right-click, rotate, zoom, select) over a 32x64 grid spanning both panes
+    assert SPEC.nvec() == [4, 2048, 9, 9, 9, 9]
 
 
 def test_cell_to_pixel_within_pane():
@@ -86,7 +87,7 @@ def test_wrapper_instantiation_and_decode():
             return None, 0.0, False, False, {}
 
     w = MultiDiscreteActionWrapper(_Stub(), SPEC)
-    assert list(w.action_space.nvec) == [3, 1024, 9, 9, 9, 9]
+    assert list(w.action_space.nvec) == [4, 2048, 9, 9, 9, 9]
     act = w.action([1, 0, 8, 0, 4, 0])  # rotate
     assert act["action_type"] == 3
     assert np.isclose(act["delta_orient"][0], 4 * SPEC.rotation_step_rad)
