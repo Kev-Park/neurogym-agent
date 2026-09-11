@@ -1433,10 +1433,12 @@ wheels = [
 
 [[package]]
 name = "ngllib"
-version = "0.2.0"
-source = { editable = "../neurogym-native" }
+version = "0.3.0"
+source = { editable = "../neurogym-refactor" }
 dependencies = [
+    { name = "cloud-volume" },
     { name = "gymnasium" },
+    { name = "moderngl" },
     { name = "msgpack" },
     { name = "numpy" },
     { name = "pillow" },
@@ -1447,7 +1449,9 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cloud-volume", specifier = ">=8.0" },
     { name = "gymnasium", specifier = ">=1.0" },
+    { name = "moderngl", specifier = ">=5.10" },
     { name = "msgpack" },
     { name = "numpy" },
     { name = "pillow" },
@@ -1461,10 +1465,8 @@ name = "ngllib-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "cloud-volume" },
     { name = "duckdb" },
     { name = "gymnasium" },
-    { name = "moderngl" },
     { name = "ngllib" },
     { name = "numpy" },
     { name = "pyarrow" },
@@ -1484,11 +1486,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cloud-volume", specifier = ">=8.0" },
     { name = "duckdb", specifier = ">=0.10" },
     { name = "gymnasium" },
-    { name = "moderngl", specifier = ">=5.10" },
-    { name = "ngllib", editable = "../neurogym-native" },
+    { name = "ngllib", editable = "../neurogym-refactor" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pyarrow", specifier = ">=14.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
