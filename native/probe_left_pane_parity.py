@@ -101,8 +101,8 @@ def main() -> int:
     ap.add_argument("--output", default=None)
     args = ap.parse_args()
 
-    from ngllib.native import pane2d
-    from ngllib.native.em import unpack_ids, worker_pane_parts
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.em import Source, unpack_ids, worker_pane_parts
 
     PANE, TOOLBAR, PANE_H = pane2d.PANE, pane2d.TOOLBAR, pane2d.PANE_H
 
@@ -133,7 +133,7 @@ def main() -> int:
 
         try:
             em_gray, ids_packed, _plane = worker_pane_parts(
-                args.cache_dir, list(st["position"]),
+                Source.calibrated(args.cache_dir), list(st["position"]),
                 float(st["crossSectionScale"]))
             canvas = pane2d.compose_left_parts(
                 em_gray, unpack_ids(ids_packed), (str(st["segments"][0]),))

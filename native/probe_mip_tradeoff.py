@@ -67,8 +67,8 @@ def main() -> int:
 
     from PIL import Image
 
-    from ngllib.native import pane2d
-    from ngllib.native.em import EMTiles
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.em import EMTiles, Source
 
     mips = [512, 1024, 1536, 2048, 3072]
     lat: dict[int, list] = {m: [] for m in mips}
@@ -94,7 +94,7 @@ def main() -> int:
 
         line = [f"[{rec['idx']:04d}]"]
         for m in mips:
-            em = EMTiles(args.cache_dir)      # cold, as a move would be
+            em = EMTiles(Source.calibrated(args.cache_dir))      # cold, as a move would be
             t0 = time.monotonic()
             try:
                 tile = em.tile(shifted, ext[0], ext[1], m, True)

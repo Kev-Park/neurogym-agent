@@ -1,10 +1,10 @@
 # Native-backend config (eval + training). Identical to
-# configs/ppo_zmax_navigate.yaml except env.backend: native (+ cv_cache),
+# configs/ppo_zmax_navigate.yaml except env.backend: simulator (+ cv_cache),
 # so both eval numbers and training runs are attributable to the renderer
 # swap alone. Keep the two files in lockstep.
 
 env:
-  backend: native
+  backend: simulator
   # ABLATION: identical to native_v9test.yaml but cv_cache OFF, so
   # this vs native_v9test isolates the cache (fetch speed => tile
   # staleness), and this vs native.yaml isolates the curriculum

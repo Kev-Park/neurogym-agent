@@ -107,7 +107,7 @@ def click_to_tile_rc(state, x_css, y_css):
     first -- builds the 11.5 px difference between them into the diagnostic,
     which then reports a large offset even once the pick is correct.
     """
-    from ngllib.native import pane2d
+    from ngllib.simulator import pane2d
 
     pos = np.asarray(state["position"], np.float64) * pane2d.VOXEL_NM
     xs = float(state["crossSectionScale"])
@@ -130,10 +130,10 @@ def diagnose_pick(inner, state, x_css, y_css, browser_id, native_id):
         different data or the CSS->world mapping is wrong (a real bug).
     Returns (distance_px or None, browser_id_present_in_tile).
     """
-    from ngllib.native import pane2d
-    from ngllib.native.em import EMTiles
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.em import EMTiles, Source
 
-    em = EMTiles(getattr(inner, "_cache_dir", None))
+    em = EMTiles(inner.renderer.source)
     pos = np.asarray(state["position"], np.float64) * pane2d.VOXEL_NM
     xs = float(state["crossSectionScale"])
     ext = pane2d.pane_extents_nm(xs)
@@ -164,10 +164,10 @@ def pick_offset_votes(inner, state, x_css, y_css, want_id, radius=24):
 
     Offsets are in CAPTURED px (half a CSS px), the units LEFT_SHIFT_PX uses.
     """
-    from ngllib.native import pane2d
-    from ngllib.native.em import EMTiles
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.em import EMTiles, Source
 
-    em = EMTiles(getattr(inner, "_cache_dir", None))
+    em = EMTiles(inner.renderer.source)
     pos = np.asarray(state["position"], np.float64) * pane2d.VOXEL_NM
     xs = float(state["crossSectionScale"])
     ext = pane2d.pane_extents_nm(xs)
@@ -273,7 +273,7 @@ def browser_segments(env) -> list[str]:
     rewrites an entry to "!<id>" instead of removing it. Stripping the prefix
     would make a toggle-off look like no change at all.
     """
-    st = env._get_json_state()
+    st = env.renderer._get_json_state()   # ChromeRenderer: the raw viewer JSON
     segs: list[str] = []
     for layer in st.get("layers", []):
         for s in layer.get("segments", []) or []:
@@ -356,7 +356,7 @@ def mode_native(args) -> int:
                 r_before = tint_frac(obs["image"], 450, 900)
                 obs2 = inner.step(dict_action(x, y))[0]
                 obs2 = settle(inner, args.settle_steps) or obs2
-                after = sorted(str(s) for s in inner._json_state["segments"])
+                after = sorted(str(s) for s in inner._state["segments"])
                 t_after = tint_frac(obs2["image"], 0, 450)
                 r_after = tint_frac(obs2["image"], 450, 900)
             except Exception as e:  # noqa: BLE001

@@ -92,9 +92,9 @@ def main() -> int:
 
     from PIL import Image
 
-    from ngllib.native import pane2d
-    from ngllib.native.pane2d import mask_ui, mask_ui_enabled
-    from ngllib.native.em import unpack_ids, worker_pane_parts
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.pane2d import mask_ui, mask_ui_enabled
+    from ngllib.simulator.em import Source, unpack_ids, worker_pane_parts
 
     T, P, PH = pane2d.TOOLBAR, pane2d.PANE, pane2d.PANE_H
     acc: dict[str, list] = {k: [] for k in (
@@ -116,7 +116,7 @@ def main() -> int:
 
         try:
             em_gray, ids_p, _plane = worker_pane_parts(
-                args.cache_dir, list(st["position"]),
+                Source.calibrated(args.cache_dir), list(st["position"]),
                 float(st["crossSectionScale"]))
         except Exception as e:  # noqa: BLE001
             print(f"[{rec['idx']:04d}] fetch failed: {e}", flush=True)

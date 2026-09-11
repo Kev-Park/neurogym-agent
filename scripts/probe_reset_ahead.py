@@ -30,8 +30,10 @@ def main() -> int:
     cfg = load_config("configs/ppo_zmax_navigate.yaml")
     ec = cfg["env"]
     env = ngllib.Environment(
-        headless=True, renderer="gpu", orientation="euler",
-        left_pane=True, right_pane=True, window_size=(1800, 900),
+        backend=ngllib.ChromeRenderer(
+            headless=True, renderer="gpu", left_pane=True, right_pane=True, window_size=(1800, 900),
+        ),
+        orientation="euler",
         reset_state_provider=FlywireSkeletonProvider(ec["parquet_path"]),
         reset_ahead=True, reset_ahead_after_steps=20,
     )

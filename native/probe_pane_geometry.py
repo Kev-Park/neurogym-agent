@@ -61,11 +61,11 @@ def main() -> int:
 
     from PIL import Image
 
-    from ngllib.native import pane2d
-    from ngllib.native.em import EMTiles
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.em import EMTiles, Source
 
     PANE = pane2d.PANE
-    em = EMTiles(args.cache_dir)
+    em = EMTiles(Source.calibrated(args.cache_dir))
     records = [json.loads(line) for line in
                open(os.path.join(args.pairs_dir, "states.jsonl"))][:args.limit]
 

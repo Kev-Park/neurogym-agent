@@ -43,12 +43,12 @@ def main() -> int:
 
     from PIL import Image
 
-    from ngllib.native import pane2d
-    from ngllib.native.em import EMTiles, unpack_ids, worker_pane_parts
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.em import EMTiles, Source, unpack_ids, worker_pane_parts
 
     records = [json.loads(line) for line in
                open(os.path.join(args.pairs_dir, "states.jsonl"))][:args.limit]
-    em = EMTiles(args.cache_dir)
+    em = EMTiles(Source.calibrated(args.cache_dir))
     ok = 0
     for rec in records:
         st = rec["requested_state"]
@@ -62,7 +62,7 @@ def main() -> int:
                            ext[0], ext[1], (pane2d.PANE, pane2d.PANE_H))
         n_ids = 0 if ids is None else int(np.unique(ids).size)
 
-        em_gray, ids_packed, _ = worker_pane_parts(args.cache_dir, pos, xs)
+        em_gray, ids_packed, _ = worker_pane_parts(Source.calibrated(args.cache_dir), pos, xs)
         tile_ids = unpack_ids(ids_packed)
         one = pane2d.compose_left_parts(em_gray, tile_ids, (rid,))
         allc = pane2d.compose_left_parts(em_gray, tile_ids, ())

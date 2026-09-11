@@ -36,12 +36,14 @@ def worker(i, cfg, T, barrier, results):
     base = None
     try:
         base = ngllib.Environment(
-            headless=True, renderer="gpu", orientation="euler",
-            left_pane=True, right_pane=True, window_size=(1800, 900),
+            backend=ngllib.ChromeRenderer(
+                headless=True, renderer="gpu", left_pane=True, right_pane=True, window_size=(1800, 900),
+            ),
+            orientation="euler",
             reset_state_provider=FlywireSkeletonProvider(ec["parquet_path"]),
         )
         base.reset(seed=i)
-        page = base.page
+        page = base.renderer.page
         cdp = page.context.new_cdp_session(page)
         for _ in range(3):  # warm the capture path
             cdp.send("Page.captureScreenshot", _SHOT)

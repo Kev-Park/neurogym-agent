@@ -11,7 +11,7 @@
 #SBATCH --time=00:30:00
 #SBATCH --output=/scratch/kp0374/native_spike/slurm-%x-%j.out
 
-# NativeEnvironment end-to-end smoke: random policy, a few pairs, dino obs —
+# SimulatorRenderer end-to-end smoke: random policy, a few pairs, dino obs —
 # exercises build_env(backend=native) + full wrapper stack + eval loop.
 set -e
 WT=/scratch/kp0374/wt/neurogym-agent-native

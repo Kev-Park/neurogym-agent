@@ -35,8 +35,8 @@ def main() -> int:
     ap.add_argument("--cache-dir", default=None)
     args = ap.parse_args()
 
-    from ngllib.native import pane2d
-    from ngllib.native.em import EMTiles
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.em import EMTiles, Source
 
     records = [json.loads(line) for line in
                open(os.path.join(args.pairs_dir, "states.jsonl"))][:args.limit]
@@ -48,7 +48,7 @@ def main() -> int:
         pos_nm = np.asarray(st["position"], np.float64) * pane2d.VOXEL_NM
         shifted = pane2d.shifted_fetch_center_nm(pos_nm, ext)
 
-        em = EMTiles(args.cache_dir)          # cold, as a move would be
+        em = EMTiles(Source.calibrated(args.cache_dir))          # cold, as a move would be
         t0 = time.monotonic()
         try:
             em.tile(shifted, ext[0], ext[1], 1024, True)

@@ -6,12 +6,12 @@
 # 1800 px instead of 32 over 900. The action space differs from native.yaml
 # (nvec[0] 3->4, cells 1024->2048), so checkpoints are NOT interchangeable.
 # Native-backend config (eval + training). Identical to
-# configs/ppo_zmax_navigate.yaml except env.backend: native (+ cv_cache),
+# configs/ppo_zmax_navigate.yaml except env.backend: simulator (+ cv_cache),
 # so both eval numbers and training runs are attributable to the renderer
 # swap alone. Keep the two files in lockstep.
 
 env:
-  backend: native
+  backend: simulator
   # no cv_cache: the NFS disk cache taxed cold fetches 4-30x (2026-08-28);
   # the env's in-RAM chunk LRU covers repeats
   parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet

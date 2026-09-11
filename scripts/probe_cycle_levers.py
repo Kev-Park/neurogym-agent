@@ -52,10 +52,12 @@ WEBGL_JS = """() => {
 def build(cfg, **kw):
     ec = cfg["env"]
     return ngllib.Environment(
-        headless=True, renderer="gpu", orientation="euler",
-        left_pane=True, right_pane=True, window_size=(1800, 900),
+        backend=ngllib.ChromeRenderer(
+            headless=True, renderer="gpu", left_pane=True, right_pane=True, window_size=(1800, 900),
+            **kw,   # the levers under test are all renderer-level (capture_scale, cache, flags)
+        ),
+        orientation="euler",
         reset_state_provider=FlywireSkeletonProvider(ec["parquet_path"]),
-        **kw,
     )
 
 
@@ -122,7 +124,7 @@ def main() -> int:
     for label, flags in (("off", None), ("on", FLAG_BUNDLE)):
         env = build(cfg, extra_launch_args=flags)
         obs, _ = env.reset(seed=0)
-        renderer = env.page.evaluate(WEBGL_JS)
+        renderer = env.renderer.page.evaluate(WEBGL_JS)
         ms = timed_steps(env, 30)
         img = env._prev_obs["image"]
         Image.fromarray(img).save(f"{OUT}/flagsC_{label}.png")

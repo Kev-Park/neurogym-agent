@@ -33,8 +33,10 @@ def build(extra_flags):
     cfg = load_config("configs/ppo_zmax_navigate.yaml")
     ec, ac = cfg["env"], cfg["action"]
     base = ngllib.Environment(
-        headless=True, renderer="gpu", orientation="euler",
-        left_pane=True, right_pane=True, window_size=(1800, 900),
+        backend=ngllib.ChromeRenderer(
+            headless=True, renderer="gpu", left_pane=True, right_pane=True, window_size=(1800, 900),
+        ),
+        orientation="euler",
         reset_state_provider=FlywireSkeletonProvider(ec["parquet_path"]),
     )
     x0, y0, x1, y1 = ac["pane_3d_bounds"]
@@ -59,7 +61,7 @@ def med(fn, n=25):
 
 def measure(label, extra_flags):
     env, base = build(extra_flags)
-    page = base.page
+    page = base.renderer.page
     cdp = page.context.new_cdp_session(page)
     cap = med(lambda: cdp.send("Page.captureScreenshot", {"format": "jpeg", "quality": 85}))
     lat = []

@@ -8,7 +8,7 @@ multi-mesh render.
 
 That number matters more than the 2D one: the 3D pane carries the task signal,
 and a policy that leans on it is leaning on whatever differs. So render it the
-way training does -- NativeEnvironment, right pane, reset to the collected
+way training does -- SimulatorRenderer, right pane, reset to the collected
 state -- and score against the browser frame, whole-pane and over content
 blocks (the pane is mostly black, and a whole-pane average hides a mismatch in
 the part that is actually drawn).
@@ -59,8 +59,8 @@ def main() -> int:
 
     from PIL import Image
 
-    from ngllib.native import pane2d
-    from ngllib.native.pane2d import mask_ui, mask_ui_enabled
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.pane2d import mask_ui, mask_ui_enabled
     from ngllib_agent.env_build import build_env, load_config
 
     cfg = load_config(args.config)

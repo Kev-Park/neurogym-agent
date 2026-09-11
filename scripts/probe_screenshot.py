@@ -22,9 +22,9 @@ def timed(env, type_, quality):
     for _ in range(N):
         t0 = time.perf_counter()
         if type_ == "jpeg":
-            env.page.screenshot(type="jpeg", quality=quality)
+            env.renderer.page.screenshot(type="jpeg", quality=quality)
         else:
-            env.page.screenshot(type="png")
+            env.renderer.page.screenshot(type="png")
         ts.append((time.perf_counter() - t0) * 1000)
     ts.sort()
     return ts[len(ts) // 2]  # median ms
@@ -36,8 +36,10 @@ def main() -> int:
 
     for (w, h) in [(1800, 900), (1200, 600), (900, 450), (600, 300)]:
         env = ngllib.Environment(
-            headless=True, renderer="gpu", orientation="euler",
-            left_pane=True, right_pane=True, window_size=(w, h),
+            backend=ngllib.ChromeRenderer(
+                headless=True, renderer="gpu", left_pane=True, right_pane=True, window_size=(w, h),
+            ),
+            orientation="euler",
             reset_state_provider=prov,
         )
         env.reset(seed=0)

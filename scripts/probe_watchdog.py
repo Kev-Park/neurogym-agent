@@ -27,12 +27,14 @@ def main() -> int:
 
     rcfg = ZRewardConfig(**{k: rc[k] for k in ("z_tolerance", "success", "z_shaping_coef", "step_penalty")})
     base = ngllib.Environment(
-        headless=True, renderer="gpu", orientation="euler",
-        left_pane=False, right_pane=True, image_size=(84, 84),
+        backend=ngllib.ChromeRenderer(
+            headless=True, renderer="gpu", left_pane=False, right_pane=True, image_size=(84, 84),
+            step_timeout_s=STEP_TIMEOUT, reset_timeout_s=120.0,
+        ),
+        orientation="euler",
         reset_state_provider=FlywireSkeletonProvider(ec["parquet_path"]),
         reward_factory=make_z_reward_factory(rcfg),
         termination_factory=make_z_termination_factory(rcfg),
-        step_timeout_s=STEP_TIMEOUT, reset_timeout_s=120.0,
     )
     x0, y0, x1, y1 = ac["pane_3d_bounds"]
     spec = ActionSpec(grid_rows=ac["grid_rows"], grid_cols=ac["grid_cols"],
@@ -43,7 +45,7 @@ def main() -> int:
     env = ResilientStepWrapper(MultiDiscreteActionWrapper(base, spec))
 
     obs, info = env.reset(seed=0)
-    pid = base._chrome_pid
+    pid = base.renderer._chrome_pid
     print(f"[probe] reset ok; chrome_pid={pid}", flush=True)
     assert pid is not None, "watchdog needs a chrome pid; none found"
 
@@ -61,7 +63,7 @@ def main() -> int:
     assert trunc is True, "resilient wrapper should truncate on the watchdog-killed step"
     assert dt < STEP_TIMEOUT + 15, f"watchdog should fire near {STEP_TIMEOUT}s, took {dt:.1f}s"
     # Chrome should be dead now (watchdog killed the stopped process).
-    still = base._chrome_pid
+    still = base.renderer._chrome_pid
     try:
         os.kill(pid, 0)
         alive = True
@@ -71,7 +73,7 @@ def main() -> int:
 
     # Recovery: next reset must relaunch a fresh browser and work.
     obs, info = env.reset()
-    new_pid = base._chrome_pid
+    new_pid = base.renderer._chrome_pid
     print(f"[probe] recovery reset ok; new chrome_pid={new_pid}", flush=True)
     assert new_pid is not None and new_pid != pid, "reset should relaunch a new browser"
     env.step(env.action_space.sample())

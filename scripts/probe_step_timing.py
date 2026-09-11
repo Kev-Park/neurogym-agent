@@ -25,8 +25,10 @@ def build_base(cfg):
     ec, rc = cfg["env"], cfg["reward"]
     rcfg = ZRewardConfig(**{k: rc[k] for k in ("z_tolerance", "success", "z_shaping_coef", "step_penalty")})
     base = ngllib.Environment(
-        headless=True, renderer="gpu", orientation="euler",
-        left_pane=True, right_pane=True, image_size=None,   # dino config: full 2-pane render
+        backend=ngllib.ChromeRenderer(
+            headless=True, renderer="gpu", left_pane=True, right_pane=True, image_size=None,   # dino config: full 2-pane render
+        ),
+        orientation="euler",
         reset_state_provider=FlywireSkeletonProvider(ec["parquet_path"]),
         reward_factory=make_z_reward_factory(rcfg),
         termination_factory=make_z_termination_factory(rcfg),
@@ -73,16 +75,25 @@ def main() -> int:
     print(f"[timing] browser step (apply+render+screenshot+state): {stats(t_step)}", flush=True)
     print(f"[timing] DINO encode (2 panes):                        {stats(t_dino)}", flush=True)
 
-    # Drill into the browser step: time ngllib internals directly.
+    # Drill into the browser step: time the renderer's internals directly.
     base = env.unwrapped
+    chrome = base.renderer
+    from ngllib import state as S
     from ngllib_agent.wrappers import decode
     spec = env._action_spec
     ta, tss, tjs = [], [], []
     for i in range(N):
         act = decode(env.action_space.sample(), spec, orient_dim=3)
-        t0 = time.perf_counter(); base._apply_actions(act); t1 = time.perf_counter()
-        base._get_screenshot(); t2 = time.perf_counter()
-        base._get_json_state(); t3 = time.perf_counter()
+        t0 = time.perf_counter()
+        if int(act["action_type"]) == 3:
+            chrome.set_state(S.apply_state_edit(base._state, act, "euler"))
+        else:
+            x, y = (float(v) for v in act["mouse_xy"])
+            chrome.click(S.CLICK_KINDS[int(act["action_type"])], x, y,
+                         S.modifiers_to_str(act["modifiers"]))
+        t1 = time.perf_counter()
+        chrome._get_screenshot(); t2 = time.perf_counter()
+        chrome._get_json_state(); t3 = time.perf_counter()
         ta.append((t1 - t0) * 1000); tss.append((t2 - t1) * 1000); tjs.append((t3 - t2) * 1000)
     print(f"[timing]   apply_action:  {stats(ta)}", flush=True)
     print(f"[timing]   screenshot:    {stats(tss)}", flush=True)

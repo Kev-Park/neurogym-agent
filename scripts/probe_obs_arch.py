@@ -42,12 +42,14 @@ from ngllib_agent.providers import FlywireSkeletonProvider
 def capture_frame(cfg):
     ec = cfg["env"]
     base = ngllib.Environment(
-        headless=True, renderer="gpu", orientation="euler",
-        left_pane=True, right_pane=True, window_size=(1800, 900),
+        backend=ngllib.ChromeRenderer(
+            headless=True, renderer="gpu", left_pane=True, right_pane=True, window_size=(1800, 900),
+        ),
+        orientation="euler",
         reset_state_provider=FlywireSkeletonProvider(ec["parquet_path"]),
     )
     base.reset(seed=0)
-    cdp = base.page.context.new_cdp_session(base.page)
+    cdp = base.renderer.page.context.new_cdp_session(base.renderer.page)
     res = cdp.send("Page.captureScreenshot", {"format": "jpeg", "quality": 85})
     jpeg = base64.b64decode(res["data"])
     base.close()

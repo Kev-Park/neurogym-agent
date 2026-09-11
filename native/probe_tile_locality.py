@@ -34,8 +34,8 @@ def main() -> int:
     ap.add_argument("--cache-dir", default=None)
     args = ap.parse_args()
 
-    from ngllib.native import pane2d
-    from ngllib.native.em import EMTiles
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.em import EMTiles, Source
 
     records = [json.loads(line) for line in
                open(os.path.join(args.pairs_dir, "states.jsonl"))][:args.limit]
@@ -45,7 +45,7 @@ def main() -> int:
     cold = []
     for rec in records:
         st = rec["requested_state"]
-        em = EMTiles(args.cache_dir)        # fresh: cold chunk LRU
+        em = EMTiles(Source.calibrated(args.cache_dir))        # fresh: cold chunk LRU
         pos = np.asarray(st["position"], np.float64) * pane2d.VOXEL_NM
         xs = float(st["crossSectionScale"])
         ext = pane2d.pane_extents_nm(xs)
@@ -81,7 +81,7 @@ def main() -> int:
     warm_after = []
     for rec in records[:args.limit]:
         st = rec["requested_state"]
-        em = EMTiles(args.cache_dir)
+        em = EMTiles(Source.calibrated(args.cache_dir))
         pos = np.asarray(st["position"], np.float64) * pane2d.VOXEL_NM
         xs = float(st["crossSectionScale"])
         ext = pane2d.pane_extents_nm(xs)

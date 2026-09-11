@@ -103,13 +103,13 @@ def main() -> int:
     # range varies per segment. When the requested level is absent that costs a
     # failed round-trip first, so the shipping path can be slower than the
     # per-level numbers above suggest. Time what actually runs.
-    from ngllib.native.em import MeshStore
+    from ngllib.simulator.em import MeshStore, Source
 
     print("\n--- MeshStore.get (the shipping path, with fallback) ---")
     for req in (0, 1, 2):
         ds = []
         for rid in list(seen):
-            store = MeshStore(None)      # fresh store: no LRU hit
+            store = MeshStore(Source.calibrated())      # fresh store: no LRU hit
             t0 = time.monotonic()
             try:
                 store.get(str(rid), req)

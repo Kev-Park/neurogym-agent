@@ -47,20 +47,15 @@ def build_argparser() -> argparse.ArgumentParser:
     # sps) is host-side, NOT capture (raw capture does ~170/GPU) — so 2 procs
     # saturates the node and more GPUs/procs don't help. Multi-node: scale
     # --num-env-runners = 2 x (renderer nodes), keep the rest.
-    ap.add_argument("--render-service", action="store_true",
-                    help="Start one per-node render+encode service actor "
-                         "(requires env.render_service: true in the config; "
-                         "runners then need no GPU).")
     ap.add_argument("--learner-gpu", action="store_true",
                     help="Run the (driver-local) learner's update on the GPU "
                          "instead of CPU — halves the synchronous PPO cycle "
                          "when sampling is fast (native renderer).")
     ap.add_argument("--num-env-runners", type=int, default=2)
     ap.add_argument("--num-cpus-per-env-runner", type=float, default=1.0,
-                    help="Ray CPU reservation per runner. Service-mode "
-                         "runners need no GPU, so this is what forces them "
-                         "to SPREAD across renderer nodes instead of "
-                         "packing onto the head.")
+                    help="Ray CPU reservation per runner; with few GPUs per "
+                         "runner this is what forces runners to SPREAD "
+                         "across nodes instead of packing onto the head.")
     ap.add_argument("--num-envs-per-env-runner", type=int, default=16)
     ap.add_argument("--num-gpus-per-env-runner", type=float, default=0.5)
     ap.add_argument("--vector", choices=["spawn", "threads"], default="threads",
@@ -95,6 +90,10 @@ def build_argparser() -> argparse.ArgumentParser:
     # Non-coordinator launchers without a relaunch loop should pass
     # --no-degraded-exit or accept the early end (the run was wasting
     # walltime anyway; --resume continues it).
+    ap.add_argument("--pane-mode", choices=["atomic", "progressive", "concurrent", "random"],
+                    default=None,
+                    help="Simulator 2D-pane fill policy (env.pane_mode); atomic is the "
+                         "standard, progressive measured -11pp. Chrome ignores it.")
     ap.add_argument("--degraded-exit", action=argparse.BooleanOptionalAction,
                     default=True,
                     help="Exit 43 (checkpoint first) when the median of the "
@@ -150,6 +149,8 @@ def main(argv=None) -> int:
         cfg.setdefault("env", {})["stagger_first_episode"] = True
     if args.reset_ahead:
         cfg.setdefault("env", {})["reset_ahead"] = True
+    if args.pane_mode:
+        cfg.setdefault("env", {})["pane_mode"] = args.pane_mode
     pc = cfg.get("ppo", {})
     train_batch = args.train_batch_size or pc.get("train_batch_size", 2000)
     ckpt_dir = args.checkpoint_dir or os.path.join("checkpoints", args.run_name)
@@ -157,11 +158,6 @@ def main(argv=None) -> int:
     register_env("ngl-znav", make_env_creator(cfg, vector_mode=args.vector))
 
     ray.init(include_dashboard=False, log_to_driver=True, ignore_reinit_error=True)
-
-    if args.render_service:
-        from .service_actor import create_render_services
-
-        create_render_services(cfg)
 
     vectorize_mode = (
         "sync" if args.num_envs_per_env_runner <= 1 else "vector_entry_point"

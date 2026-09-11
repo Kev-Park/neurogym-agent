@@ -15,7 +15,7 @@
 # 3D pane carries task information, but the 2D pane is task-CORRELATED, so
 # the policy takes a dependency on the 384 dims whose appearance differs
 # most between the simulator and Chrome (and whose staleness is an
-# uncontrolled accident - see the de-sync note in ngllib.native.environment).
+# uncontrolled accident - see renderer_seam_plan.md 7.2).
 # Dropping it halves the domain-shift surface.
 #
 # Deltas vs native_v9test.yaml: obs.use_left_pane false; cv_cache removed
@@ -23,7 +23,7 @@
 # batch and topology stay v9-test's.
 
 env:
-  backend: native
+  backend: simulator
   parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
   holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
   projection_scale_range: [3500, 14000]

@@ -60,12 +60,14 @@ def main() -> int:
     cfg = load_config("configs/ppo_zmax_navigate.yaml")
     ec = cfg["env"]
     base = ngllib.Environment(
-        headless=True, renderer="gpu", orientation="euler",
-        left_pane=True, right_pane=True, window_size=(1800, 900),
+        backend=ngllib.ChromeRenderer(
+            headless=True, renderer="gpu", left_pane=True, right_pane=True, window_size=(1800, 900),
+        ),
+        orientation="euler",
         reset_state_provider=FlywireSkeletonProvider(ec["parquet_path"]),
     )
     base.reset(seed=0)
-    page = base.page
+    page = base.renderer.page
     cdp = page.context.new_cdp_session(page)
     res = cdp.send("Page.captureScreenshot", {"format": "jpeg", "quality": 85})
     jpeg = base64.b64decode(res["data"])

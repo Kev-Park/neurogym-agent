@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-ngllib_env = pytest.importorskip("ngllib.environment")
-_BrowserWatchdog = ngllib_env._BrowserWatchdog
+ngllib_chrome = pytest.importorskip("ngllib.chrome")
+_BrowserWatchdog = ngllib_chrome._BrowserWatchdog
 
 
 def test_fires_after_timeout():
@@ -32,13 +32,14 @@ def test_disabled_when_timeout_none():
 
 
 def test_env_watchdog_noop_without_chrome_pid():
-    # Environment._watchdog must disable itself when no browser pid is known
-    # (pre-launch, or pid discovery failed) — otherwise the timer would "kill"
-    # nothing and still flag restarts.
-    from ngllib import Environment
+    # ChromeRenderer._watchdog must disable itself when no browser or driver
+    # pid is known (pre-launch, or pid discovery failed) -- otherwise the timer
+    # would "kill" nothing and still flag restarts.
+    from ngllib import ChromeRenderer
 
-    env = Environment.__new__(Environment)  # no browser, no __init__ side effects
+    env = ChromeRenderer.__new__(ChromeRenderer)  # no browser, no __init__ side effects
     env._chrome_pid = None
+    env._driver_pid = None
     wd = env._watchdog(0.05)
     time.sleep(0.2)
     assert wd.fired is False

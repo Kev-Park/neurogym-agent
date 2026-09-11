@@ -34,7 +34,7 @@ def main() -> int:
 
     import numpy as np
 
-    from ngllib.native.em import worker_mesh
+    from ngllib.simulator.em import Source, worker_mesh
 
     records = [json.loads(line) for line in
                open(os.path.join(args.pairs_dir, "states.jsonl"))][:args.limit]
@@ -46,13 +46,13 @@ def main() -> int:
         seen.add(rid)
         t0 = time.monotonic()
         try:
-            v, _vn, f = worker_mesh(args.cache_dir, rid)
+            v, _vn, f = worker_mesh(Source.calibrated(args.cache_dir), rid)
         except Exception as e:  # noqa: BLE001
             print(f"[{rid}] failed: {e}", flush=True)
             continue
         dt = time.monotonic() - t0
         t1 = time.monotonic()
-        worker_mesh(args.cache_dir, rid)          # second call: cache warm
+        worker_mesh(Source.calibrated(args.cache_dir), rid)          # second call: cache warm
         dt2 = time.monotonic() - t1
         cold.append(dt); warm.append(dt2)
         sizes.append(len(v))

@@ -71,8 +71,8 @@ def main() -> int:
 
     from PIL import Image
 
-    from ngllib.native import pane2d
-    from ngllib.native.pane2d import mask_ui, mask_ui_enabled
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.pane2d import mask_ui, mask_ui_enabled
     from ngllib_agent.env_build import build_env, load_config
 
     cfg = load_config(args.config)

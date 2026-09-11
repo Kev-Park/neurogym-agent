@@ -1,10 +1,10 @@
 # Native-backend config (eval + training). Identical to
-# configs/ppo_zmax_navigate.yaml except env.backend: native (+ cv_cache),
+# configs/ppo_zmax_navigate.yaml except env.backend: simulator (+ cv_cache),
 # so both eval numbers and training runs are attributable to the renderer
 # swap alone. Keep the two files in lockstep.
 
 env:
-  backend: native
+  backend: simulator
   # v9-test REPLICA: trained WITH the NFS cv_cache (4-30x slower fetches
   # => much staler 2D pane AND section plane). Deliberate here only.
   cv_cache: /scratch/kp0374/native_spike/cv_cache

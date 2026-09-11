@@ -58,13 +58,13 @@ def main() -> int:
     ap.add_argument("--cache-dir", default=None)
     args = ap.parse_args()
 
-    from ngllib.native import pane2d
-    from ngllib.native.em import EMTiles
+    from ngllib.simulator import pane2d
+    from ngllib.simulator.em import EMTiles, Source
 
     PANE, TOOLBAR, PANE_H = pane2d.PANE, pane2d.TOOLBAR, pane2d.PANE_H
     GAIN = pane2d.EM_GAIN
 
-    em = EMTiles(args.cache_dir)
+    em = EMTiles(Source.calibrated(args.cache_dir))
     records = [json.loads(l) for l in
                open(os.path.join(args.pairs_dir, "states.jsonl"))][:args.limit]
 

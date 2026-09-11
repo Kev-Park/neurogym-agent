@@ -6,7 +6,7 @@ state: fetch the segment mesh (CloudVolume, cached), render it offscreen
 against the browser frame's right pane via IoU — silhouettes isolate the
 camera model from shading/color, which calibrate later (Phase B).
 
-The two flagged unknowns in ngllib.native.camera (canonical-space units and
+The two flagged unknowns in ngllib.simulator.camera (canonical-space units and
 depth-range) are resolved empirically: a grid search over the projection-
 scale calibration factor on the first K states picks the value maximizing
 mean IoU; the rest of the set is scored at that value.
@@ -27,7 +27,7 @@ import sys
 import numpy as np
 from PIL import Image
 
-# Load the ngllib.native modules directly by file: a package import would
+# Load the ngllib.simulator modules directly by file: a package import would
 # execute ngllib/__init__ (gymnasium/playwright), which the spike venv
 # intentionally does not carry.
 import importlib.util  # noqa: E402

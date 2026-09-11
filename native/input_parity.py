@@ -289,7 +289,7 @@ def main() -> int:
                     default="/scratch/kp0374/native_spike/input_browser.jsonl")
     ap.add_argument("--plane", action="store_true",
                     help="native mode: include the section plane in the pick "
-                         "depth pass (NG-true; NativeEnvironment behavior)")
+                         "depth pass (NG-true; SimulatorRenderer behavior)")
     args = ap.parse_args()
     return mode_browser(args) if args.mode == "browser" else mode_native(args)
 

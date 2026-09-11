@@ -21,9 +21,9 @@ import numpy as np
 def main() -> int:
     import pyarrow.parquet as pq
 
-    from ngllib.native.colors import segment_color
-    from ngllib.native.em import MeshStore
-    from ngllib.native.render3d import MeshRenderer
+    from ngllib.simulator.colors import segment_color
+    from ngllib.simulator.em import MeshStore, Source
+    from ngllib.simulator.render3d import MeshRenderer
     from ngllib_agent.obs import get_dino_encoder
 
     ap = argparse.ArgumentParser()
@@ -37,7 +37,7 @@ def main() -> int:
             pq.read_table(args.pool, columns=["root_id"])
             .column("root_id").to_pylist()][:args.meshes]
     rend = MeshRenderer(450, 433)
-    store = MeshStore()
+    store = MeshStore(Source.calibrated())
     centers = {}
     for rid in rids:
         v, f = store.get(rid)

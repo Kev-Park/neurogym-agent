@@ -1,7 +1,12 @@
 """Build the wrapped ngllib Environment from a config dict.
 
 Shared by the sanity loop and the PPO smoke so both construct the env identically.
-Imports `ngllib` (and thus Playwright) lazily — only when actually building an env.
+Imports `ngllib` lazily -- only when actually building an env.
+
+`env.backend` selects the renderer: `chrome` (default; Playwright + Chromium,
+the deployment target) or `simulator` (CloudVolume + moderngl/EGL). The
+pre-seam spellings `browser` / `native` are read as the same two, so the run
+configs that produced existing checkpoints still build.
 """
 
 from __future__ import annotations
@@ -16,8 +21,9 @@ from .wrappers import (
     MultiDiscreteActionWrapper,
     PosStateWrapper,
     ResilientStepWrapper,
-    ServiceFeaturesWrapper,
 )
+
+BACKENDS = {"chrome": "chrome", "browser": "chrome", "simulator": "simulator", "native": "simulator"}
 
 
 def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
@@ -41,10 +47,9 @@ def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
 
 def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     """Construct `TimeLimit(MultiDiscreteActionWrapper(ngllib.Environment))`."""
-    import gymnasium as gym
     import logging
 
-    from ngllib import Environment
+    from ngllib import ChromeRenderer, Environment, SimulatorRenderer
 
     # Configure basic logging so ngllib's INFO messages (browser restarts,
     # navigation retries) surface in the driver log via Ray's log_to_driver=True.
@@ -106,77 +111,63 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     )
 
     image_size = ec.get("image_size")
-
-    # Backend switch (native-renderer branch): env.backend == "native" builds
-    # the browser-free ngllib.native.NativeEnvironment (CloudVolume +
-    # moderngl/EGL) instead of Playwright+Chrome. Same obs/action contract;
-    # the browser-lifecycle kwargs below have no native counterpart.
-    if ec.get("backend", "browser") == "native":
-        from ngllib.native.environment import NativeEnvironment
-
-        # env.render_service: true -> this env is a service CLIENT: no GL,
-        # no DINO in the runner; states go to the per-node render service
-        # (created by train.py / eval drivers via create_render_services).
-        svc_factory = None
-        if ec.get("render_service"):
-            from .service_actor import service_factory as svc_factory  # noqa: F811
-
-        env = NativeEnvironment(
-            orientation=ec.get("orientation", "euler"),
-            left_pane=ec.get("left_pane", False),
-            right_pane=ec.get("right_pane", True),
-            image_size=tuple(image_size) if image_size else None,
-            capture_scale=ec.get("capture_scale", 0.5),
-            reset_state_provider=provider,
-            reward_factory=make_z_reward_factory(rcfg),
-            termination_factory=make_z_termination_factory(rcfg),
-            cache_dir=ec.get("cv_cache"),
-            reset_ahead=ec.get("reset_ahead", True),
-            render_service=svc_factory,
-            service_feature_dim=int(
-                oc.get("dino", {}).get("feature_dim", 384)),
-        )
-        env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
-        return _wrap_obs_and_limits(env, cfg, first_episode_limit)
-
-    env_kwargs = dict(
-        headless=ec.get("headless", True),
-        renderer=ec.get("renderer", "gpu"),
-        orientation=ec.get("orientation", "euler"),
+    backend = BACKENDS.get(str(ec.get("backend", "chrome")))
+    if backend is None:
+        raise ValueError(
+            f"env.backend must be chrome|simulator (or the older browser|native); "
+            f"got {ec.get('backend')!r}")
+    layout = dict(
         left_pane=ec.get("left_pane", False),
         right_pane=ec.get("right_pane", True),
         image_size=tuple(image_size) if image_size else None,
+    )
+    if "capture_scale" in ec:
+        layout["capture_scale"] = ec["capture_scale"]
+
+    if backend == "simulator":
+        # env.pane_mode: the 2D-pane fill policy (atomic | progressive |
+        # concurrent | random); ngllib's default is the shipping `atomic`.
+        sim_kwargs = dict(cache_dir=ec.get("cv_cache"))
+        if "pane_mode" in ec:
+            sim_kwargs["pane_mode"] = ec["pane_mode"]
+        renderer = SimulatorRenderer(**layout, **sim_kwargs)
+        # The simulator has always defaulted to reset-ahead prefetch (its
+        # warm work is a background fetch, free to start immediately).
+        env_kwargs = dict(reset_ahead=ec.get("reset_ahead", True))
+    else:
+        chrome_kwargs = dict(
+            headless=ec.get("headless", True),
+            renderer=ec.get("renderer", "gpu"),
+            **layout,
+        )
+        # Optional self-healing overrides — only pass if the config sets them, so
+        # ngllib's defaults (browser_restart_every=90, retry_on_reset=3) apply
+        # otherwise. Used by the extended smoke to force restart-mechanism firing.
+        # recovery_mode: 'escalate' (default, full browser relaunch on repeated
+        # glitch) vs 'in_place' (cheap context recycle at the source).
+        # Cycle-time levers (2026-08-16): optional per-episode HTTP-cache clear,
+        # extra Chrome flags (footprint experiments).
+        for k in ("browser_restart_every", "retry_on_reset", "recovery_mode",
+                  "clear_cache_on_recycle", "extra_launch_args", "state_ready_timeout_s"):
+            if k in ec:
+                chrome_kwargs[k] = ec[k]
+        renderer = ChromeRenderer(**chrome_kwargs)
+        # M5 reset-ahead (2026-08): pre-navigate the next episode in a warm
+        # context off the critical path; reset swaps pages instead of paying
+        # navigate+settle. Off unless the config asks.
+        env_kwargs = {}
+        for k in ("reset_ahead", "reset_ahead_after_steps"):
+            if k in ec:
+                env_kwargs[k] = ec[k]
+
+    env = Environment(
+        backend=renderer,
+        orientation=ec.get("orientation", "euler"),
         reset_state_provider=provider,
         reward_factory=make_z_reward_factory(rcfg),
         termination_factory=make_z_termination_factory(rcfg),
+        **env_kwargs,
     )
-    # Optional self-healing overrides — only pass if the config sets them, so
-    # ngllib's defaults (browser_restart_every=90, retry_on_reset=3) apply
-    # otherwise. Used by the extended smoke to force restart-mechanism firing.
-    if "browser_restart_every" in ec:
-        env_kwargs["browser_restart_every"] = ec["browser_restart_every"]
-    if "retry_on_reset" in ec:
-        env_kwargs["retry_on_reset"] = ec["retry_on_reset"]
-    # Glitch-recovery strategy A/B (2026-08): 'escalate' (default, full browser
-    # relaunch on repeated glitch) vs 'in_place' (cheap context recycle at the
-    # source, legacy-style). Only passed if set so older ngllib without the kwarg
-    # still builds.
-    if "recovery_mode" in ec:
-        env_kwargs["recovery_mode"] = ec["recovery_mode"]
-    # M5 reset-ahead (2026-08): pre-navigate the next episode in a warm context
-    # off the critical path; reset swaps pages instead of paying navigate+settle.
-    if "reset_ahead" in ec:
-        env_kwargs["reset_ahead"] = ec["reset_ahead"]
-    if "reset_ahead_after_steps" in ec:
-        env_kwargs["reset_ahead_after_steps"] = ec["reset_ahead_after_steps"]
-    # Cycle-time levers (2026-08-16): browser-side downscaled capture, optional
-    # per-episode HTTP-cache clear, extra Chrome flags (footprint experiments).
-    for k in ("capture_scale", "clear_cache_on_recycle", "extra_launch_args",
-              "state_ready_timeout_s"):
-        if k in ec:
-            env_kwargs[k] = ec[k]
-    env = Environment(**env_kwargs)
-
     env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
     return _wrap_obs_and_limits(env, cfg, first_episode_limit)
 
@@ -194,21 +185,14 @@ def _wrap_obs_and_limits(env, cfg: dict[str, Any], first_episode_limit: int | No
     scale = oc.get("pos_state_scale")
     if obs_mode == "dino":
         dc = oc.get("dino", {})
-        if "image_features" in getattr(env.observation_space, "spaces", {}):
-            # Service-mode native env: features already encoded per-node;
-            # same policy-facing Dict, no torch in this process.
-            env = ServiceFeaturesWrapper(
-                env, feature_dim=int(dc.get("feature_dim", 384)),
-                pos_state_scale=scale)
-        else:
-            from .obs import get_dino_encoder  # torch import stays lazy
+        from .obs import get_dino_encoder  # torch import stays lazy
 
-            encoder = get_dino_encoder(
-                model_name=dc.get("model_name", "dinov2_vits14"),
-                input_size=dc.get("input_size", 224),
-                device=dc.get("device"),
-            )
-            env = DinoObservationWrapper(env, encoder, pos_state_scale=scale)
+        encoder = get_dino_encoder(
+            model_name=dc.get("model_name", "dinov2_vits14"),
+            input_size=dc.get("input_size", 224),
+            device=dc.get("device"),
+        )
+        env = DinoObservationWrapper(env, encoder, pos_state_scale=scale)
     elif obs_mode == "pos":
         env = PosStateWrapper(env, pos_state_scale=scale)
     elif obs_mode != "raw":
