@@ -63,6 +63,9 @@ def main() -> int:
     ap.add_argument("--config", default="configs/native_select.yaml")
     ap.add_argument("--limit", type=int, default=8)
     ap.add_argument("--scales", default="3.85,3.95,4.07,4.19,4.31,4.45")
+    ap.add_argument("--plane-ext", default=None,
+                    help="comma list of multipliers on the section plane's "
+                         "extent; sweeps that instead of the camera scale")
     args = ap.parse_args()
 
     from PIL import Image
@@ -82,7 +85,7 @@ def main() -> int:
     T, P = pane2d.TOOLBAR, pane2d.PANE
     base = nenv.SCALE_CAL_NM
 
-    scales = [float(x) for x in args.scales.split(",")]
+    scales = [float(x) for x in (args.plane_ext or args.scales).split(",")]
     acc: dict[float, dict[str, list]] = {
         s: {"iou": [], "mesh": [], "plane": [], "ssim": []} for s in scales}
 
@@ -102,7 +105,15 @@ def main() -> int:
 
         line = [f"[{rec['idx']:04d}]"]
         for sc in scales:
-            nenv.SCALE_CAL_NM = sc          # the camera's zoom calibration
+            if args.plane_ext:
+                # Sweep the PLANE's own extent, not the camera. The camera
+                # sweep showed mesh IoU moving 0.442-0.588 with scale while
+                # plane IoU barely moved (0.687-0.751), so the plane's
+                # mismatch is its quad size, which the camera cannot explain.
+                nenv.SCALE_CAL_NM = base
+                pane2d.PLANE_EXT_SCALE = sc
+            else:
+                nenv.SCALE_CAL_NM = sc      # the camera's zoom calibration
             try:
                 obs, _ = inner.reset(options={"state": rec["requested_state"]})
             except Exception as e:  # noqa: BLE001
@@ -122,7 +133,8 @@ def main() -> int:
     env.close()
 
     print("\n============== 3D camera scale calibration ==============")
-    print(f"{'SCALE_CAL_NM':>13}{'IoU all':>10}{'IoU mesh':>10}"
+    print(f"{'plane ext x' if args.plane_ext else 'SCALE_CAL_NM':>13}"
+          f"{'IoU all':>10}{'IoU mesh':>10}"
           f"{'IoU plane':>11}{'content ssim':>14}")
     best = None
     for sc in scales:
@@ -130,7 +142,8 @@ def main() -> int:
             continue
         row = tuple(float(np.nanmedian(acc[sc][k]))
                     for k in ("iou", "mesh", "plane", "ssim"))
-        flag = "  <- ships" if abs(sc - base) < 1e-9 else ""
+        ship = 1.0 if args.plane_ext else base
+        flag = "  <- ships" if abs(sc - ship) < 1e-9 else ""
         print(f"{sc:>13.2f}{row[0]:>10.3f}{row[1]:>10.3f}{row[2]:>11.3f}"
               f"{row[3]:>14.4f}{flag}")
         if best is None or row[0] > best[1]:
