@@ -48,6 +48,7 @@ model:
   normalize_entropy: true
 
 action:
+  verbs: 4                # right_click / rotate / zoom / double_click (sizes the policy head)
   grid_rows: 32
   grid_cols: 64
   # The DATA PANELS in click coordinates, measured off the DOM:
