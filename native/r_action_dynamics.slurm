@@ -18,16 +18,22 @@ set -e
 WT=/scratch/kp0374/wt/neurogym-agent-native
 cd "$WT"
 export PYTHONUNBUFFERED=1
-OUT=/scratch/kp0374/native_spike/act_browser_$SLURM_JOB_ID.jsonl
+if [ -n "$REUSE_JSONL" ]; then
+  OUT="$REUSE_JSONL"
+else
+  OUT=/scratch/kp0374/native_spike/act_browser_$SLURM_JOB_ID.jsonl
+fi
 N=${N_STATES:-3}
 STEPS=${STEPS:-60}
 OBS=${OBS:-dino}
 SEQ=${SEQ:-0}
 
+if [ -z "$REUSE_JSONL" ]; then
 uv run --no-sync python native/probe_action_dynamics.py --mode browser \
   --config configs/native_select.yaml \
   --pool /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
   --n-states "$N" --steps "$STEPS" --obs "$OBS" --sequence "$SEQ" --out "$OUT"
+fi
 
 uv run --no-sync python native/probe_action_dynamics.py --mode native \
   --config configs/native_select.yaml --browser-jsonl "$OUT" \

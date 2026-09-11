@@ -281,6 +281,19 @@ def mode_native(args) -> int:
               f"{med('resp3d', 0):>9.1f}{med('resp3d', 1):>9.1f}"
               f"{med('tresp2d', 0):>9.1f}{med('tresp2d', 1):>9.1f}"
               f"{med('tresp3d', 0):>9.1f}{med('tresp3d', 1):>9.1f}")
+    seqs = [(m, b) for _v, m, b in rows if "seq2d" in m and "seq2d" in b]
+    if seqs:
+        print("\n2D response over SUCCESSIVE moves (move index -> step):")
+        n = min(len(m["seq2d"]) for m, _b in seqs)
+        nat = [float(np.median([m["seq2d"][i] for m, _b in seqs]))
+               for i in range(n)]
+        brw = [float(np.median([b["seq2d"][i] for _m, b in seqs]))
+               for i in range(n)]
+        print("  native : " + "  ".join(f"{v:5.1f}" for v in nat))
+        print("  browser: " + "  ".join(f"{v:5.1f}" for v in brw))
+        print("  A native curve that FALLS with move index means the chunk "
+              "cache is warming in situ, so the single-shot number is a "
+              "cold-start artefact rather than what a rollout sees.")
     print("\nA verb whose simulator response is LOWER than Chrome's reacts too "
           "fast (no fetch where Chrome needs one); HIGHER means it lags. "
           "Position-changing verbs are the ones to watch: they refetch tiles, "
