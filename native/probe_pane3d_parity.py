@@ -72,6 +72,7 @@ def main() -> int:
 
     T, P = pane2d.TOOLBAR, pane2d.PANE
     whole, content, fg_n, fg_c = [], [], [], []
+    iou, inten, hue = [], [], []
     records = [json.loads(line) for line in
                open(os.path.join(args.pairs_dir, "states.jsonl"))][:args.limit]
     for rec in records:
@@ -98,6 +99,24 @@ def main() -> int:
         content.append(c_)
         fg_n.append(float((ours.mean(axis=2) > 12).mean()))
         fg_c.append(float((ref.mean(axis=2) > 12).mean()))
+
+        # WHAT differs: shape, shading, or colour? These have very different
+        # consequences -- a silhouette mismatch means the geometry or camera
+        # is off, while matching shape with different brightness is only a
+        # lighting model, and a hue mismatch would mean the segment-colour
+        # hash disagrees with NG's.
+        mn = ours.mean(axis=2) > 12
+        mc = ref.mean(axis=2) > 12
+        u = (mn | mc).sum()
+        iou.append(float((mn & mc).sum() / u) if u else float("nan"))
+        both = mn & mc
+        if both.sum() > 64:
+            a = ours[both].astype(np.float64)
+            b = ref[both].astype(np.float64)
+            inten.append(float(a.mean() / b.mean()) if b.mean() else
+                         float("nan"))
+            # hue proxy: which channel dominates, per pixel
+            hue.append(float((a.argmax(axis=1) == b.argmax(axis=1)).mean()))
         print(f"[{rec['idx']:04d}] whole {w_:.4f}  content {c_:.4f}  "
               f"drawn {fg_n[-1]:.3f}/{fg_c[-1]:.3f}", flush=True)
     env.close()
@@ -112,6 +131,12 @@ def main() -> int:
     print(f"block_ssim, content blocks: {np.nanmedian(content):.4f}")
     print(f"fraction drawn  sim/Chrome: {np.median(fg_n):.3f} / "
           f"{np.median(fg_c):.3f}")
+    print(f"silhouette IoU            : {np.nanmedian(iou):.3f}")
+    if inten:
+        print(f"brightness sim/Chrome     : {np.nanmedian(inten):.3f}"
+              "   (on pixels BOTH draw)")
+        print(f"dominant-channel agree    : {np.nanmedian(hue):.3f}"
+              "   (colour hash agreement)")
     print("\nThe 3D pane is mostly black, so the whole-pane figure flatters "
           "it; the content-block one is what a policy looking at the neuron "
           "sees. The August campaign recorded 0.845 whole-pane, before the "
