@@ -6,7 +6,12 @@ Builds a ThreadedVectorEnv of M browsers and steps it, reporting aggregate sps.
                    and =1) simultaneously; if each still ~single-GPU rate, the
                    node isn't the wall (RLlib coordination is) — else it is.
 
-    uv run --no-sync python scripts/probe_throughput.py <M> <N_steps>
+    uv run --no-sync python scripts/probe_throughput.py <M> <N_steps> [capture_scale]
+
+THRU_CONFIG selects the config (default configs/ppo_zmax_navigate.yaml, i.e.
+Chrome; configs/native.yaml for the simulator). THRU_SECS, if set, measures for
+that many seconds instead of a fixed N vector-steps, so shapes with very
+different per-step costs get comparable sample sizes.
 """
 
 from __future__ import annotations
@@ -26,10 +31,11 @@ def main() -> int:
     scale = float(sys.argv[3]) if len(sys.argv) > 3 else 1.0
     tag = os.environ.get("CUDA_VISIBLE_DEVICES", "?")
 
-    cfg = load_config("configs/ppo_zmax_navigate.yaml")
+    cfg = load_config(os.environ.get("THRU_CONFIG", "configs/ppo_zmax_navigate.yaml"))
     cfg.setdefault("obs", {})["mode"] = "dino"
     if scale != 1.0:
         cfg.setdefault("env", {})["capture_scale"] = scale
+    secs = float(os.environ.get("THRU_SECS", "0") or 0)
     venv = make_env_creator(cfg, vector_mode="threads")({"num_envs": M})
 
     rng = np.random.default_rng(0)
@@ -59,9 +65,11 @@ def main() -> int:
 
     steps = 0
     t0 = time.time()
-    for _ in range(N):
+    n = 0
+    while (n < N) if not secs else (time.time() - t0 < secs):
         venv.step(acts())
         steps += M
+        n += 1
     dt = time.time() - t0
     print(f"[thru] RESULT M={M} scale={scale} gpu={tag} sps={steps/dt:.1f} "
           f"(env_steps={steps} in {dt:.0f}s, per_env={steps/dt/M:.2f})", flush=True)
