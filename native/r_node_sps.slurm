@@ -56,6 +56,21 @@ else
   SHAPES=${SHAPES:-"2x16x1 4x8x1 1x32x1 4x16x2 8x8x2 8x16x4"}
 fi
 echo "nodesps backend=$BACKEND node=$(hostname) gpus=$CUDA_VISIBLE_DEVICES cpus=$NCPU commit=$(git rev-parse --short HEAD) secs=$SECS"
+# SAMPLE_VRAM=1: log every GPU's memory/util and the node's summed RSS every
+# 10 s from the batch step, which already owns all the job's GPUs. (An extra
+# srun --overlap --gres step for this blocked one of the job's own GPU steps
+# for 66 min on 2026-09-12 -- --overlap does not share gres with --exact.)
+if [ "${SAMPLE_VRAM:-0}" = 1 ]; then
+  VRAM_CSV=/scratch/kp0374/native_spike/nodesps_logs/vram_${SLURM_JOB_ID}.csv
+  echo "ts,gpu,mem_used_mib,util_pct" > "$VRAM_CSV"
+  ( while true; do t=$(date +%s)
+      nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits | sed "s/^/$t,/"
+      ps -u "$USER" -o rss= | awk -v t="$t" '{s+=$1} END{printf "%s,host,%d,%d
+", t, s/1024, NR}'
+      sleep 10; done >> "$VRAM_CSV" 2>/dev/null ) &
+  SAMPLER_PID=$!
+  trap 'kill $SAMPLER_PID 2>/dev/null' EXIT
+fi
 echo "shapes: "
 LOGDIR=/scratch/kp0374/native_spike/nodesps_logs; mkdir -p "$LOGDIR"
 

@@ -56,7 +56,7 @@ def _renderer(budget_bytes):
     r.ctx = _Ctx()
     r.prog = {"color": type("U", (), {"value": None})()}
     r._budget = budget_bytes
-    r._n_slots = max(4, min(64, budget_bytes // MeshRenderer.SLOT_NOMINAL_BYTES))
+    r._n_slots = max(2, min(64, budget_bytes // MeshRenderer.SLOT_NOMINAL_BYTES))
     r._slots = []
     r._vaos = OrderedDict()
     return r
@@ -78,14 +78,15 @@ def test_slot_count_follows_budget():
 
     assert _renderer(200 << 20)._n_slots == 6
     assert _renderer(2 << 30)._n_slots == 64          # capped
-    assert _renderer(1 << 20)._n_slots == 4           # floor
+    assert _renderer(1 << 20)._n_slots == 2           # floor
+    assert _renderer(96 << 20)._n_slots == 3
     assert MeshRenderer.SLOT_NOMINAL_BYTES == 32 << 20
 
 
 def test_many_episodes_allocate_only_n_slots():
     """The invariant the leak fix rests on: 100 distinct meshes through a
     4-slot pool must create exactly 4 slots' worth of GL objects."""
-    r = _renderer(1 << 20)                            # 4 slots
+    r = _renderer(128 << 20)                          # 4 slots
     v, f, vn = _mesh(1000)
     for rid in range(100):
         r.load_mesh(str(rid), v, f, normals=vn)
@@ -98,7 +99,7 @@ def test_many_episodes_allocate_only_n_slots():
 
 
 def test_eviction_is_least_recently_drawn():
-    r = _renderer(1 << 20)
+    r = _renderer(128 << 20)                          # 4 slots
     v, f, vn = _mesh(500)
     for rid in "abcd":
         r.load_mesh(rid, v, f, normals=vn)
