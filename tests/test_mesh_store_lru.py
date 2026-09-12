@@ -57,7 +57,8 @@ def test_evicts_least_recently_used_and_stays_under_budget():
 
     assert s.cached_bytes <= 4 * per_mesh
     assert len(s._meshes) == 4
-    assert list(s._meshes) == [2, 3, 4, 5]   # 0 and 1 evicted
+    # keys are (root_id, lod) since the progressive coarse->fine mesh path
+    assert list(s._meshes) == [(2, 0), (3, 0), (4, 0), (5, 0)]   # 0, 1 evicted
     assert vol.fetches == 6
 
 
@@ -71,7 +72,7 @@ def test_hit_does_not_refetch_and_renews_recency():
     s.get("101")                     # hit: no fetch, 101 becomes newest
     assert vol.fetches == 3
     s.get("104")                     # evicts 102, not 101
-    assert set(s._meshes) == {"101", "103", "104"}
+    assert set(s._meshes) == {("101", 0), ("103", 0), ("104", 0)}
 
 
 def test_never_evicts_the_entry_just_inserted():
@@ -80,7 +81,7 @@ def test_never_evicts_the_entry_just_inserted():
     s = _store(1024, vol)            # budget far below one mesh
     v, f = s.get("999")
     assert v.shape == (10_000, 3)
-    assert list(s._meshes) == ["999"]
+    assert list(s._meshes) == [("999", 0)]
 
 
 def test_drop_reclaims_bytes():
