@@ -59,7 +59,7 @@ for shape in $SHAPES; do
     # browsers do not thundering-herd at t=0; wait for all of them.
     srun --exact --ntasks=1 --gres=gpu:1 --cpus-per-task=$cpus --mem=$mem \
       bash -lc "cd $PWD; echo STEP gpu=\$CUDA_VISIBLE_DEVICES cpus=\$(nproc); \
-        for i in \$(seq 1 $per); do THRU_SECS=$SECS uv run --no-sync python scripts/probe_throughput.py $M 100000 0.5 & sleep 3; done; wait" \
+        for i in \$(seq 1 $per); do THRU_SECS=$SECS timeout -k 30 $((SECS + 900)) uv run --no-sync python scripts/probe_throughput.py $M 100000 0.5 & sleep 3; done; wait" \
       > "$log" 2>&1 &
     pids="$pids $!"; logs="$logs $log"
   done
