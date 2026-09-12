@@ -46,7 +46,7 @@ else
 fi
 echo "nodesps backend=$BACKEND node=$(hostname) gpus=$CUDA_VISIBLE_DEVICES cpus=$NCPU commit=$(git rev-parse --short HEAD) secs=$SECS"
 echo "shapes: "
-LOGDIR=/scratch/kp0374/native_spike/nodesps_logs; mkdir -p ""
+LOGDIR=/scratch/kp0374/native_spike/nodesps_logs; mkdir -p "$LOGDIR"
 
 for shape in $SHAPES; do
   K=${shape%%x*}; rest=${shape#*x}; M=${rest%%x*}; G=${rest#*x}
@@ -54,7 +54,7 @@ for shape in $SHAPES; do
   cpus=$(( NCPU / G )); mem=$(( 170 / G ))G
   logs=""; pids=""
   for g in $(seq 1 "$G"); do
-    log=/__g.out
+    log=$LOGDIR/${SLURM_JOB_ID}_${shape}_g${g}.out
     # Inside the step: K/G probe processes on this one GPU, staggered so K
     # browsers do not thundering-herd at t=0; wait for all of them.
     srun --exact --ntasks=1 --gres=gpu:1 --cpus-per-task=$cpus --mem=$mem \
