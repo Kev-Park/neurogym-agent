@@ -36,7 +36,16 @@ def main() -> int:
     if scale != 1.0:
         cfg.setdefault("env", {})["capture_scale"] = scale
     secs = float(os.environ.get("THRU_SECS", "0") or 0)
-    venv = make_env_creator(cfg, vector_mode="threads")({"num_envs": M})
+    if M == 1:
+        # make_env_creator hands back a bare env for num_envs=1 (no
+        # single_action_space); a 1-env ThreadedVectorEnv keeps the loop uniform
+        # (the same trap cost the 32x1 shape in the August density grid).
+        from ngllib_agent.env_build import build_env
+        from ngllib_agent.vector_env import ThreadedVectorEnv
+
+        venv = ThreadedVectorEnv([lambda: build_env(cfg)])
+    else:
+        venv = make_env_creator(cfg, vector_mode="threads")({"num_envs": M})
 
     rng = np.random.default_rng(0)
 
