@@ -24,7 +24,7 @@
 #   BACKEND=chrome     configs/ppo_zmax_navigate.yaml at the pinned browser
 #                      topology, 2 runners x 16 threaded envs (~35-40 sps/node).
 #
-#   BACKEND=simulator sbatch native/r_train_gate6.slurm <run-name> [iters=50]
+#   BACKEND=simulator [ENVS=2] [BATCH=8000] sbatch native/r_train_gate6.slurm <run-name> [iters=50]
 set -e
 WT=${SLURM_SUBMIT_DIR:-$(pwd)}   # the checkout this was submitted from
 cd "$WT"
@@ -54,10 +54,10 @@ export NGL_NATIVE_VAO_LRU_MB=${VAO_LRU_MB:-256}
 # reads env.pane_mode (default atomic). Both arms therefore run atomic.
 export NGL_NATIVE_PANE_MODE=atomic
 export CURRICULUM_PROGRESS_FILE="$CKPT/meta.json"
-echo "gate6 arm: checkout=$WT backend=$BACKEND commit=$(git rev-parse --short HEAD) iters=$ITERS"
+echo "gate6 arm: checkout=$WT backend=$BACKEND commit=$(git rev-parse --short HEAD) iters=$ITERS envs=${ENVS:-1} batch=${BATCH:-4000}"
 
 if [ "$BACKEND" = "simulator" ]; then
-  CFG=configs/native.yaml; RUNNERS=32; ENVS=1; GPU=0.02
+  CFG=configs/native.yaml; RUNNERS=${RUNNERS:-32}; ENVS=${ENVS:-1}; GPU=0.02
 else
   CFG=configs/ppo_zmax_navigate.yaml; RUNNERS=2; ENVS=16; GPU=0.5
 fi
@@ -70,7 +70,7 @@ uv run --no-sync python -m ngllib_agent.train \
   --num-gpus-per-env-runner "$GPU" \
   --vector threads \
   --iters "$ITERS" \
-  --train-batch-size 4000 \
+  --train-batch-size "${BATCH:-4000}" \
   --checkpoint-dir "$CKPT" --checkpoint-every 10 \
   --wandb-mode disabled \
   --resume
