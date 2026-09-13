@@ -22,7 +22,9 @@
 #
 #   BACKEND=chrome    sbatch native/r_node_sps.slurm   # capture 0.5
 #   BACKEND=simulator sbatch native/r_node_sps.slurm
-#   SHAPES="2x16x1 4x16x2" overrides the list; each entry is KxMxG (K % G == 0).
+#   SHAPES="2x16x1 4x16x2" overrides the list; each entry is KxMxG (K % G == 0):
+#   K runner processes IN TOTAL (K/G per GPU), M envs each, over G GPUs.
+#   Give the job --cpus-per-task divisible by 2G so every step gets whole cores.
 set -u
 cd "${SLURM_SUBMIT_DIR:-$(pwd)}"
 export PYTHONUNBUFFERED=1
@@ -30,10 +32,21 @@ export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 BACKEND=${BACKEND:-chrome}
 SECS=${SECS:-150}
 NCPU=${SLURM_CPUS_PER_TASK:-44}
+# Host RAM shared across the G GPU steps. The default matches --mem above;
+# an hour-long simulator run at >=24 runners/GPU needs a node's worth
+# (sbatch --mem=340G MEM_G=330): 48x2x2 and 64x2x2 both reached ~106 GB per
+# GPU step within an hour and were cgroup-killed under the 85 GB default.
+MEM_G=${MEM_G:-170}
 if [ "$BACKEND" = simulator ]; then
   export THRU_CONFIG=configs/native.yaml
   export NGL_NATIVE_FETCH_WORKERS=${FETCH_WORKERS:-2}
   export NGL_NATIVE_MESH_LRU_MB=128
+  # Per-process cache budgets (ngllib 0baa9e2). Unset = the library defaults
+  # (256 MB per chunk handle, 2 GB of mesh VAOs per process), which are sized
+  # for one renderer, not 24-32 per GPU -- see r_train_native.slurm for the
+  # per-node sizing rules.
+  [ -n "${CHUNK_LRU_MB:-}" ] && export NGL_NATIVE_CHUNK_LRU_MB=$CHUNK_LRU_MB
+  [ -n "${VAO_LRU_MB:-}" ] && export NGL_NATIVE_VAO_LRU_MB=$VAO_LRU_MB
   # production = 32 procs x 1 env on 1 GPU (15.3 G VRAM); then denser packings
   # on the one GPU, and a second GPU's worth of runners.
   SHAPES=${SHAPES:-"32x1x1 16x2x1 8x4x1 32x2x1 64x1x2"}
@@ -45,13 +58,31 @@ else
   SHAPES=${SHAPES:-"2x16x1 4x8x1 1x32x1 4x16x2 8x8x2 8x16x4"}
 fi
 echo "nodesps backend=$BACKEND node=$(hostname) gpus=$CUDA_VISIBLE_DEVICES cpus=$NCPU commit=$(git rev-parse --short HEAD) secs=$SECS"
-echo "shapes: "
+# SAMPLE_VRAM=1: log every GPU's memory/util and the node's summed RSS every
+# 10 s from the batch step, which already owns all the job's GPUs. (An extra
+# srun --overlap --gres step for this blocked one of the job's own GPU steps
+# for 66 min on 2026-09-12 -- --overlap does not share gres with --exact.)
+if [ "${SAMPLE_VRAM:-0}" = 1 ]; then
+  VRAM_CSV=/scratch/kp0374/native_spike/nodesps_logs/vram_${SLURM_JOB_ID}.csv
+  echo "ts,gpu,mem_used_mib,util_pct" > "$VRAM_CSV"
+  ( while true; do t=$(date +%s)
+      nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits | sed "s/^/$t,/"
+      ps -u "$USER" -o rss= | awk -v t="$t" '{s+=$1} END{printf "%s,host,%d,%d\n", t, s/1024, NR}'
+      sleep 10; done >> "$VRAM_CSV" 2>/dev/null ) &
+  SAMPLER_PID=$!
+  trap 'kill $SAMPLER_PID 2>/dev/null' EXIT
+fi
+echo "shapes: $SHAPES"
 LOGDIR=/scratch/kp0374/native_spike/nodesps_logs; mkdir -p "$LOGDIR"
 
 for shape in $SHAPES; do
   K=${shape%%x*}; rest=${shape#*x}; M=${rest%%x*}; G=${rest#*x}
   per=$(( K / G ))
-  cpus=$(( NCPU / G )); mem=$(( 170 / G ))G
+  # Whole CORES per step: an odd thread count rounds UP to a core on these
+  # 2-thread/core nodes, so 44/4 = 11 -> 12 per step and the 4th step waited
+  # for the first three to FINISH ("Requested nodes are busy", every 4-GPU
+  # job on 2026-09-12 -- their aggregates summed 3 concurrent + 1 solo).
+  cpus=$(( NCPU / G / 2 * 2 )); mem=$(( MEM_G / G ))G
   logs=""; pids=""
   for g in $(seq 1 "$G"); do
     log=$LOGDIR/${SLURM_JOB_ID}_${shape}_g${g}.out

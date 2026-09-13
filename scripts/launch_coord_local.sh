@@ -60,6 +60,17 @@ export NGL_NATIVE_FETCH_WORKERS=2
 # envs_per_node x this. 96 envs x 128 MB ~ 12 GB/node; an unbounded version
 # once reached 206 GiB and was cgroup-killed (r_train_native.slurm).
 export NGL_NATIVE_MESH_LRU_MB="${MESH_LRU_MB_LOCAL:-128}"
+# The other two per-process caches, sized the same way (2026-09-12 sweep:
+# 64 runners x 2 envs hit ~108 GB host RAM per GPU step and filled 24 GB of
+# VRAM within an hour; every bound was per process and nothing multiplied
+# it by the process count). Rules of thumb for one node:
+#   CHUNK_LRU_MB ~= host_RAM_MB / (processes x 10 volume handles)
+#   VAO_LRU_MB   ~= (VRAM_MB - ~600 x processes_per_GPU) / processes_per_GPU
+# 32 runners x 3 envs FW=2 (this launcher's default) is 96 processes per node; the 256 MB chunk
+# default is ~240 GB worst case on a 376 GB node, fine; the VAO default of
+# 2 GB x 32 processes on one 24 GB card is not, so cap it here.
+export NGL_NATIVE_CHUNK_LRU_MB=${CHUNK_LRU_MB:-256}
+export NGL_NATIVE_VAO_LRU_MB=${VAO_LRU_MB:-256}
 export CURRICULUM_PROGRESS_FILE="${CKPT}/meta.json"
 export COORD_WORKDIR="$WORKDIR"
 export RAY_HEAD_ENDPOINT_FILE="${STATE_DIR}/ray_head_endpoint-${RUN}.txt"
@@ -89,6 +100,8 @@ export RAY_NUM_CPUS="${RAY_NUM_CPUS}"
 export CURRICULUM_PROGRESS_FILE="${CURRICULUM_PROGRESS_FILE}"
 export NGL_NATIVE_FETCH_WORKERS="${NGL_NATIVE_FETCH_WORKERS}"
 export NGL_NATIVE_MESH_LRU_MB="${NGL_NATIVE_MESH_LRU_MB}"
+export NGL_NATIVE_CHUNK_LRU_MB="${NGL_NATIVE_CHUNK_LRU_MB}"
+export NGL_NATIVE_VAO_LRU_MB="${NGL_NATIVE_VAO_LRU_MB}"
 export COORD_WORKDIR="${COORD_WORKDIR}"
 export RAY_HEAD_ENDPOINT_FILE="${RAY_HEAD_ENDPOINT_FILE}"
 export NUM_RENDERERS="${NUM_RENDERERS}"

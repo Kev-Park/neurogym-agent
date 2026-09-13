@@ -39,6 +39,17 @@ export RAY_NUM_CPUS=44
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 export NGL_NATIVE_FETCH_WORKERS=${FETCH_WORKERS:-2}
 export NGL_NATIVE_MESH_LRU_MB=128
+# The other two per-process caches, sized the same way (2026-09-12 sweep:
+# 64 runners x 2 envs hit ~108 GB host RAM per GPU step and filled 24 GB of
+# VRAM within an hour; every bound was per process and nothing multiplied
+# it by the process count). Rules of thumb for one node:
+#   CHUNK_LRU_MB ~= host_RAM_MB / (processes x 10 volume handles)
+#   VAO_LRU_MB   ~= (VRAM_MB - ~600 x processes_per_GPU) / processes_per_GPU
+# 32x1 FW=2 (this file's default topology) is 96 processes: the 256 MB chunk
+# default is ~240 GB worst case on a 376 GB node, fine; the VAO default of
+# 2 GB x 32 processes on one 24 GB card is not, so cap it here.
+export NGL_NATIVE_CHUNK_LRU_MB=${CHUNK_LRU_MB:-256}
+export NGL_NATIVE_VAO_LRU_MB=${VAO_LRU_MB:-256}
 # The pre-seam checkout reads the pane mode from this variable; the refactor
 # reads env.pane_mode (default atomic). Both arms therefore run atomic.
 export NGL_NATIVE_PANE_MODE=atomic
