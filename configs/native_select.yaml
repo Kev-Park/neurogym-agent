@@ -30,6 +30,9 @@ env:
   orientation: euler
   headless: true
   renderer: gpu
+  # left_pane is set by obs.use_left_pane (default true: BOTH panes) whenever
+  # obs.mode is dino -- env_build overrides this key there, so it only applies
+  # to raw/pos observation modes.
   left_pane: false
   right_pane: true
   image_size: [84, 84]

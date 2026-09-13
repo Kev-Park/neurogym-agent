@@ -33,6 +33,9 @@ env:
   orientation: euler          # MultiDiscrete rotate bins map to delta_orient (dim 3)
   headless: true
   renderer: gpu               # needs a vulkan-capable node (CLAUDE.md "Node quirks")
+  # left_pane is set by obs.use_left_pane (default true: BOTH panes) whenever
+  # obs.mode is dino -- env_build overrides this key there, so it only applies
+  # to raw/pos observation modes.
   left_pane: false
   right_pane: true
   image_size: [84, 84]        # downsized for RLlib's default CNN in the smoke; DINO/224 later
