@@ -22,7 +22,9 @@
 #
 #   BACKEND=chrome    sbatch native/r_node_sps.slurm   # capture 0.5
 #   BACKEND=simulator sbatch native/r_node_sps.slurm
-#   SHAPES="2x16x1 4x16x2" overrides the list; each entry is KxMxG (K % G == 0).
+#   SHAPES="2x16x1 4x16x2" overrides the list; each entry is KxMxG (K % G == 0):
+#   K runner processes IN TOTAL (K/G per GPU), M envs each, over G GPUs.
+#   Give the job --cpus-per-task divisible by 2G so every step gets whole cores.
 set -u
 cd "${SLURM_SUBMIT_DIR:-$(pwd)}"
 export PYTHONUNBUFFERED=1
@@ -77,7 +79,11 @@ LOGDIR=/scratch/kp0374/native_spike/nodesps_logs; mkdir -p "$LOGDIR"
 for shape in $SHAPES; do
   K=${shape%%x*}; rest=${shape#*x}; M=${rest%%x*}; G=${rest#*x}
   per=$(( K / G ))
-  cpus=$(( NCPU / G )); mem=$(( MEM_G / G ))G
+  # Whole CORES per step: an odd thread count rounds UP to a core on these
+  # 2-thread/core nodes, so 44/4 = 11 -> 12 per step and the 4th step waited
+  # for the first three to FINISH ("Requested nodes are busy", every 4-GPU
+  # job on 2026-09-12 -- their aggregates summed 3 concurrent + 1 solo).
+  cpus=$(( NCPU / G / 2 * 2 )); mem=$(( MEM_G / G ))G
   logs=""; pids=""
   for g in $(seq 1 "$G"); do
     log=$LOGDIR/${SLURM_JOB_ID}_${shape}_g${g}.out
