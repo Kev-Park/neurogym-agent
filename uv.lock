@@ -1434,7 +1434,7 @@ wheels = [
 [[package]]
 name = "ngllib"
 version = "0.3.0"
-source = { editable = "../neurogym-refactor" }
+source = { editable = "../neurogym" }
 dependencies = [
     { name = "cloud-volume" },
     { name = "gymnasium" },
@@ -1488,7 +1488,7 @@ dev = [
 requires-dist = [
     { name = "duckdb", specifier = ">=0.10" },
     { name = "gymnasium" },
-    { name = "ngllib", editable = "../neurogym-refactor" },
+    { name = "ngllib", editable = "../neurogym" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pyarrow", specifier = ">=14.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
