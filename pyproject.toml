@@ -27,9 +27,10 @@ dev = [
 ]
 
 [tool.uv.sources]
-# simulator-refactor branch: worktree checkouts sit side by side as
-# wt/neurogym-refactor + wt/neurogym-agent-refactor (revert to ../neurogym on merge).
-ngllib = { path = "../neurogym-refactor", editable = true }
+# ngllib is developed in the sibling checkout (Seung Lab/neurogym on Win10,
+# /scratch/kp0374/neurogym on the cluster), installed editable so agent runs
+# follow its main branch. A feature-branch worktree pair can repoint this.
+ngllib = { path = "../neurogym", editable = true }
 torch = { index = "pytorch-cu124" }
 torchvision = { index = "pytorch-cu124" }
 
