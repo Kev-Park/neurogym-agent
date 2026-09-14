@@ -22,7 +22,8 @@ def test_for_nvec_validates():
     with pytest.raises(ValueError):
         HierarchicalMultiCategorical.for_nvec([2, 1024, 9, 9, 9])  # legacy 5-dim
     with pytest.raises(ValueError):
-        HierarchicalMultiCategorical.for_nvec([4, 1024, 9, 9, 9, 9])  # type != 3
+        HierarchicalMultiCategorical.for_nvec([5, 1024, 9, 9, 9, 9])  # verbs must be 3 or 4
+    HierarchicalMultiCategorical.for_nvec([4, 1024, 9, 9, 9, 9])      # double_click verb: valid
 
 
 def test_sample_shape_and_ranges():
