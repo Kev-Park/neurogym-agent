@@ -69,6 +69,16 @@ export NGL_NATIVE_VAO_LRU_MB=${VAO_LRU_MB:-256}
 # random.
 PANE_MODE=${PANE_MODE:-atomic}
 # Step-anchored curriculum (see providers/flywire_skeleton.py).
+# Topology knobs. ENVS_PER_RUNNER=2 is the production default since 2026-09-14:
+# a renderer-only probe put 32x2 at 3.3x the sps of 32x1, but under a trained
+# policy the second env only hides what little fetch latency remains, and in
+# real training it measured +12% (129 -> 144, jobs 885623/885624) and +0.8%
+# median / +5% mean (147 -> 148 / 150, job 885618) -- small, positive, free.
+# 62-step fragments at batch 4000 are inside the range where fragment length
+# was shown irrelevant. RLlib's loop, not the renderer, bounds training at
+# this density: the per-iteration 'timers' log line says where the time goes.
+RUNNERS=${RUNNERS:-32}
+ENVS_PER_RUNNER=${ENVS_PER_RUNNER:-2}
 export CURRICULUM_PROGRESS_FILE="$CKPT/meta.json"
 
 uv run --no-sync python -m ngllib_agent.train \
