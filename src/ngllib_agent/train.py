@@ -292,9 +292,17 @@ def main(argv=None) -> int:
             t_iter = result.get("time_this_iter_s")
             n_steps = er.get("num_env_steps_sampled")
 
+            # RLlib's own phase timers (sampling / learner update / weight
+            # sync / connectors): where the iteration's wall-clock goes. A
+            # renderer-only probe said 32x2 envs/runner was 3.3x faster than
+            # 32x1; real training measured 148 vs 147 sps (2026-09-13), so the
+            # env step is not what bounds the loop -- these say what does.
+            tm = result.get("timers", {}) or {}
             metrics = {
                 **_scalars(er, "env_runners"),
                 **_scalars(pol, "learner"),
+                **{f"perf/timers/{k}": v for k, v in tm.items()
+                   if isinstance(v, (int, float))},
                 "perf/time_this_iter_s": t_iter,
                 "perf/steps_per_s": (n_steps / t_iter) if (t_iter and n_steps) else None,
             }
@@ -333,6 +341,13 @@ def main(argv=None) -> int:
                 f"ts={time.time():.3f}",
                 flush=True,
             )
+            # Phase timers on their own line so a log grep can attribute the
+            # iteration's seconds (sample vs learner vs sync vs connectors).
+            _tm = {k: round(v, 2) for k, v in tm.items()
+                   if isinstance(v, (int, float)) and v >= 0.01}
+            if _tm:
+                print(f"timers {it}: " + " ".join(f"{k}={v}" for k, v in
+                                                 sorted(_tm.items())), flush=True)
             # Zombie guard: iterations that sample NOTHING (all runners dead
             # from a construction-time bug) used to spin silently — 19 empty
             # iters before anyone noticed (2026-08-28). Die loudly instead.
