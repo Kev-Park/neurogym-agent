@@ -39,6 +39,13 @@ WT=/scratch/kp0374/wt/neurogym-agent-native
 cd "$WT"
 RUN=${1:-native-v9-test}
 ITERS=${2:-740}
+# Topology knobs (defaults = the production 32x1). ENVS_PER_RUNNER>1 uses the
+# threaded vector env (--vector threads below), the same one the renderer
+# probe measures -- a 32x2 probe ran 3.3x faster than 32x1 but real training
+# measured 148 vs 147 sps (2026-09-13), so change these to MEASURE, not by
+# assumption; the per-iteration 'timers' log line says where the time goes.
+RUNNERS=${RUNNERS:-32}
+ENVS_PER_RUNNER=${ENVS_PER_RUNNER:-1}
 CKPT=/scratch/kp0374/checkpoints/${RUN}
 mkdir -p "$CKPT"
 
@@ -73,8 +80,8 @@ export CURRICULUM_PROGRESS_FILE="$CKPT/meta.json"
 uv run --no-sync python -m ngllib_agent.train \
   --config ${TRAIN_CONFIG:-configs/native.yaml} \
   --run-name "$RUN" \
-  --num-env-runners 32 \
-  --num-envs-per-env-runner 1 \
+  --num-env-runners "$RUNNERS" \
+  --num-envs-per-env-runner "$ENVS_PER_RUNNER" \
   --num-gpus-per-env-runner 0.02 \
   --vector threads \
   --iters "$ITERS" \
