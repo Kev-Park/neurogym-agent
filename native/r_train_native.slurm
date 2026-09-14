@@ -68,7 +68,6 @@ export NGL_NATIVE_VAO_LRU_MB=${VAO_LRU_MB:-256}
 # 92.5% behaviour) | progressive (measured -11pp, do not use) | concurrent |
 # random.
 PANE_MODE=${PANE_MODE:-atomic}
-# Step-anchored curriculum (see providers/flywire_skeleton.py).
 # Topology knobs. ENVS_PER_RUNNER=2 is the production default since 2026-09-14:
 # a renderer-only probe put 32x2 at 3.3x the sps of 32x1, but under a trained
 # policy the second env only hides what little fetch latency remains, and in
@@ -79,13 +78,14 @@ PANE_MODE=${PANE_MODE:-atomic}
 # this density: the per-iteration 'timers' log line says where the time goes.
 RUNNERS=${RUNNERS:-32}
 ENVS_PER_RUNNER=${ENVS_PER_RUNNER:-2}
+# Step-anchored curriculum (see providers/flywire_skeleton.py).
 export CURRICULUM_PROGRESS_FILE="$CKPT/meta.json"
 
 uv run --no-sync python -m ngllib_agent.train \
   --config ${TRAIN_CONFIG:-configs/native.yaml} \
   --run-name "$RUN" --pane-mode "$PANE_MODE" \
-  --num-env-runners 32 \
-  --num-envs-per-env-runner 1 \
+  --num-env-runners "$RUNNERS" \
+  --num-envs-per-env-runner "$ENVS_PER_RUNNER" \
   --num-gpus-per-env-runner 0.02 \
   --vector threads \
   --iters "$ITERS" \
