@@ -41,32 +41,32 @@ MESH_VERT_CAP = 600_000            # skip absurdly large meshes for a quick chec
 
 
 def ng_graphene(seg_src: str) -> str:
-    # CAVE's segmentation_source() returns the server alias prod.flywire-daf.com
-    # (fine for CloudVolume mesh fetches with a token) but the BROWSER NG host
-    # (ngl.flywire.ai middleauth) is prodv1.flywire-daf.com — prod is not
-    # CORS/middleauth-enabled for browsers ("HTTP error 0" otherwise). prodv1
-    # confirmed by ngllib config.json + FlyWire/fafbseg docs.
-    src = seg_src.replace("prod.flywire-daf.com", "prodv1.flywire-daf.com")
-    if src.startswith("graphene://") and "middleauth+" not in src:
-        return "graphene://middleauth+" + src[len("graphene://"):]
-    return src
+    # Browser NG host is prodv1 (prod is a server-only alias). ngl.flywire.ai
+    # authenticates graphene via the logged-in session, so DO NOT add the
+    # middleauth+ prefix — that path returns empty in-browser ("HTTP error 0").
+    return seg_src.replace("prod.flywire-daf.com", "prodv1.flywire-daf.com")
 
 
-def build_state(em_src, seg_src, seg_ids, pos_vox, proj, xsec, ts):
+def build_state(em_src, seg_src, seg_ids, pos_vox, zoom2d, zoom3d):
+    # ngl.flywire.ai runs the OLD neuroglancer state format (verified from a
+    # normalized state it produced, 2026-09-17): navigation.pose.position.
+    # voxelCoordinates (+ voxelSize), NOT the modern top-level dimensions/
+    # position — those are silently ignored. Graphene layer type must be
+    # segmentation_with_graph.
     return {
-        "dimensions": {"x": [4e-9, "m"], "y": [4e-9, "m"], "z": [4e-8, "m"]},
-        "position": [float(v) for v in pos_vox],
-        "crossSectionScale": float(xsec),
-        "projectionScale": float(proj),
         "layers": [
-            {"type": "image", "source": em_src, "tab": "source", "name": "EM"},
-            # FlyWire's NG fork (ngl.flywire.ai) requires the graphene layer
-            # type "segmentation_with_graph" (vanilla NG's "segmentation" is
-            # rejected: "Key 'layerType' must be 'segmentation_with_graph'").
-            {"type": "segmentation_with_graph", "source": seg_src, "tab": "source",
-             "segments": [str(s) for s in seg_ids], "timestamp": int(ts),
+            {"source": em_src, "type": "image", "name": "EM"},
+            {"source": seg_src, "type": "segmentation_with_graph",
+             "segments": [str(s) for s in seg_ids],
              "name": "flywire_public (pre-edit)"},
         ],
+        "navigation": {
+            "pose": {"position": {
+                "voxelSize": [4, 4, 40],
+                "voxelCoordinates": [float(v) for v in pos_vox]}},
+            "zoomFactor": float(zoom2d),
+        },
+        "perspectiveZoom": float(zoom3d),
         "showDefaultAnnotations": False,
         "layout": "xy-3d",
     }
