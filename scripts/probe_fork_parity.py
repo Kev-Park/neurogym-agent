@@ -109,7 +109,13 @@ def run(browser, origin, tag):
         raw = page.evaluate("() => (window.viewer && window.viewer.state) ? JSON.stringify(window.viewer.state) : null")
         st = json.loads(raw) if raw else None
         shot = f"{OUT}/parity_{tag}_{name}.png"
-        page.screenshot(path=shot)
+        for attempt in range(3):
+            try:
+                page.screenshot(path=shot, timeout=60_000)
+                break
+            except Exception as e:
+                print(f"     screenshot retry {attempt}: {type(e).__name__}")
+                time.sleep(2)
         results[name] = {"ready": ready, "state": st, "shot": shot}
         print(f"  [{tag}] {name}: ready={ready} readable={st is not None} "
               f"fields={sorted(set(FIELDS) & set(st or {}))}")
@@ -119,8 +125,17 @@ def run(browser, origin, tag):
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True, args=[
-        "--no-sandbox", "--disable-dev-shm-usage", "--use-gl=angle",
-        "--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
+        "--no-sandbox", "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled",
+        # same as ngllib ChromeRenderer._build_launch_args on Linux: the
+        # compositor otherwise waits for a frame-rate-limited frame and
+        # page.screenshot times out (seen on SwiftShader at 1800x900).
+        "--disable-gpu-vsync", "--disable-frame-rate-limit"]
+        + (["--use-gl=angle", "--use-angle=vulkan"] if os.environ.get("PROBE_GPU", "1") == "1"
+           else ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"]))
+        renderer = browser.new_page()
+    renderer.goto("about:blank")
+    print("PROBE_GPU=", os.environ.get("PROBE_GPU", "1"))
     print("APPSPOT:")
     a = run(browser, APPSPOT, "appspot")
     print("FORK:")
