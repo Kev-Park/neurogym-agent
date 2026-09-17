@@ -5,18 +5,21 @@ proofreading operation:
 
   * START url  — the segmentation state BEFORE the fix: a graphene layer whose
     segments are the operation's `before_root_ids` (a split's one wrongly-merged
-    object, or a merge's two separate pieces). Loading those historical roots IS
-    the un-fixed geometry (they resolve + mesh forever); a layer `timestamp` just
-    before the op is added as belt-and-suspenders. Viewer parked at the object
-    centroid, zoomed out to survey — the error is somewhere in view, not marked.
+    object, or a merge's two separate pieces). Loading those historical root IDs
+    IS the un-fixed geometry (a root id pins its agglomeration version forever;
+    no timestamp needed). Viewer parked at a RANDOM point on the object.
   * EVAL url   — identical geometry, viewer parked EXACTLY at the operation
     coordinate (the proofreader's source/sink point), zoomed in: where the error
     actually is, for scoring.
 
-Data is verified server-side (roots resolve, coords, meshes). BROWSER CAVEAT:
-graphene + `flywire_public` needs a FlyWire/CAVE (middleauth) login in the Chrome
-you open these in — fine for a real-browser CUA test. Host prefix is swappable
-(demo host below; ngl.flywire.ai / spelunker also render the same #! state).
+VERIFIED NG-link facts (ngl.flywire.ai, 2026-09-17) — the datastack's viewer:
+  - OLD neuroglancer state format: navigation.pose.position.voxelCoordinates +
+    voxelSize (NOT the modern top-level dimensions/position; those are ignored).
+  - graphene layer type must be `segmentation_with_graph`.
+  - source graphene://https://prodv1.flywire-daf.com/... (prod is a server-only
+    alias; NO middleauth+ prefix — the logged-in session authenticates).
+  - viewing REQUIRES a FlyWire login in that browser (graphene is auth-gated;
+    the public precomputed snapshot cannot show pre-edit roots).
 
     uv run --no-sync python scripts/gen_search_error_links.py --n 5 --seed 20260917
 """
@@ -96,6 +99,8 @@ def main() -> int:
     roots = [str(r) for r in
              pq.read_table(args.edits, columns=["root_id"]).column("root_id").to_pylist()]
     rng = np.random.default_rng(args.seed)
+    vrng = np.random.default_rng(args.seed + 1)   # separate stream for start
+    # vertices, so op/neuron selection stays identical to the centroid runs
     roots = list(dict.fromkeys(roots))
     rng.shuffle(roots)
 
@@ -159,20 +164,22 @@ def main() -> int:
                 continue
             if len(verts) > MESH_VERT_CAP:
                 continue
-            centroid_vox = verts.mean(axis=0) / VOXEL_NM
+            # START at a RANDOM point ON the object (a mesh vertex), like a
+            # real search spawn, rather than the centroid.
+            start_vox = verts[int(vrng.integers(len(verts)))] / VOXEL_NM
             bbox_vox = (verts.max(0) - verts.min(0)) / VOXEL_NM
             proj = float(np.clip(np.linalg.norm(bbox_vox) * 0.45, 12000, 60000))
-            dist_nm = float(np.linalg.norm((centroid_vox - err_vox) * VOXEL_NM))
+            dist_nm = float(np.linalg.norm((start_vox - err_vox) * VOXEL_NM))
 
             # build_state(em, seg, ids, pos_vox, zoom2d, zoom3d): survey zoomed
             # out (proj) then zoom to the error. 2D zoomFactor stays moderate.
-            start = build_state(em_src, ng_seg, before, centroid_vox, 8.0, proj)
+            start = build_state(em_src, ng_seg, before, start_vox, 8.0, proj)
             evals = build_state(em_src, ng_seg, before, err_vox, 2.0, 3000.0)
             pairs.append({
                 "op_id": op_id, "is_merge": is_merge, "ts": ts,
                 "before": before, "after": after, "sizes": sizes,
                 "n_coords": len(coords), "err_vox": err_vox,
-                "centroid_dist_nm": dist_nm, "n_verts": len(verts),
+                "start_dist_nm": dist_nm, "n_verts": len(verts),
                 "start_url": state_to_url(ng_host, start),
                 "eval_url": state_to_url(ng_host, evals),
             })
@@ -180,7 +187,7 @@ def main() -> int:
                   f"{'MERGE' if is_merge else 'SPLIT'} "
                   f"{time.strftime('%Y-%m-%d', time.gmtime(ts))} "
                   f"before={before} L2={sizes} verts={len(verts)} "
-                  f"centroid->error {dist_nm/1000:.1f}um", flush=True)
+                  f"start->error {dist_nm/1000:.1f}um", flush=True)
             time.sleep(0.3)
 
     print("\n" + "=" * 70, flush=True)
@@ -192,7 +199,7 @@ def main() -> int:
               f"  error points={p['n_coords']}", flush=True)
         print(f"   error voxel (4x4x40) = [{p['err_vox'][0]:.0f}, "
               f"{p['err_vox'][1]:.0f}, {p['err_vox'][2]:.0f}]  "
-              f"survey-start is ~{p['centroid_dist_nm']/1000:.1f}um away", flush=True)
+              f"random start is ~{p['start_dist_nm']/1000:.1f}um away", flush=True)
         print(f"   START: {p['start_url']}", flush=True)
         print(f"   EVAL : {p['eval_url']}", flush=True)
     print(f"\n[done] {len(pairs)} pairs (seed={args.seed})", flush=True)
