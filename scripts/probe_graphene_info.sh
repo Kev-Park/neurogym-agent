@@ -24,9 +24,9 @@ echo "old-root manifest via server (bearer): $(code -H "Authorization: Bearer $T
 cd /scratch/kp0374/neurogym-agent && uv run --no-sync python - <<'PY' 2>&1 | tail -6
 from cloudvolume import CloudVolume
 cv = CloudVolume('graphene://https://prodv1.flywire-daf.com/segmentation/1.0/flywire_public', mip=0, agglomerate=False, use_https=True, progress=False)
-print("CV cloudpath:", cv.meta.cloudpath, "| mesh path:", cv.mesh.meta.mesh_path if hasattr(cv.mesh,'meta') else '?')
+print("CV cloudpath:", cv.meta.cloudpath, "| res", cv.resolution.tolist(), "| bounds", cv.bounds.to_list())
 import numpy as np
-c = [215675//4, 61215//4, 3828]  # 4nm -> 16nm mip0
+c = [int(215675*4/cv.resolution[0]), int(61215*4/cv.resolution[1]), 3828]
 cut = cv[c[0]-32:c[0]+32, c[1]-32:c[1]+32, c[2]-2:c[2]+2]
 u = np.unique(cut); print("CV cutout ok:", cut.shape, "unique svids:", len(u), "max", int(u.max()))
 roots = cv.get_roots(u[u!=0][:50]); print("get_roots ok:", len(roots), "distinct roots:", len(set(roots.tolist())), "example current root:", int(roots[0]))
