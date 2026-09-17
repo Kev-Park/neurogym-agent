@@ -36,8 +36,6 @@ from ngllib.dataset import state_to_url
 # NG position lives in (harvest_edit_history.py). Mesh verts are in nm.
 EDIT_TO_SKEL = np.array([4.0, 4.0, 1.0])
 VOXEL_NM = np.array([4.0, 4.0, 40.0])
-NG_HOST = "https://neuroglancer-demo.appspot.com/"
-EM_SRC = "precomputed://https://bossdb-open-data.s3.amazonaws.com/flywire/fafbv14"
 L2_MIN, L2_MAX = 20, 3000          # skip stubs and merge-monsters
 MESH_VERT_CAP = 600_000            # skip absurdly large meshes for a quick check
 
@@ -48,14 +46,14 @@ def ng_graphene(seg_src: str) -> str:
     return seg_src
 
 
-def build_state(seg_src, seg_ids, pos_vox, proj, xsec, ts):
+def build_state(em_src, seg_src, seg_ids, pos_vox, proj, xsec, ts):
     return {
         "dimensions": {"x": [4e-9, "m"], "y": [4e-9, "m"], "z": [4e-8, "m"]},
         "position": [float(v) for v in pos_vox],
         "crossSectionScale": float(xsec),
         "projectionScale": float(proj),
         "layers": [
-            {"type": "image", "source": EM_SRC, "tab": "source", "name": "EM"},
+            {"type": "image", "source": em_src, "tab": "source", "name": "EM"},
             {"type": "segmentation", "source": seg_src, "tab": "source",
              "segments": [str(s) for s in seg_ids], "timestamp": int(ts),
              "name": "flywire_public (pre-edit)"},
@@ -80,8 +78,11 @@ def main() -> int:
     client = CAVEclient(args.datastack)
     seg_src = client.info.segmentation_source()
     ng_seg = ng_graphene(seg_src)
+    ng_host = client.info.viewer_site()           # authoritative FlyWire NG host
+    em_src = client.info.image_source()
     cv = CloudVolume(seg_src, use_https=True, progress=False)
-    print(f"# datastack={args.datastack}\n# graphene(NG)={ng_seg}\n", flush=True)
+    print(f"# datastack={args.datastack}\n# host={ng_host}\n"
+          f"# graphene(NG)={ng_seg}\n# em={em_src}\n", flush=True)
 
     roots = [str(r) for r in
              pq.read_table(args.edits, columns=["root_id"]).column("root_id").to_pylist()]
@@ -155,15 +156,15 @@ def main() -> int:
             dist_nm = float(np.linalg.norm((centroid_vox - err_vox) * VOXEL_NM))
 
             ts_layer = ts - 1
-            start = build_state(ng_seg, before, centroid_vox, proj, 4.0, ts_layer)
-            evals = build_state(ng_seg, before, err_vox, 3000.0, 0.8, ts_layer)
+            start = build_state(em_src, ng_seg, before, centroid_vox, proj, 4.0, ts_layer)
+            evals = build_state(em_src, ng_seg, before, err_vox, 3000.0, 0.8, ts_layer)
             pairs.append({
                 "op_id": op_id, "is_merge": is_merge, "ts": ts,
                 "before": before, "after": after, "sizes": sizes,
                 "n_coords": len(coords), "err_vox": err_vox,
                 "centroid_dist_nm": dist_nm, "n_verts": len(verts),
-                "start_url": state_to_url(NG_HOST, start),
-                "eval_url": state_to_url(NG_HOST, evals),
+                "start_url": state_to_url(ng_host, start),
+                "eval_url": state_to_url(ng_host, evals),
             })
             print(f"[{len(pairs)}/{args.n}] op {op_id} "
                   f"{'MERGE' if is_merge else 'SPLIT'} "
