@@ -83,6 +83,12 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="M5: pre-navigate the next episode in a warm browser "
                          "context while the current one steps; reset swaps pages "
                          "instead of paying navigate+settle on the critical path.")
+    ap.add_argument("--no-spawn-curriculum", action="store_true",
+                    help="Drop env.spawn_curriculum so every reset spawns at the "
+                         "full distance distribution from step 0. For SPS "
+                         "benchmarking: the curriculum's early near-target "
+                         "episodes reset ~2x more often and understate the "
+                         "sustained (post-anneal) training throughput.")
     # R10: coord-test-v7 showed RLlib will run indefinitely at ~15% throughput
     # while an EnvRunner restart churns (100 min at ~360s/iter vs 40s cruise).
     # On sustained degradation: force a checkpoint and exit 43 so the
@@ -151,6 +157,8 @@ def main(argv=None) -> int:
         cfg.setdefault("env", {})["reset_ahead"] = True
     if args.pane_mode:
         cfg.setdefault("env", {})["pane_mode"] = args.pane_mode
+    if args.no_spawn_curriculum:
+        cfg.setdefault("env", {}).pop("spawn_curriculum", None)
     pc = cfg.get("ppo", {})
     train_batch = args.train_batch_size or pc.get("train_batch_size", 2000)
     ckpt_dir = args.checkpoint_dir or os.path.join("checkpoints", args.run_name)
