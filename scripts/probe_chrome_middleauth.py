@@ -91,6 +91,10 @@ with sync_playwright() as p:
                     msgs: ((ds.messages && ds.messages.messages) || []).map(m => m.severity + ': ' + m.message)}))}); }""")
         except Exception as e:
             layer = f"err {str(e)[:120]}"
+        try:
+            keys = page.evaluate("() => Object.keys(window.viewer.state.toJSON()).join(',')")
+        except Exception as e:
+            keys = f"err {str(e)[:80]}"
         text = page.evaluate("() => document.body.innerText")
         msgs = [ln for ln in text.splitlines() if any(k in ln.lower() for k in ("login", "middleauth", "error", "unverified"))]
         page.screenshot(path=f"{OUT}/probe_middleauth_{urllib.parse.urlparse(ORIGIN).netloc.split(chr(46))[0]}_{name}.png")
@@ -99,6 +103,7 @@ with sync_playwright() as p:
             hosts.setdefault(h, []).append(f"{s}x{n}")
         print(f"CASE {name}: ready={ready} t={time.time()-t0:.0f}s segments={segs}")
         print(f"   layer: {layer[:300]}")
+        print(f"   state keys: {keys}")
         for c in console[:6]:
             print(f"   {c}")
         for h, v in hosts.items():
