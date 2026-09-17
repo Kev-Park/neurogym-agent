@@ -41,9 +41,15 @@ MESH_VERT_CAP = 600_000            # skip absurdly large meshes for a quick chec
 
 
 def ng_graphene(seg_src: str) -> str:
-    if seg_src.startswith("graphene://") and "middleauth+" not in seg_src:
-        return "graphene://middleauth+" + seg_src[len("graphene://"):]
-    return seg_src
+    # CAVE's segmentation_source() returns the server alias prod.flywire-daf.com
+    # (fine for CloudVolume mesh fetches with a token) but the BROWSER NG host
+    # (ngl.flywire.ai middleauth) is prodv1.flywire-daf.com — prod is not
+    # CORS/middleauth-enabled for browsers ("HTTP error 0" otherwise). prodv1
+    # confirmed by ngllib config.json + FlyWire/fafbseg docs.
+    src = seg_src.replace("prod.flywire-daf.com", "prodv1.flywire-daf.com")
+    if src.startswith("graphene://") and "middleauth+" not in src:
+        return "graphene://middleauth+" + src[len("graphene://"):]
+    return src
 
 
 def build_state(em_src, seg_src, seg_ids, pos_vox, proj, xsec, ts):
