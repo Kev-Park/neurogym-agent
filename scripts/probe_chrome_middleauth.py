@@ -15,7 +15,7 @@ from collections import Counter
 
 from playwright.sync_api import sync_playwright
 
-ORIGIN = "https://neuroglancer-demo.appspot.com"
+ORIGIN = os.environ.get("PROBE_ORIGIN", "https://neuroglancer-demo.appspot.com")
 APP = "https://prodv1.flywire-daf.com"
 LOGIN_URL = "https://global.daf-apis.com/sticky_auth"
 ROOT = os.environ.get("PROBE_ROOT", "720575940625112137")
@@ -93,7 +93,7 @@ with sync_playwright() as p:
             layer = f"err {str(e)[:120]}"
         text = page.evaluate("() => document.body.innerText")
         msgs = [ln for ln in text.splitlines() if any(k in ln.lower() for k in ("login", "middleauth", "error", "unverified"))]
-        page.screenshot(path=f"{OUT}/probe_middleauth_{name}.png")
+        page.screenshot(path=f"{OUT}/probe_middleauth_{urllib.parse.urlparse(ORIGIN).netloc.split(chr(46))[0]}_{name}.png")
         hosts = {}
         for (h, s), n in sorted(statuses.items()):
             hosts.setdefault(h, []).append(f"{s}x{n}")
