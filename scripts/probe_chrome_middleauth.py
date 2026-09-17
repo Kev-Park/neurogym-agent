@@ -18,7 +18,7 @@ from playwright.sync_api import sync_playwright
 ORIGIN = "https://neuroglancer-demo.appspot.com"
 APP = "https://prodv1.flywire-daf.com"
 LOGIN_URL = "https://global.daf-apis.com/sticky_auth"
-ROOT = "720575940625112137"
+ROOT = os.environ.get("PROBE_ROOT", "720575940625112137")
 OUT = sys.argv[1] if len(sys.argv) > 1 else "/scratch/kp0374/native_spike"
 
 
@@ -64,6 +64,9 @@ with sync_playwright() as p:
             if r.status != 206 and "appspot" not in r.url:
                 urls.append(f"{r.status} {r.url[:150]}")
         page.on("response", on_response)
+        console = []
+        page.on("console", lambda m: console.append(f"console.{m.type}: {m.text[:160]}") if m.type in ("error", "warning") else None)
+        page.on("pageerror", lambda e: console.append(f"pageerror: {str(e)[:160]}"))
         url = ORIGIN + "/#!" + urllib.parse.quote(json.dumps(state(src)), safe="")
         t0 = time.time()
         page.goto(url, timeout=60_000)
@@ -80,6 +83,12 @@ with sync_playwright() as p:
             segs = page.evaluate("() => JSON.stringify(window.viewer.state.toJSON().layers[1].segments)")
         except Exception as e:
             segs = f"err {type(e).__name__}"
+        try:
+            layer = page.evaluate("""() => { const l = window.viewer.layerManager.managedLayers[1].layer;
+                if (!l) return 'layer not constructed';
+                return JSON.stringify({ready: l.isReady(), msgs: l.dataSources.map(ds => (ds.messages && ds.messages.messages || []).map(m => m.severity + ': ' + m.message))}); }""")
+        except Exception as e:
+            layer = f"err {str(e)[:120]}"
         text = page.evaluate("() => document.body.innerText")
         msgs = [ln for ln in text.splitlines() if any(k in ln.lower() for k in ("login", "middleauth", "error", "unverified"))]
         page.screenshot(path=f"{OUT}/probe_middleauth_{name}.png")
@@ -87,6 +96,9 @@ with sync_playwright() as p:
         for (h, s), n in sorted(statuses.items()):
             hosts.setdefault(h, []).append(f"{s}x{n}")
         print(f"CASE {name}: ready={ready} t={time.time()-t0:.0f}s segments={segs}")
+        print(f"   layer: {layer[:300]}")
+        for c in console[:6]:
+            print(f"   {c}")
         for h, v in hosts.items():
             print(f"   {h}: {' '.join(v)}")
         for m in msgs[:4]:

@@ -23,13 +23,13 @@ echo "old-root manifest via server (bearer): $(code -H "Authorization: Bearer $T
 # CloudVolume view of the same
 cd /scratch/kp0374/neurogym-agent && uv run --no-sync python - <<'PY' 2>&1 | tail -6
 from cloudvolume import CloudVolume
-cv = CloudVolume('graphene://https://prodv1.flywire-daf.com/segmentation/1.0/flywire_public', mip=2, agglomerate=False, use_https=True, progress=False)
+cv = CloudVolume('graphene://https://prodv1.flywire-daf.com/segmentation/1.0/flywire_public', mip=0, agglomerate=False, use_https=True, progress=False)
 print("CV cloudpath:", cv.meta.cloudpath, "| mesh path:", cv.mesh.meta.mesh_path if hasattr(cv.mesh,'meta') else '?')
 import numpy as np
-c = [215675//4, 61215//4, 3828]
+c = [215675//4, 61215//4, 3828]  # 4nm -> 16nm mip0
 cut = cv[c[0]-32:c[0]+32, c[1]-32:c[1]+32, c[2]-2:c[2]+2]
 u = np.unique(cut); print("CV cutout ok:", cut.shape, "unique svids:", len(u), "max", int(u.max()))
-roots = cv.get_roots(u[u!=0][:50]); print("get_roots ok:", len(roots), "distinct roots:", len(set(roots.tolist())))
+roots = cv.get_roots(u[u!=0][:50]); print("get_roots ok:", len(roots), "distinct roots:", len(set(roots.tolist())), "example current root:", int(roots[0]))
 m = cv.mesh.get(720575940625112137, lod=2 if False else 0) if False else cv.mesh.get(720575940625112137)
 mm = list(m.values())[0]; print("old-root mesh ok: verts", mm.vertices.shape[0], "faces", mm.faces.shape[0])
 PY
