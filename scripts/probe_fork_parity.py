@@ -133,10 +133,7 @@ with sync_playwright() as p:
         "--disable-gpu-vsync", "--disable-frame-rate-limit"]
         + (["--use-gl=angle", "--use-angle=vulkan"] if os.environ.get("PROBE_GPU", "1") == "1"
            else ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"]))
-        renderer = browser.new_page()
-    renderer.goto("about:blank")
-    print("PROBE_GPU=", os.environ.get("PROBE_GPU", "1"))
-    print("APPSPOT:")
+    print("PROBE_GPU=", os.environ.get("PROBE_GPU", "1"), "| APPSPOT:")
     a = run(browser, APPSPOT, "appspot")
     print("FORK:")
     f = run(browser, FORK, "fork")
