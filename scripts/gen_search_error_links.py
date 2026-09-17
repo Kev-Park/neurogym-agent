@@ -164,9 +164,10 @@ def main() -> int:
             proj = float(np.clip(np.linalg.norm(bbox_vox) * 0.45, 12000, 60000))
             dist_nm = float(np.linalg.norm((centroid_vox - err_vox) * VOXEL_NM))
 
-            ts_layer = ts - 1
-            start = build_state(em_src, ng_seg, before, centroid_vox, proj, 4.0, ts_layer)
-            evals = build_state(em_src, ng_seg, before, err_vox, 3000.0, 0.8, ts_layer)
+            # build_state(em, seg, ids, pos_vox, zoom2d, zoom3d): survey zoomed
+            # out (proj) then zoom to the error. 2D zoomFactor stays moderate.
+            start = build_state(em_src, ng_seg, before, centroid_vox, 8.0, proj)
+            evals = build_state(em_src, ng_seg, before, err_vox, 2.0, 3000.0)
             pairs.append({
                 "op_id": op_id, "is_merge": is_merge, "ts": ts,
                 "before": before, "after": after, "sizes": sizes,
