@@ -108,6 +108,55 @@ is synthesizable per op type:
   underneath). A bank-builder capability, not a config flag. Deferred until
   something needs it.
 
+## 2026-09-17 — Rendering pre-edit states: Chrome vs Simulator backend
+
+Worked out (the hard way, via ngl.flywire.ai) how to *display* a historical
+pre-edit object. It splits the two backends sharply.
+
+**NG-link facts** (ngl.flywire.ai = the datastack's `viewer_site`; reference
+generator `scripts/gen_search_error_links.py`, START/EVAL pairs):
+- Source `graphene://https://prodv1.flywire-daf.com/segmentation/1.0/flywire_public`.
+  CAVE's `segmentation_source()` returns the alias `prod.flywire-daf.com`,
+  which is **server-only**; the browser host is **prodv1**. **No `middleauth+`
+  prefix** in a logged-in browser — that path returns empty ("HTTP error 0");
+  `middleauth+` is only for token/CloudVolume contexts.
+- Layer type must be **`segmentation_with_graph`** (vanilla NG's
+  `segmentation` is rejected).
+- **Historical root IDs load directly** in `segments` — a root id pins its
+  agglomeration version forever; **no `timestamp` needed** (the timestamp
+  field actively interfered). Loading `before_root_ids` IS the un-fixed
+  geometry.
+- ngl.flywire.ai runs the **OLD NG state format**: `navigation.pose.position.
+  voxelCoordinates` + `voxelSize`; the modern top-level `dimensions`/`position`
+  are silently ignored.
+- Graphene is **AUTH-GATED** (FlyWire login). The public precomputed snapshot
+  (`gs://flywire_v141_m783`) **cannot** show pre-edit roots — only graphene can.
+
+**Simulator backend (native renderer) — the natural fit.** It renders from
+MESHES fetched via CloudVolume from the graphene source, and CloudVolume
+fetches **historical-root meshes with the server-side CAVE token**
+(`~/.cloudvolume/secrets/cave-secret.json`) — verified. No browser, no
+middleauth handshake. The env just needs `before_root_ids` and fetches their
+meshes exactly as it fetches current roots today. ⇒ **STRONGLY PREFERRED for
+the edit-search training env**; the pre-edit world is a static bank of
+`(before_root_ids, spawn vertices, flag coords)` and loads with zero auth
+ceremony.
+
+**Chrome backend (ChromeRenderer) — needs auth work.** Its default config
+uses the public precomputed source ⇒ cannot show pre-edit roots. Rendering
+them requires headless Chrome to load the graphene (`segmentation_with_graph`)
+source, which is middleauth-gated. Headless has no interactive login ⇒ the
+CAVE token must be injected into the browser session (cookie/localStorage) or
+a token-bearing source used. ngllib's `default_middle_auth_start_url` hints at
+this path, but headless token injection is **UNBUILT/UNVERIFIED** — real
+fragility. (EM stays public precomputed, no auth; only segmentation needs the
+token.)
+
+**Takeaway:** build the edit-search TRAINING env on the **simulator backend**
+(mesh-based, token-authed server-side). Reserve the **Chrome backend** for the
+CUA-baseline comparison, where a real logged-in browser session handles
+middleauth interactively — which is exactly what the CUA-baseline branch does.
+
 ## Open items
 
 - Lab asks: full operation-log export (avoids the ~5-day full-corpus API
