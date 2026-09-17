@@ -58,7 +58,9 @@ with sync_playwright() as p:
                                   storage_state=storage_state() if with_token else None)
         page = ctx.new_page()
         statuses = Counter()
-        page.on("response", lambda r: statuses[(urllib.parse.urlparse(r.url).netloc, r.status)] += 1)
+        def on_response(r):
+            statuses[(urllib.parse.urlparse(r.url).netloc, r.status)] += 1
+        page.on("response", on_response)
         url = ORIGIN + "/#!" + urllib.parse.quote(json.dumps(state(src)), safe="")
         t0 = time.time()
         page.goto(url, timeout=60_000)
