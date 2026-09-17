@@ -108,6 +108,8 @@ def run(browser, origin, tag):
         time.sleep(1.0)
         raw = page.evaluate("() => (window.viewer && window.viewer.state) ? JSON.stringify(window.viewer.state) : null")
         st = json.loads(raw) if raw else None
+        if st is not None and not all(k in st for k in FIELDS):
+            st = None   # NG drops the geometry fields (and layers) on ps <= 0
         shot = f"{OUT}/parity_{tag}_{name}.png"
         for attempt in range(3):
             try:
@@ -157,7 +159,10 @@ for name, state in CASES.items():
         keptw = json.dumps(va) == json.dumps(want)
         print(f"   {k:22s} want={fmt(want):46s} appspot={fmt(va):46s} fork={fmt(vf):46s}"
               f" {'MATCH' if same else 'DIFFER'}{'' if keptw else ' (appspot != requested)'}")
-    la = sa["layers"][1].get("segments"); lf = sf["layers"][1].get("segments")
+    def segs(st):
+        lay = st.get("layers") or []
+        return lay[1].get("segments") if len(lay) > 1 else None
+    la, lf = segs(sa), segs(sf)
     print(f"   segments               appspot={la} fork={lf} {'MATCH' if la == lf else 'DIFFER'}")
 
 print("\n=== right-pane pixels, appspot vs fork ===")
