@@ -43,11 +43,11 @@ def storage_state():
              "localStorage": [{"name": f"auth_token_v2_{LOGIN_URL}", "value": json.dumps(entry)}]}]}
 
 
-CASES = [
+CASES = [c for c in [
     ("middleauth+token", f"graphene://middleauth+{APP}/segmentation/1.0/flywire_public", True),
     ("middleauth-notoken", f"graphene://middleauth+{APP}/segmentation/1.0/flywire_public", False),
     ("plain+token", f"graphene://{APP}/segmentation/1.0/flywire_public", True),
-]
+] if c[0] in os.environ.get("PROBE_CASES", c[0])]
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True, args=[
@@ -58,14 +58,17 @@ with sync_playwright() as p:
                                   storage_state=storage_state() if with_token else None)
         page = ctx.new_page()
         statuses = Counter()
+        urls = []
         def on_response(r):
             statuses[(urllib.parse.urlparse(r.url).netloc, r.status)] += 1
+            if r.status != 206 and "appspot" not in r.url:
+                urls.append(f"{r.status} {r.url[:150]}")
         page.on("response", on_response)
         url = ORIGIN + "/#!" + urllib.parse.quote(json.dumps(state(src)), safe="")
         t0 = time.time()
         page.goto(url, timeout=60_000)
         ready = False
-        for _ in range(240):
+        for _ in range(int(os.environ.get('PROBE_POLLS', 240))):
             try:
                 ready = page.evaluate("() => !!(window.viewer && window.viewer.isReady && window.viewer.isReady())")
             except Exception:
@@ -88,6 +91,8 @@ with sync_playwright() as p:
             print(f"   {h}: {' '.join(v)}")
         for m in msgs[:4]:
             print(f"   msg: {m[:120]}")
+        for u in urls[:12]:
+            print(f"   {u}")
         ctx.close()
     browser.close()
 print("PROBE-DONE")
