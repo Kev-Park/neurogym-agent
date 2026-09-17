@@ -84,9 +84,11 @@ with sync_playwright() as p:
         except Exception as e:
             segs = f"err {type(e).__name__}"
         try:
-            layer = page.evaluate("""() => { const l = window.viewer.layerManager.managedLayers[1].layer;
+            layer = page.evaluate("""() => { const ml = window.viewer.layerManager.managedLayers[1]; const l = ml.layer;
                 if (!l) return 'layer not constructed';
-                return JSON.stringify({ready: l.isReady(), msgs: l.dataSources.map(ds => (ds.messages && ds.messages.messages || []).map(m => m.severity + ': ' + m.message))}); }""")
+                return JSON.stringify({ready: ml.isReady ? ml.isReady() : null, ds: l.dataSources.map(ds => ({
+                    load: ds.loadState ? (ds.loadState.error ? String(ds.loadState.error).slice(0, 200) : 'loaded') : 'loading',
+                    msgs: ((ds.messages && ds.messages.messages) || []).map(m => m.severity + ': ' + m.message)}))}); }""")
         except Exception as e:
             layer = f"err {str(e)[:120]}"
         text = page.evaluate("() => document.body.innerText")
