@@ -60,7 +60,10 @@ def build_state(em_src, seg_src, seg_ids, pos_vox, proj, xsec, ts):
         "projectionScale": float(proj),
         "layers": [
             {"type": "image", "source": em_src, "tab": "source", "name": "EM"},
-            {"type": "segmentation", "source": seg_src, "tab": "source",
+            # FlyWire's NG fork (ngl.flywire.ai) requires the graphene layer
+            # type "segmentation_with_graph" (vanilla NG's "segmentation" is
+            # rejected: "Key 'layerType' must be 'segmentation_with_graph'").
+            {"type": "segmentation_with_graph", "source": seg_src, "tab": "source",
              "segments": [str(s) for s in seg_ids], "timestamp": int(ts),
              "name": "flywire_public (pre-edit)"},
         ],
