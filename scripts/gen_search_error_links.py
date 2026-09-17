@@ -119,11 +119,17 @@ def main() -> int:
                 continue
             before = [int(x) for x in np.atleast_1d(row["before_root_ids"])]
             after = [int(x) for x in np.atleast_1d(row["after_root_ids"])]
+            # Geometry must match the task: a real merge joins >=2 pieces (load
+            # them all); a real split produces >=2 pieces from one object.
+            if is_merge and len(before) < 2:
+                continue
+            if not is_merge and len(after) < 2:
+                continue
             sizes = [sized_ok(b) for b in before]
             if any(s is None for s in sizes):
                 continue
             op_id = int(row["operation_id"])
-            ts = int(row["timestamp"])
+            ts = int(row["timestamp"]) // 1000  # change-log ts is ms; NG wants s
             try:
                 det = client.chunkedgraph.get_operation_details([op_id])[str(op_id)]
                 coords = [c for role in ("source_coords", "sink_coords")
