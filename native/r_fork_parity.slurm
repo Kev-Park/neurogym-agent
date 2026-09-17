@@ -15,10 +15,15 @@
 # build ngllib.state was fitted against?  Runs the same states through both on
 # a vulkan-good node (production rendering path) and diffs state readback +
 # right-pane pixels.  sbatch native/r_fork_parity.slurm
+# Submittable from a scratch dir so the production checkout keeps its branch:
+# REPO holds the venv, PROBE the script (both must be on a shared filesystem,
+# not the login node's /tmp).
 set -e
-cd "${SLURM_SUBMIT_DIR:-$(pwd)}"
+REPO=${REPO:-/scratch/kp0374/neurogym-agent}
+PROBE=${PROBE:-scripts/probe_fork_parity.py}
+cd "$REPO"
 export PYTHONUNBUFFERED=1
 export NGL_DIST=${NGL_DIST:-/scratch/kp0374/ngl_fork_dist}
-echo "fork parity: node=$(hostname) commit=$(git rev-parse --short HEAD) dist=$NGL_DIST"
-uv run --no-sync python scripts/probe_fork_parity.py
+echo "fork parity: node=$(hostname) repo=$REPO probe=$PROBE dist=$NGL_DIST"
+uv run --no-sync python "$PROBE"
 echo "FORKPARITY-DONE"
