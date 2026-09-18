@@ -63,10 +63,62 @@ def _child_manual(payload):
           f"px00={flat[0].tolist()}", flush=True)
 
 
+def _interop_check(tag=""):
+    """The core render->register->map->copy->compare, returning a result string.
+    Callable standalone AND inside a Ray actor (to reproduce the runner's 208)."""
+    import moderngl
+    import numpy as np
+    import torch
+    rt = _rt()
+    ctx = moderngl.create_context(standalone=True, backend="egl")
+    tex = ctx.texture((W, H), 4)
+    fbo = ctx.framebuffer(color_attachments=[tex])
+    fbo.use(); fbo.clear(0.2, 0.4, 0.8, 1.0)
+    cpu = np.frombuffer(fbo.read(components=4), np.uint8).reshape(H, W, 4).copy()
+    torch.cuda.init()
+    rt.cudaSetDevice(torch.cuda.current_device())
+    dst = torch.empty((H, W, 4), dtype=torch.uint8, device="cuda")
+    e, res = rt.cudaGraphicsGLRegisterImage(
+        tex.glo, 0x0DE1, rt.cudaGraphicsRegisterFlags.cudaGraphicsRegisterFlagsReadOnly)
+    if int(e) != 0:
+        return f"{tag} REGISTER failed {int(e)}"
+    em = rt.cudaGraphicsMapResources(1, res, 0)[0]
+    if int(em) != 0:
+        cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
+        return f"{tag} MAP failed {int(em)} (CVD={cvd} gl={ctx.info.get('GL_RENDERER')})"
+    e, arr = rt.cudaGraphicsSubResourceGetMappedArray(res, 0, 0)
+    rt.cudaMemcpy2DFromArray(dst.data_ptr(), W * 4, arr, 0, 0, W * 4, H,
+                             rt.cudaMemcpyKind.cudaMemcpyDeviceToDevice)
+    rt.cudaGraphicsUnmapResources(1, res, 0)
+    torch.cuda.synchronize()
+    ok = bool(np.array_equal(dst.cpu().numpy(), cpu))
+    return f"{tag} OK match={ok}"
+
+
 def main():
     import os
     import torch
     rt = _rt()
+
+    # PROBE_RAY: reproduce the RLlib-runner condition — run the interop inside a
+    # fractional-GPU Ray actor (the runner's env). If this 208s but standalone
+    # passes, the Ray actor environment is the differentiator.
+    if os.environ.get("PROBE_RAY"):
+        import ray
+        ray.init(num_gpus=1, include_dashboard=False, ignore_reinit_error=True)
+
+        @ray.remote(num_gpus=0.1)
+        class _W:
+            def run(self):
+                try:
+                    return _interop_check("RAY-ACTOR")
+                except Exception as ex:
+                    import traceback
+                    return f"RAY-ACTOR EXC {type(ex).__name__}: {ex}\n{traceback.format_exc()}"
+
+        print("PROBE_RAY:", ray.get(_W.remote().run.remote()), flush=True)
+        print("PROBE_RAY driver:", _interop_check("DRIVER"), flush=True)
+        return 0
 
     # STAGE 0: optionally init torch's CUDA context BEFORE the GL context, to
     # reproduce the RLlib runner ordering (module-on-GPU inits CUDA before the
