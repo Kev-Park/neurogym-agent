@@ -64,8 +64,18 @@ def _child_manual(payload):
 
 
 def main():
+    import os
     import torch
     rt = _rt()
+
+    # STAGE 0: optionally init torch's CUDA context BEFORE the GL context, to
+    # reproduce the RLlib runner ordering (module-on-GPU inits CUDA before the
+    # env builds its moderngl context). If this makes STAGE3 fail with err 208
+    # (cudaErrorInvalidGraphicsContext), the runner bug is context ordering.
+    if os.environ.get("PROBE_TORCH_FIRST"):
+        torch.cuda.init()
+        _ = torch.zeros(8, device="cuda:0")
+        print("STAGE0 torch CUDA initialized BEFORE moderngl", flush=True)
 
     # ---- STAGE 1: moderngl EGL render + CPU readback (reference) ----
     import moderngl
