@@ -39,6 +39,14 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--run-name", default=f"znav-{int(time.time())}")
     ap.add_argument("--iters", type=int, default=250)
     ap.add_argument("--obs", choices=["pos", "dino"], default="dino")
+    # DINO-server sweep overrides (dino-server experiment): override the config's
+    # obs.dino.server block without editing YAML. --dino-server-instances sweeps M;
+    # --dino-server-max-batch 2 --dino-server-max-delay-ms 0 gives a NO-BATCH mode
+    # (each encode dispatched as it arrives — tests whether batching adds straggler
+    # latency). Ignored unless obs.dino.server.enabled.
+    ap.add_argument("--dino-server-instances", type=int, default=None)
+    ap.add_argument("--dino-server-max-batch", type=int, default=None)
+    ap.add_argument("--dino-server-max-delay-ms", type=float, default=None)
     # Scale / placement.
     # PINNED default topology (2026-07-11, REFINEMENT.md R4-frontier): per GPU
     # node run 2 EnvRunner PROCESSES x 16 threaded envs each on a shared GPU.
@@ -149,6 +157,16 @@ def main(argv=None) -> int:
 
     cfg = load_config(args.config)
     cfg.setdefault("obs", {})["mode"] = args.obs
+    # DINO-server CLI overrides — mutate cfg IN PLACE so make_env_creator's
+    # closure (worker_index % M routing) and the server spawn agree on M.
+    _srv = (cfg.get("obs", {}).get("dino") or {}).get("server")
+    if _srv is not None:
+        if args.dino_server_instances is not None:
+            _srv["instances"] = int(args.dino_server_instances)
+        if args.dino_server_max_batch is not None:
+            _srv["max_batch"] = int(args.dino_server_max_batch)
+        if args.dino_server_max_delay_ms is not None:
+            _srv["max_delay_ms"] = float(args.dino_server_max_delay_ms)
     if args.recovery_mode:
         cfg.setdefault("env", {})["recovery_mode"] = args.recovery_mode
     if args.stagger_first_episode:

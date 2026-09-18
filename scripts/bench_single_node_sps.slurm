@@ -45,6 +45,13 @@ LEARNER_GPU=${LEARNER_GPU:-}
 ITERS=${ITERS:-25}
 RUN=${RUN:-${SLURM_JOB_NAME}-${SLURM_JOB_ID}}
 
+# DINO-server sweep overrides (empty = use config). M sweeps instances;
+# SRV_MAX_BATCH=2 SRV_MAX_DELAY=0 gives no-batch (dispatch as arrivals come).
+DINO_ARGS=""
+[ -n "${M:-}" ] && DINO_ARGS="$DINO_ARGS --dino-server-instances $M"
+[ -n "${SRV_MAX_BATCH:-}" ] && DINO_ARGS="$DINO_ARGS --dino-server-max-batch $SRV_MAX_BATCH"
+[ -n "${SRV_MAX_DELAY:-}" ] && DINO_ARGS="$DINO_ARGS --dino-server-max-delay-ms $SRV_MAX_DELAY"
+
 # Simulator per-process cache env (verbatim from launch_coord_local.sh; the
 # Chrome backend ignores all of them). Sized for the 32x3 single-node default.
 export NGL_NATIVE_FETCH_WORKERS="${NGL_NATIVE_FETCH_WORKERS:-2}"
@@ -65,4 +72,5 @@ UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python -m ngllib_a
   --vector threads \
   --iters "$ITERS" --train-batch-size "$BATCH" \
   --checkpoint-every 999999 --no-degraded-exit \
-  --wandb-mode disabled
+  --wandb-mode disabled \
+  $DINO_ARGS
