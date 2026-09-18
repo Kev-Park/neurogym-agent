@@ -74,13 +74,14 @@ def main():
     print("STAGE2 PASS registered GL image with CUDA", flush=True)
 
     # ---- STAGE 3: map -> copy cudaArray to linear torch buffer -> compare ----
-    _chk(rt.cudaGraphicsMapResources(1, [resource], 0), "MapResources")
+    # cuda-python takes the resource directly (not a list) when count=1.
+    _chk(rt.cudaGraphicsMapResources(1, resource, 0), "MapResources")
     (arr,) = _chk(rt.cudaGraphicsSubResourceGetMappedArray(resource, 0, 0),
                   "GetMappedArray")
     _chk(rt.cudaMemcpy2DFromArray(
         dst.data_ptr(), W * 4, arr, 0, 0, W * 4, H,
         rt.cudaMemcpyKind.cudaMemcpyDeviceToDevice), "Memcpy2DFromArray")
-    _chk(rt.cudaGraphicsUnmapResources(1, [resource], 0), "Unmap")
+    _chk(rt.cudaGraphicsUnmapResources(1, resource, 0), "Unmap")
     torch.cuda.synchronize()
     got = dst.cpu().numpy()
     match = bool(np.array_equal(got, cpu))
