@@ -61,6 +61,9 @@ class DinoServer:
         # Lightweight counters for the experiment readout (batch efficiency).
         self._n_batches = 0
         self._n_images = 0
+        # Rebuilt CUDA-IPC tensors, keyed by handle: each runner ships the SAME
+        # payload every step (stable VRAM), so open/rebuild once and re-read.
+        self._ipc_cache: dict = {}
 
     def feature_dim(self) -> int:
         return self._feature_dim
@@ -103,7 +106,12 @@ class DinoServer:
         for kind, d in batch:
             if kind == "ipc":
                 rebuild, args = d
-                gpu_imgs.append(rebuild(*args))          # (H, W, 4) uint8 cuda
+                key = tuple(a for a in args if isinstance(a, bytes))  # IPC handles
+                t = self._ipc_cache.get(key)
+                if t is None:
+                    t = rebuild(*args)          # open/map once per runner handle
+                    self._ipc_cache[key] = t
+                gpu_imgs.append(t)              # (H, W, 4) uint8 cuda, re-read
             else:
                 for im in d:
                     gpu_imgs.append(torch.from_numpy(im).cuda())
