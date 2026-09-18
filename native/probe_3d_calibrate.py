@@ -97,7 +97,8 @@ def render(make, tag, states, settle_s, out_dir):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", default="/scratch/kp0374/cal3d")
-    ap.add_argument("--viewer-dist", default=os.environ.get("NGL_DIST", "/scratch/kp0374/ngl_fork_dist"))
+    ap.add_argument("--viewer-dist", default=os.environ.get("NGL_DIST"),
+                    help="viewer build to serve; default = ngllib's packaged one")
     ap.add_argument("--settle-s", type=float, default=4.0)
     ap.add_argument("--max-shift", type=int, default=6)
     args = ap.parse_args()
@@ -108,7 +109,7 @@ def main() -> int:
     from ngllib.simulator.pane2d import TOOLBAR, mask_ui
 
     layout = dict(window_size=(1800, 900), capture_scale=0.5, left_pane=True, right_pane=True)
-    base = ChromeRenderer(viewer_dist=args.viewer_dist, screenshot_format="png",
+    base = ChromeRenderer(viewer=args.viewer_dist, screenshot_format="png",
                           **layout).default_state()
     ps = float(base["projectionScale"])
     states = {}
@@ -117,7 +118,7 @@ def main() -> int:
         st["projectionScale"] = ps * mult
         states[f"ps_x{mult:g}"] = st
 
-    cf = render(lambda: ChromeRenderer(viewer_dist=args.viewer_dist,
+    cf = render(lambda: ChromeRenderer(viewer=args.viewer_dist,
                                        screenshot_format="png", **layout),
                 "chrome", states, args.settle_s, args.out_dir)
     sf = render(lambda: SimulatorRenderer(**layout), "sim", states, args.settle_s, args.out_dir)

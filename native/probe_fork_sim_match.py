@@ -145,7 +145,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--states", type=int, default=0, help="unused; cases are fixed")
     ap.add_argument("--out-dir", default="/scratch/kp0374/fork_match")
-    ap.add_argument("--viewer-dist", default=os.environ.get("NGL_DIST", "/scratch/kp0374/ngl_fork_dist"))
+    ap.add_argument("--viewer-dist", default=os.environ.get("NGL_DIST"),
+                    help="viewer build to serve; default = ngllib's packaged one")
     ap.add_argument("--start-url", default=None, help="default: ngllib config.json")
     ap.add_argument("--settle-s", type=float, default=4.0)
     ap.add_argument("--no-mask", action="store_true", help="skip ngllib's UI mask")
@@ -172,14 +173,14 @@ def main() -> int:
 
     fmt = "jpeg" if args.jpeg else "png"
     common["screenshot_format"] = fmt
-    cases = states_for(ChromeRenderer(viewer_dist=args.viewer_dist, **common).default_state())
+    cases = states_for(ChromeRenderer(viewer=args.viewer_dist, **common).default_state())
     print(f"cases: {', '.join(cases)} | chrome capture={fmt}", flush=True)
 
     arms = {}
-    arms["fork"] = render(lambda: ChromeRenderer(viewer_dist=args.viewer_dist, **common),
+    arms["fork"] = render(lambda: ChromeRenderer(viewer=args.viewer_dist, **common),
                           "fork", cases, args.settle_s, args.out_dir)
     if args.appspot:
-        arms["appspot"] = render(lambda: ChromeRenderer(**common), "appspot", cases,
+        arms["appspot"] = render(lambda: ChromeRenderer(viewer="hosted", **common), "appspot", cases,
                                  args.settle_s, args.out_dir)
     sim_common = {k: v for k, v in common.items()
                   if k not in ("start_url", "screenshot_format")}

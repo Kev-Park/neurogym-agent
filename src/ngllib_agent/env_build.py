@@ -160,14 +160,13 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         # glitch) vs 'in_place' (cheap context recycle at the source).
         # Cycle-time levers (2026-08-16): optional per-episode HTTP-cache clear,
         # extra Chrome flags (footprint experiments).
-        # env.viewer_dist: a Neuroglancer build served off disk instead of the
-        # hosted one (required for graphene sources whose meshes predate the
-        # mesh `info` file); env.storage_state: an explicit Playwright
-        # credential file, otherwise a middleauth start URL is seeded from the
-        # CAVE secret CloudVolume reads.
+        # env.viewer: which Neuroglancer build renders -- a path, "packaged"
+        # (the default, shipped inside ngllib) or "hosted". env.storage_state:
+        # an explicit Playwright credential file, otherwise a middleauth start
+        # URL is seeded from the CAVE secret CloudVolume already reads.
         for k in ("browser_restart_every", "retry_on_reset", "recovery_mode",
                   "clear_cache_on_recycle", "extra_launch_args", "state_ready_timeout_s",
-                  "viewer_dist", "storage_state", "cave_secret"):
+                  "viewer", "storage_state", "cave_secret"):
             if k in ec:
                 chrome_kwargs[k] = ec[k]
         if layout_start_url:
