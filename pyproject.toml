@@ -34,7 +34,11 @@ dev = [
 # ngllib is developed in the sibling checkout (Seung Lab/neurogym on Win10,
 # /scratch/kp0374/neurogym on the cluster), installed editable so agent runs
 # follow its main branch. A feature-branch worktree pair can repoint this.
-ngllib = { path = "../neurogym", editable = true }
+# mps branch: this experiment does NOT modify ngllib (MPS is a runtime/daemon
+# change, no code), so point at the SHARED main checkout (../../neurogym
+# resolves to Seung Lab/neurogym on Win10 and /scratch/kp0374/neurogym on the
+# cluster). Revert to ../neurogym on merge.
+ngllib = { path = "../../neurogym", editable = true }
 torch = { index = "pytorch-cu124" }
 torchvision = { index = "pytorch-cu124" }
 
