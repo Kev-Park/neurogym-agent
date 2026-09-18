@@ -15,6 +15,8 @@ dependencies = [
     "gymnasium",
     "pyyaml>=6.0",
     "wandb>=0.16",
+    # Phase 2b CUDA-IPC: GL<->CUDA interop for the on-GPU DINO feed (render3d).
+    "cuda-python>=12",
 ]
 
 [dependency-groups]
@@ -34,11 +36,11 @@ dev = [
 # ngllib is developed in the sibling checkout (Seung Lab/neurogym on Win10,
 # /scratch/kp0374/neurogym on the cluster), installed editable so agent runs
 # follow its main branch. A feature-branch worktree pair can repoint this.
-# dino-server branch: this experiment does NOT modify ngllib, so point at the
-# SHARED main checkout (../../neurogym resolves to Seung Lab/neurogym on Win10
-# and /scratch/kp0374/neurogym on the cluster) rather than a paired worktree.
+# dino-server branch: Phase 2b modifies ngllib (render3d/renderer/environment for
+# the CUDA-IPC on-GPU DINO feed), so point at the PAIRED ngllib worktree
+# wt/neurogym-dino-server (../neurogym-dino-server on both Win10 and cluster).
 # Revert to ../neurogym on merge.
-ngllib = { path = "../../neurogym", editable = true }
+ngllib = { path = "../neurogym-dino-server", editable = true }
 torch = { index = "pytorch-cu124" }
 torchvision = { index = "pytorch-cu124" }
 

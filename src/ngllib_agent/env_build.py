@@ -140,6 +140,12 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None,
         sim_kwargs = dict(cache_dir=ec.get("cv_cache"))
         if "pane_mode" in ec:
             sim_kwargs["pane_mode"] = ec["pane_mode"]
+        # cuda_ipc (dino-server CUDA-IPC path): the 3D GL pane stays in VRAM and
+        # observe() returns a reduce_tensor payload. Requires right-pane-only
+        # (obs.use_left_pane: false) and obs.dino.server.enabled + .cuda_ipc.
+        _srv = (oc.get("dino") or {}).get("server") or {}
+        if _srv.get("enabled") and _srv.get("cuda_ipc"):
+            sim_kwargs["cuda_ipc"] = True
         renderer = SimulatorRenderer(**layout, **sim_kwargs)
         # The simulator has always defaulted to reset-ahead prefetch (its
         # warm work is a background fetch, free to start immediately).

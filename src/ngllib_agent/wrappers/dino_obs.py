@@ -93,11 +93,14 @@ class DinoObservationWrapper:
                 )
 
             def observation(self, obs):
-                if use_left:
-                    panes = list(split_panes(obs["image"]))  # [EM, 3D]
+                img = obs["image"]
+                if isinstance(img, np.ndarray):
+                    panes = list(split_panes(img)) if use_left else [img]  # [EM,3D] or [3D]
+                    feats = self._encoder.encode(panes)
                 else:
-                    panes = [obs["image"]]                   # 3D pane only
-                feats = self._encoder.encode(panes)
+                    # cuda_ipc: img is a reduce_tensor payload for the GPU-resident
+                    # 3D pane (right-pane-only); the server rebuilds + encodes in VRAM.
+                    feats = self._encoder.encode_ipc(img)
                 return {
                     "image_features": feats.reshape(-1).astype(np.float32),
                     "pos_state": pos_state_from_obs(obs, self._scale),

@@ -75,37 +75,64 @@ class DinoServer:
             self._loop_task = asyncio.ensure_future(self._batch_loop())
 
     async def encode(self, images: np.ndarray) -> np.ndarray:
-        """images: (n, H, W, 3) uint8 -> (n, D) float32."""
+        """images: (n, H, W, 3) uint8 numpy -> (n, D) float32."""
         await self._ensure_loop()
         fut: asyncio.Future = asyncio.get_event_loop().create_future()
-        await self._queue.put((images, fut))
+        await self._queue.put(("np", images, fut, int(images.shape[0])))
         return await fut
+
+    async def encode_ipc(self, payload) -> np.ndarray:
+        """payload: a reduce_tensor() (rebuild, args) for a GPU frame (H, W, 4)
+        uint8, GL orientation -> (1, D) float32. Pixels stay in VRAM."""
+        await self._ensure_loop()
+        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        await self._queue.put(("ipc", payload, fut, 1))
+        return await fut
+
+    def _run_batch(self, batch: list, total: int) -> np.ndarray:
+        """Blocking forward for one coalesced batch (runs in a thread executor).
+        A run is homogeneous in practice (all np OR all ipc); mixed is handled."""
+        import torch
+
+        kinds = {k for k, _ in batch}
+        if kinds == {"np"}:
+            stacked = np.concatenate([d for _, d in batch], axis=0)
+            return self._enc.encode(list(stacked))
+        # ipc (or mixed): rebuild each GPU frame; keep pixels in VRAM.
+        gpu_imgs = []
+        for kind, d in batch:
+            if kind == "ipc":
+                rebuild, args = d
+                gpu_imgs.append(rebuild(*args))          # (H, W, 4) uint8 cuda
+            else:
+                for im in d:
+                    gpu_imgs.append(torch.from_numpy(im).cuda())
+        return self._enc.encode_gpu(gpu_imgs, gl_flip=True)
 
     async def _batch_loop(self) -> None:
         loop = asyncio.get_event_loop()
         while True:
-            images, fut = await self._queue.get()
-            batch = [images]
+            kind, data, fut, count = await self._queue.get()
+            batch = [(kind, data)]
             futs = [fut]
-            counts = [int(images.shape[0])]
-            total = int(images.shape[0])
+            counts = [count]
+            total = count
             deadline = loop.time() + self._max_delay
             while total < self._max_batch:
                 remaining = deadline - loop.time()
                 if remaining <= 0:
                     break
                 try:
-                    imgs, f = await asyncio.wait_for(self._queue.get(), timeout=remaining)
+                    k2, d2, f2, c2 = await asyncio.wait_for(
+                        self._queue.get(), timeout=remaining)
                 except asyncio.TimeoutError:
                     break
-                batch.append(imgs)
-                futs.append(f)
-                counts.append(int(imgs.shape[0]))
-                total += int(imgs.shape[0])
+                batch.append((k2, d2))
+                futs.append(f2)
+                counts.append(c2)
+                total += c2
             try:
-                stacked = np.concatenate(batch, axis=0)
-                # Run the blocking forward in a thread so the loop keeps queuing.
-                feats = await loop.run_in_executor(None, self._enc.encode, list(stacked))
+                feats = await loop.run_in_executor(None, self._run_batch, batch, total)
                 self._n_batches += 1
                 self._n_images += total
                 off = 0
@@ -180,3 +207,8 @@ class DinoServerClient:
     def encode(self, images: list[np.ndarray]) -> np.ndarray:
         arr = np.ascontiguousarray(np.stack(images)).astype(np.uint8, copy=False)
         return ray.get(self._actor.encode.remote(arr))
+
+    def encode_ipc(self, payload) -> np.ndarray:
+        """Ship a reduce_tensor() (rebuild, args) payload for a GPU frame; the
+        server rebuilds it in-VRAM and runs DINO. Returns (1, D) float32."""
+        return ray.get(self._actor.encode_ipc.remote(payload))
