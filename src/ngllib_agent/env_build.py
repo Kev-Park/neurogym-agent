@@ -50,8 +50,13 @@ def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
     )
 
 
-def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
-    """Construct `TimeLimit(MultiDiscreteActionWrapper(ngllib.Environment))`."""
+def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None,
+              dino_server_index: int | None = None):
+    """Construct `TimeLimit(MultiDiscreteActionWrapper(ngllib.Environment))`.
+
+    `dino_server_index` (the runner's worker_index) routes DINO encoding to a
+    shared `DinoServer` actor when obs.dino.server is enabled; ignored otherwise.
+    """
     import logging
 
     from ngllib import ChromeRenderer, Environment, SimulatorRenderer
@@ -174,10 +179,11 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         **env_kwargs,
     )
     env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
-    return _wrap_obs_and_limits(env, cfg, first_episode_limit)
+    return _wrap_obs_and_limits(env, cfg, first_episode_limit, dino_server_index)
 
 
-def _wrap_obs_and_limits(env, cfg: dict[str, Any], first_episode_limit: int | None):
+def _wrap_obs_and_limits(env, cfg: dict[str, Any], first_episode_limit: int | None,
+                         dino_server_index: int | None = None):
     """Obs-mode + resilient + TimeLimit (+ stagger) stack shared by both
     backends."""
     import gymnasium as gym
@@ -190,13 +196,25 @@ def _wrap_obs_and_limits(env, cfg: dict[str, Any], first_episode_limit: int | No
     scale = oc.get("pos_state_scale")
     if obs_mode == "dino":
         dc = oc.get("dino", {})
-        from .obs import get_dino_encoder  # torch import stays lazy
+        server_cfg = dc.get("server") or {}
+        if server_cfg.get("enabled"):
+            # Route encoding to a shared DinoServer actor (dino-server
+            # experiment). Runner worker_index % M picks the server; envs that
+            # share a runner share a server, so their concurrent encode() calls
+            # batch together. feature_dim can be given to avoid a startup RPC.
+            from .obs.dino_server import DinoServerClient
 
-        encoder = get_dino_encoder(
-            model_name=dc.get("model_name", "dinov2_vits14"),
-            input_size=dc.get("input_size", 224),
-            device=dc.get("device"),
-        )
+            m = max(1, int(server_cfg.get("instances", 1)))
+            idx = int(dino_server_index or 0) % m
+            encoder = DinoServerClient(idx, feature_dim=server_cfg.get("feature_dim"))
+        else:
+            from .obs import get_dino_encoder  # torch import stays lazy
+
+            encoder = get_dino_encoder(
+                model_name=dc.get("model_name", "dinov2_vits14"),
+                input_size=dc.get("input_size", 224),
+                device=dc.get("device"),
+            )
         env = DinoObservationWrapper(env, encoder, pos_state_scale=scale)
     elif obs_mode == "pos":
         env = PosStateWrapper(env, pos_state_scale=scale)
@@ -236,6 +254,9 @@ def make_env_creator(cfg: dict[str, Any], vector_mode: str = "spawn"):
     def _creator(env_config: dict[str, Any] | None = None):
         env_config = env_config or {}
         num_envs = int(env_config.get("num_envs") or 0)
+        # worker_index (EnvContext attr) both staggers resets AND, when the DINO
+        # server is enabled, routes this runner's envs to server worker_index % M.
+        widx = int(getattr(env_config, "worker_index", 0) or 0)
         # M1a: evenly-spaced first-episode limits desynchronize TimeLimit
         # truncations. Spread across the NODE's envs (2 runners/GPU share a
         # node): runners interleave via worker_index parity, so the node's 2M
@@ -244,7 +265,6 @@ def make_env_creator(cfg: dict[str, Any], vector_mode: str = "spawn"):
         limits: list[int | None] = [None] * max(num_envs, 1)
         if cfg.get("env", {}).get("stagger_first_episode") and num_envs > 1:
             max_steps = cfg["env"].get("max_episode_steps", 300)
-            widx = int(getattr(env_config, "worker_index", 0) or 0)
             spacing = max_steps / (2 * num_envs)
             limits = [
                 max(5, max_steps - round((2 * i + (widx % 2)) * spacing))
@@ -255,9 +275,10 @@ def make_env_creator(cfg: dict[str, Any], vector_mode: str = "spawn"):
             # plain (cfg) call signature for other callers/tests.
             fns = [
                 (
-                    (lambda lim=lim: build_env(cfg, first_episode_limit=lim))
+                    (lambda lim=lim: build_env(cfg, first_episode_limit=lim,
+                                               dino_server_index=widx))
                     if lim is not None
-                    else (lambda: build_env(cfg))
+                    else (lambda: build_env(cfg, dino_server_index=widx))
                 )
                 for lim in limits
             ]
@@ -268,7 +289,7 @@ def make_env_creator(cfg: dict[str, Any], vector_mode: str = "spawn"):
             import gymnasium as gym
 
             return gym.vector.AsyncVectorEnv(fns, context="spawn")
-        return build_env(cfg)
+        return build_env(cfg, dino_server_index=widx)
 
     return _creator
 

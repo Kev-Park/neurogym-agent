@@ -31,7 +31,8 @@
 #     GPU_PER_RUNNER=0.5,CPUS_PER_RUNNER=1.0,LEARNER_GPU=,ITERS=20 \
 #     scripts/bench_single_node_sps.slurm
 set -u
-cd /scratch/kp0374/neurogym-agent
+# dino-server worktree: run the worktree's code + .venv (NOT main).
+cd /scratch/kp0374/wt/neurogym-agent-dino-server
 export PYTHONUNBUFFERED=1
 
 CONFIG=${CONFIG:?set CONFIG}

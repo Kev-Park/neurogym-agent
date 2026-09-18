@@ -167,6 +167,27 @@ def main(argv=None) -> int:
 
     ray.init(include_dashboard=False, log_to_driver=True, ignore_reinit_error=True)
 
+    # DINO server (dino-server experiment): spawn M shared encoder actors on the
+    # driver BEFORE build_algo, so env-runners route encoding to them (via
+    # worker_index % M) instead of each loading its own DINO + CUDA context.
+    # Enable with obs.dino.server.enabled; launch runners at
+    # --num-gpus-per-env-runner 0 so a runner holds no CUDA context (render via
+    # EGL, inference on CPU). Servers hold fractional GPU tokens (share device 0).
+    _oc = cfg.get("obs", {})
+    _dino = _oc.get("dino") or {}
+    _dscfg = _dino.get("server") or {}
+    if _oc.get("mode") == "dino" and _dscfg.get("enabled"):
+        from .obs.dino_server import ensure_dino_servers
+
+        ensure_dino_servers(
+            max(1, int(_dscfg.get("instances", 1))),
+            model_name=_dino.get("model_name", "dinov2_vits14"),
+            input_size=int(_dino.get("input_size", 224)),
+            max_batch=int(_dscfg.get("max_batch", 64)),
+            max_delay_ms=float(_dscfg.get("max_delay_ms", 3.0)),
+            num_gpus=float(_dscfg.get("num_gpus", 0.1)),
+        )
+
     vectorize_mode = (
         "sync" if args.num_envs_per_env_runner <= 1 else "vector_entry_point"
     )
