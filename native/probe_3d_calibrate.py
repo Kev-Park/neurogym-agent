@@ -30,10 +30,18 @@ import numpy as np
 os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
 
 
-def masks(pane: np.ndarray, sat: int = 25, dark: int = 20):
+def masks(pane: np.ndarray, sat: int = 25, dark: int = 45):
+    """(mesh, section-plane) masks of a 3D pane.
+
+    `dark` is 45, not 20: DARK-SHADED MESH pixels (e.g. 10,34,10) have
+    saturation under `sat` and so read as "grey". At 20 they dominated
+    Chrome's plane mask and produced a fake zoom-dependent plane error
+    (2026-09-18) that the rendered frames disproved.
+    """
     mx = pane.max(axis=2).astype(np.int16)
     mn = pane.min(axis=2).astype(np.int16)
-    return (mx - mn) > sat, ((mx - mn) <= sat) & (mx > dark)
+    mesh = (mx - mn) > sat
+    return mesh, (~mesh) & (mx > dark)
 
 
 def iou(a: np.ndarray, b: np.ndarray) -> float:
