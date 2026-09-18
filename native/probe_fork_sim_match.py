@@ -149,6 +149,12 @@ def main() -> int:
     ap.add_argument("--start-url", default=None, help="default: ngllib config.json")
     ap.add_argument("--settle-s", type=float, default=4.0)
     ap.add_argument("--no-mask", action="store_true", help="skip ngllib's UI mask")
+    ap.add_argument("--jpeg", action="store_true",
+                    help="capture Chrome as JPEG (production default); PNG otherwise, so "
+                         "lossy compression does not masquerade as a renderer difference")
+    ap.add_argument("--appspot", action="store_true",
+                    help="also render the hosted upstream build, to tell a simulator gap "
+                         "apart from a fork-vs-appspot one")
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
 
@@ -164,46 +170,54 @@ def main() -> int:
     if args.start_url:
         common["start_url"] = args.start_url
 
-    chrome_make = lambda: ChromeRenderer(viewer_dist=args.viewer_dist, **common)  # noqa: E731
-    probe = ChromeRenderer(viewer_dist=args.viewer_dist, **common)
-    cases = states_for(probe.default_state())
-    print("cases:", ", ".join(cases), flush=True)
+    fmt = "jpeg" if args.jpeg else "png"
+    common["screenshot_format"] = fmt
+    cases = states_for(ChromeRenderer(viewer_dist=args.viewer_dist, **common).default_state())
+    print(f"cases: {', '.join(cases)} | chrome capture={fmt}", flush=True)
 
-    cf, cs = render(chrome_make, "chrome", cases, args.settle_s, args.out_dir)
-    sim_common = {k: v for k, v in common.items() if k != "start_url"}
+    arms = {}
+    arms["fork"] = render(lambda: ChromeRenderer(viewer_dist=args.viewer_dist, **common),
+                          "fork", cases, args.settle_s, args.out_dir)
+    if args.appspot:
+        arms["appspot"] = render(lambda: ChromeRenderer(**common), "appspot", cases,
+                                 args.settle_s, args.out_dir)
+    sim_common = {k: v for k, v in common.items()
+                  if k not in ("start_url", "screenshot_format")}
     if args.start_url:
         from ngllib.dataset import DatasetSpec
         sim_common["dataset"] = DatasetSpec.from_start_url(args.start_url)
-    sf, ss = render(lambda: SimulatorRenderer(**sim_common), "sim", cases,
-                    args.settle_s, args.out_dir)
+    arms["sim"] = render(lambda: SimulatorRenderer(**sim_common), "sim", cases,
+                         args.settle_s, args.out_dir)
 
-    print()
-    print("=== fork-Chrome vs simulator, production capture (900x450, both panes) ===", flush=True)
-    for name in cases:
-        ca, sa = cf[name], sf[name]
-        if ca.shape != sa.shape:
-            print(f"{name}: SHAPE MISMATCH chrome={ca.shape} sim={sa.shape}")
-            continue
-        if not args.no_mask:
-            ca, sa = as_hwc(mask_ui(ca)), as_hwc(mask_ui(sa))
-        # 2D pane is the left half of the frame, 3D the right half.
-        mid = ca.shape[1] // 2
-        for part, (a, b) in (("frame", (ca, sa)), ("2D", (ca[:, :mid], sa[:, :mid])),
-                             ("3D", (ca[:, mid:], sa[:, mid:]))):
-            mc, ms = coloured(a), coloured(b)
-            dy, dx, best = best_offset(mc, ms)
-            print(f"{name:9s} {part:5s}: identical={float((a == b).all(axis=2).mean()):.4f} "
-                  f"mean|diff|={float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()):5.2f} "
-                  f"block_ssim={block_ssim(a, b):.4f} colour-IoU={iou(mc, ms):.4f} "
-                  f"best-offset=({dy:+d},{dx:+d})->{best:.4f} "
-                  f"cover c={mc.mean():.4f} s={ms.mean():.4f}", flush=True)
-        worst = sorted(region_table(ca, sa), key=lambda t: t[2])[:4]
-        print("   worst tiles (row,col,identical,mean|diff|): "
-              + ", ".join(f"({r},{c},{v:.3f},{m:.1f})" for r, c, v, m in worst), flush=True)
-        sc, sm = cs[name], ss[name]
-        keys = sorted(set(sc) | set(sm))
-        diff = [k for k in keys if json.dumps(sc.get(k), sort_keys=True) != json.dumps(sm.get(k), sort_keys=True)]
-        print(f"   json_state fields differing: {diff or 'none'}", flush=True)
+    pairs = [("fork", "sim")] + ([("appspot", "sim"), ("fork", "appspot")] if args.appspot else [])
+    for left, right in pairs:
+        print()
+        print(f"=== {left} vs {right}, production capture (900x450, both panes) ===", flush=True)
+        (lf, ls), (rf, rs) = arms[left], arms[right]
+        for name in cases:
+            ca, sa = lf[name], rf[name]
+            if ca.shape != sa.shape:
+                print(f"{name}: SHAPE MISMATCH {left}={ca.shape} {right}={sa.shape}")
+                continue
+            if not args.no_mask:
+                ca, sa = as_hwc(mask_ui(ca)), as_hwc(mask_ui(sa))
+            mid = ca.shape[1] // 2      # 2D pane left half, 3D right half
+            for part, (a, b) in (("frame", (ca, sa)), ("2D", (ca[:, :mid], sa[:, :mid])),
+                                 ("3D", (ca[:, mid:], sa[:, mid:]))):
+                mc, ms = coloured(a), coloured(b)
+                dy, dx, best = best_offset(mc, ms)
+                print(f"{name:9s} {part:5s}: identical={float((a == b).all(axis=2).mean()):.4f} "
+                      f"mean|diff|={float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()):5.2f} "
+                      f"block_ssim={block_ssim(a, b):.4f} colour-IoU={iou(mc, ms):.4f} "
+                      f"best-offset=({dy:+d},{dx:+d})->{best:.4f} "
+                      f"cover {left[:1]}={mc.mean():.4f} {right[:1]}={ms.mean():.4f}", flush=True)
+            worst = sorted(region_table(ca, sa), key=lambda t: t[2])[:4]
+            print("   worst tiles (row,col,identical,mean|diff|): "
+                  + ", ".join(f"({r},{c},{v:.3f},{m:.1f})" for r, c, v, m in worst), flush=True)
+            diff = [k for k in sorted(set(ls[name]) | set(rs[name]))
+                    if json.dumps(ls[name].get(k), sort_keys=True)
+                    != json.dumps(rs[name].get(k), sort_keys=True)]
+            print(f"   json_state fields differing: {diff or 'none'}", flush=True)
     print("FORKMATCH-DONE")
     return 0
 
