@@ -15,15 +15,15 @@ env:
   viewer: hosted
   parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
   # Frozen eval pool held OUT of training resets (200 of 124k root_ids) so
-  # eval_d0 scores unseen neurons. Added 2026-08-24 — runs before this
+  # eval_d0 scores unseen neurons. Added 2026-08-24 â€” runs before this
   # (incl. coord-test-v7) trained WITHOUT the holdout.
   holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
   # Spawn zoom sampled log-uniform per episode (2026-08-24; was fixed 14000).
   # Zoomed-in spawns make zoom-relevant states part of the training
-  # distribution — the fixed-scale v7 policy never learned the zoom verb
+  # distribution â€” the fixed-scale v7 policy never learned the zoom verb
   # (0.14% usage). 3500 = 4x zoomed-in vs default; ~5 zoom actions of
   # headroom (bins +/-2000/step). Eval StateBuilder samples the same range
-  # (seeded per pair) — evals under this range are protocol v2, not
+  # (seeded per pair) â€” evals under this range are protocol v2, not
   # comparable to v7's fixed-14000 numbers.
   projection_scale_range: [3500, 14000]
   # Spawn-distance curriculum (v9, 2026-08-27): spawn nodes start within
@@ -31,7 +31,7 @@ env:
   # to the full distribution over end_resets PER-ENV resets (~75 resets/env
   # x 96 envs x ~150-200 steps/ep ~= first ~1.2M global steps), then hold
   # the true distribution for the rest of training. Measured difficulty
-  # tracks climb distance (R11/B7) — this is reverse-curriculum-from-goal.
+  # tracks climb distance (R11/B7) â€” this is reverse-curriculum-from-goal.
   # Eval resets pass explicit states and are unaffected.
   spawn_curriculum:
     start_frac: 0.10
@@ -51,10 +51,10 @@ env:
   # 'missing fields'). 4s converts misses into cheap in-place waits.
   state_ready_timeout_s: 4.0
 
-# Observation pipeline (agent_plan.md §10/Round 8).
-#   raw  — ngllib Dict obs untouched (sanity_env_loop)
-#   pos  — scaled 8-dim pos_state only (infra smokes; default RLModule MLP)
-#   dino — env-side frozen DINO split-pane features + pos_state (real training;
+# Observation pipeline (agent_plan.md Â§10/Round 8).
+#   raw  â€” ngllib Dict obs untouched (sanity_env_loop)
+#   pos  â€” scaled 8-dim pos_state only (infra smokes; default RLModule MLP)
+#   dino â€” env-side frozen DINO split-pane features + pos_state (real training;
 #          forces left+right panes at native res; pair with HierarchicalPPOModule)
 obs:
   mode: pos
@@ -62,7 +62,7 @@ obs:
     model_name: dinov2_vits14
     input_size: 224
   # pos_state_scale: static divisors for [pos_xyz, xs_scale, euler_xyz, proj_scale];
-  # raw viewer coords are ~1e5 / ~1e4 (legacy fed them unscaled — deliberate deviation).
+  # raw viewer coords are ~1e5 / ~1e4 (legacy fed them unscaled â€” deliberate deviation).
   pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
 
 # HierarchicalPPOModule (used when obs.mode == dino)
@@ -72,7 +72,7 @@ model:
   # Per-branch max-entropy normalization (2026-08-24): removes the entropy
   # regularizer's structural pull toward the high-entropy click branch
   # (ln1024 vs zoom's ln9) that starved the zoom verb in v7 (0.14% usage).
-  # Zoom gets no explicit reward — it must earn its keep implicitly; this
+  # Zoom gets no explicit reward â€” it must earn its keep implicitly; this
   # only stops the bonus from taxing it. Changes entropy scale [0,~8]->[0,2]:
   # entropy_coeff below is scaled x4 to compensate.
   normalize_entropy: true
@@ -105,7 +105,7 @@ ppo:
   # Legacy ent-coef schedule was 0.05 -> 0.001 against unnormalized entropy
   # (range ~[0,8]); with model.normalize_entropy (range [0,2]) scaled x4.
   # 2026-08-25 extension (user-approved): v8@370 = 51.0% vs the 64.5%
-  # benchmark — under-trained on the harder varied-zoom distribution with
+  # benchmark â€” under-trained on the harder varied-zoom distribution with
   # entropy already flat at 0.004. Re-raised mid-schedule: ~0.037 at the
   # 1.6M-step resume point, decaying to 0.01 by 3M.
   entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
