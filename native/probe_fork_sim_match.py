@@ -1,8 +1,8 @@
 """How close can the simulator get to the Chrome fork, pixel for pixel?
 
-Renders the SAME states through both backends via build_env (the production
-path, masks and all), then decomposes the residual difference instead of
-eyeballing it:
+Renders the SAME states through both renderers directly (the Renderer protocol,
+production capture geometry, ngllib's UI mask applied to both), then decomposes
+the residual difference instead of eyeballing it:
 
   - identity / mean abs diff / block-SSIM over the frame;
   - colour-mask IoU: which pixels each backend drew a segmentation colour on;
@@ -97,64 +97,113 @@ def as_hwc(img) -> np.ndarray:
     return img.astype(np.uint8)
 
 
-def render(cfg, backend, extra, n_states, settle_s, out_dir):
-    import yaml  # noqa: F401  (config already parsed; keep import local/lazy)
+def states_for(base: dict) -> dict[str, dict]:
+    """Deterministic states around the config default, covering the axes the
+    two renderers could disagree on (zoom, orientation, position, selection)."""
+    import copy
+
+    def edit(**kw):
+        st = copy.deepcopy(base)
+        st.update(kw)
+        return st
+
+    ps = float(base["projectionScale"])
+    return {
+        "base": base,
+        "zoom_in": edit(projectionScale=ps / 4),
+        "zoom_out": edit(projectionScale=ps * 4),
+        "rotated": edit(projectionOrientation=[0.0, 0.7071067811865476, 0.0, 0.7071067811865476]),
+        "moved": edit(position=[float(base["position"][0]) + 256,
+                                float(base["position"][1]) + 256,
+                                float(base["position"][2])]),
+    }
+
+
+def render(make, tag, cases, settle_s, out_dir):
+    """Renderer frames for every case, straight through the Renderer protocol
+    (no wrappers: this needs pixels, not policy observations)."""
     from PIL import Image
 
-    from ngllib_agent.env_build import build_env
-
-    c = json.loads(json.dumps(cfg))
-    c["env"] = {**c.get("env", {}), "backend": backend, **extra}
-    env = build_env(c)
-    frames, states = [], []
+    r = make()
+    frames, states = {}, {}
     try:
-        for i in range(n_states):
-            obs, info = env.reset(seed=1000 + i)
+        r.open()
+        for name, st in cases.items():
+            r.reset_to(st)
             time.sleep(settle_s)
-            img = as_hwc(obs["image"] if isinstance(obs, dict) and "image" in obs else obs)
-            frames.append(img)
-            states.append(info.get("json_state"))
-            Image.fromarray(img).save(f"{out_dir}/{backend}_{i}.png")
+            js, img = r.observe()
+            frames[name] = as_hwc(img)
+            states[name] = js
+            Image.fromarray(frames[name]).save(f"{out_dir}/{tag}_{name}.png")
+            print(f"  [{tag}] {name}: frame={frames[name].shape}", flush=True)
     finally:
-        env.close()
-    print(f"{backend}: {len(frames)} frames {frames[0].shape}", flush=True)
+        r.close()
     return frames, states
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default="configs/native_select.yaml")
-    ap.add_argument("--states", type=int, default=6)
+    ap.add_argument("--states", type=int, default=0, help="unused; cases are fixed")
     ap.add_argument("--out-dir", default="/scratch/kp0374/fork_match")
     ap.add_argument("--viewer-dist", default=os.environ.get("NGL_DIST", "/scratch/kp0374/ngl_fork_dist"))
-    ap.add_argument("--settle-s", type=float, default=3.0)
+    ap.add_argument("--start-url", default=None, help="default: ngllib config.json")
+    ap.add_argument("--settle-s", type=float, default=4.0)
+    ap.add_argument("--no-mask", action="store_true", help="skip ngllib's UI mask")
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
 
-    import yaml
+    from ngllib.chrome import ChromeRenderer
+    from ngllib.simulator import SimulatorRenderer
+    from ngllib.simulator.pane2d import mask_ui
 
-    cfg = yaml.safe_load(open(args.config))
-    chrome, cstates = render(cfg, "chrome", {"viewer_dist": args.viewer_dist},
-                             args.states, args.settle_s, args.out_dir)
-    sim, sstates = render(cfg, "simulator", {}, args.states, args.settle_s, args.out_dir)
+    # Production capture geometry: both panes, capture_scale 0.5 -> 900x450,
+    # which is the frame ngllib's UI mask coordinates are written for.
+    layout = dict(window_size=(1800, 900), capture_scale=0.5,
+                  left_pane=True, right_pane=True)
+    common = dict(**layout)
+    if args.start_url:
+        common["start_url"] = args.start_url
 
-    print("\n=== fork-Chrome vs simulator, production path ===", flush=True)
-    for i, (ca, sa) in enumerate(zip(chrome, sim)):
+    chrome_make = lambda: ChromeRenderer(viewer_dist=args.viewer_dist, **common)  # noqa: E731
+    probe = ChromeRenderer(viewer_dist=args.viewer_dist, **common)
+    cases = states_for(probe.default_state())
+    print("cases:", ", ".join(cases), flush=True)
+
+    cf, cs = render(chrome_make, "chrome", cases, args.settle_s, args.out_dir)
+    sim_common = {k: v for k, v in common.items() if k != "start_url"}
+    if args.start_url:
+        from ngllib.dataset import DatasetSpec
+        sim_common["dataset"] = DatasetSpec.from_start_url(args.start_url)
+    sf, ss = render(lambda: SimulatorRenderer(**sim_common), "sim", cases,
+                    args.settle_s, args.out_dir)
+
+    print()
+    print("=== fork-Chrome vs simulator, production capture (900x450, both panes) ===", flush=True)
+    for name in cases:
+        ca, sa = cf[name], sf[name]
         if ca.shape != sa.shape:
-            print(f"state {i}: SHAPE MISMATCH chrome={ca.shape} sim={sa.shape}")
+            print(f"{name}: SHAPE MISMATCH chrome={ca.shape} sim={sa.shape}")
             continue
-        same_state = json.dumps(cstates[i], sort_keys=True) == json.dumps(sstates[i], sort_keys=True)
-        mc, ms = coloured(ca), coloured(sa)
-        dy, dx, best = best_offset(mc, ms)
-        print(f"state {i}: same_json_state={same_state} "
-              f"identical={float((ca == sa).all(axis=2).mean()):.4f} "
-              f"mean|diff|={float(np.abs(ca.astype(np.int16) - sa.astype(np.int16)).mean()):5.2f} "
-              f"block_ssim={block_ssim(ca, sa):.4f} colour-IoU={iou(mc, ms):.4f} "
-              f"best-offset=({dy},{dx})->{best:.4f} cover chrome={mc.mean():.4f} sim={ms.mean():.4f}",
-              flush=True)
+        if not args.no_mask:
+            ca, sa = as_hwc(mask_ui(ca)), as_hwc(mask_ui(sa))
+        # 2D pane is the left half of the frame, 3D the right half.
+        mid = ca.shape[1] // 2
+        for part, (a, b) in (("frame", (ca, sa)), ("2D", (ca[:, :mid], sa[:, :mid])),
+                             ("3D", (ca[:, mid:], sa[:, mid:]))):
+            mc, ms = coloured(a), coloured(b)
+            dy, dx, best = best_offset(mc, ms)
+            print(f"{name:9s} {part:5s}: identical={float((a == b).all(axis=2).mean()):.4f} "
+                  f"mean|diff|={float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()):5.2f} "
+                  f"block_ssim={block_ssim(a, b):.4f} colour-IoU={iou(mc, ms):.4f} "
+                  f"best-offset=({dy:+d},{dx:+d})->{best:.4f} "
+                  f"cover c={mc.mean():.4f} s={ms.mean():.4f}", flush=True)
         worst = sorted(region_table(ca, sa), key=lambda t: t[2])[:4]
         print("   worst tiles (row,col,identical,mean|diff|): "
               + ", ".join(f"({r},{c},{v:.3f},{m:.1f})" for r, c, v, m in worst), flush=True)
+        sc, sm = cs[name], ss[name]
+        keys = sorted(set(sc) | set(sm))
+        diff = [k for k in keys if json.dumps(sc.get(k), sort_keys=True) != json.dumps(sm.get(k), sort_keys=True)]
+        print(f"   json_state fields differing: {diff or 'none'}", flush=True)
     print("FORKMATCH-DONE")
     return 0
 
