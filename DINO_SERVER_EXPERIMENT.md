@@ -57,6 +57,38 @@ VRAM is per-process, so "never leave VRAM" splits two ways:
 
 Do 2a first (bounds the win), then 2b if Phase 1 shows VRAM is the binding lever.
 
+## Phase 1 validation (2026-09-18, job 923652, 16x2, M=1)
+
+WORKS end-to-end. Critical risk CLEARED: runners launched with
+`--num-gpus-per-env-runner 0` still render — log shows `simulator GL: NVIDIA
+GeForce RTX 3090` on the EnvRunners despite an empty CUDA_VISIBLE_DEVICES, i.e.
+EGL device selection is independent of CUDA_VISIBLE_DEVICES. DinoServer spawned
+and encoded; `iter 1: sps=41.5 H=16/16` (warmup). Next: density sweep (32x2 to
+match the per-process ~172 sps baseline, then 48x2 / 64x2 to spend freed VRAM).
+
+## Phase 2b implementation notes (CUDA IPC, fully-in-VRAM; ngllib pairing)
+
+Paired worktrees: agent `wt/neurogym-agent-dino-server` <-> ngllib
+`wt/neurogym-dino-server` (branch dino-server, both). Repoint the agent
+pyproject ngllib source to `../neurogym-dino-server` + resync BEFORE Phase 2b
+(kept at ../../neurogym shared main through Phase 1 so the sweep is unperturbed).
+Rule: >=1 DinoServer per GPU (self-contained) so IPC stays same-device.
+
+Pure Python, no CUDA kernels. Pipeline per step:
+  moderngl render (GL texture, in runner)
+  -> GL->CUDA map: PyCUDA `pycuda.gl` (cudaGraphicsGLRegisterImage +
+     MapResources), or a thin cffi binding  [FRAGILE piece: EGL-context interop]
+  -> cudaMemcpy (device->device) into a persistent, IPC-capable torch CUDA tensor
+  -> torch native CUDA IPC: storage._share_cuda_() -> small handle
+  -> ship handle (not pixels) over Ray to the server
+  -> server rebuilds tensor (torch.multiprocessing reductions) -> DINO forward
+  -> return features (small) over Ray
+Sync: double-buffer the render target + torch.cuda.Event so the server reads
+before the runner's next render overwrites. ngllib change: SimulatorRenderer must
+expose the GL texture / a CUDA handle instead of only the numpy image.
+Fallback if GL-interop is too fragile: 2a (per-process DINO + GL-CUDA map, no
+IPC) — proves the latency win but not the VRAM dedup.
+
 ## MPS experiment (separate worktree `mps`, no code)
 
 Run the existing per-process sim under an `nvidia-cuda-mps-control` daemon;
