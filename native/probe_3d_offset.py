@@ -6,7 +6,9 @@ possible if the mesh and the section plane disagree with each other, so measure
 them separately:
 
   - mesh mask      = saturated pixels (segment colours)
-  - section plane  = grey, non-black pixels (the EM slice drawn in the 3D pane)
+  - section plane  = grey, non-black pixels (the EM slice drawn in the 3D pane),
+                     measured AFTER ngllib's UI mask -- Chrome's grey UI text
+                     otherwise dominates the mask once the plane gets small
 
 and do it across a zoom sweep: an offset constant in pixels points at the
 viewport/principal point, one that scales with zoom points at the projection
@@ -89,6 +91,7 @@ def main() -> int:
 
     from ngllib.chrome import ChromeRenderer
     from ngllib.simulator import SimulatorRenderer
+    from ngllib.simulator.pane2d import mask_ui
 
     layout = dict(window_size=(1800, 900), capture_scale=0.5, left_pane=True, right_pane=True)
     base = ChromeRenderer(viewer_dist=args.viewer_dist, screenshot_format="png",
@@ -110,9 +113,13 @@ def main() -> int:
     print(f"{'state':10s} {'part':6s} {'IoU@0':>7s} {'best dy':>8s} {'dx':>4s} {'IoU*':>7s} "
           f"{'cy chrome':>10s} {'cy sim':>8s} {'dcy':>6s}", flush=True)
     for name in states:
-        mid = cf[name].shape[1] // 2
-        cm, cp = masks(cf[name][:, mid:])
-        sm, sp = masks(sf[name][:, mid:])
+        # UI must be masked first: Chrome's grey UI text lands in the
+        # section-plane mask otherwise and drags its centroid to the top of
+        # the pane (measured in the first run of this probe).
+        cframe, sframe = mask_ui(cf[name]), mask_ui(sf[name])
+        mid = cframe.shape[1] // 2
+        cm, cp = masks(cframe[:, mid:])
+        sm, sp = masks(sframe[:, mid:])
         for part, (a, b) in (("mesh", (cm, sm)), ("plane", (cp, sp))):
             dy, dx, best = best_offset(a, b)
             cy_a, _ = centroid(a)
