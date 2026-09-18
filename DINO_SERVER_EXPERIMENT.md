@@ -66,6 +66,44 @@ EGL device selection is independent of CUDA_VISIBLE_DEVICES. DinoServer spawned
 and encoded; `iter 1: sps=41.5 H=16/16` (warmup). Next: density sweep (32x2 to
 match the per-process ~172 sps baseline, then 48x2 / 64x2 to spend freed VRAM).
 
+## Phase 1 RESULTS (2026-09-18, real PPO load, >=10-iter steady state, fragment-125)
+
+VRAM (the win): per-process 32x2 ~15 GB -> DINO-server 32x2 ~4.2 GB (server ~1.5 G
++ learner ~0.5 G + 32 runners' GL ~2 G). Runners hold ZERO CUDA context
+(num_gpus=0; render via EGL). ~11 GB freed on a 24 GB card; GPU util 43% at 32x2.
+
+SPS (M=1 unless noted):
+  16x2 @48cpu ......... 167
+  32x2 @48cpu ......... 176   <- PEAK (= per-process baseline ~172)
+  48x2 @48cpu(0.9/rnr)  155
+  48x2 @64cpu(1.2/rnr)  162
+  60x2 @64cpu(1.0/rnr)  156
+  48x2 M=2 @48cpu ..... 155   (== M=1: server NOT the limiter)
+  32x2 NO-BATCH ....... ~92   (batching ~2x FASTER: coalescing helps, not a straggler)
+
+Conclusions:
+1. Server works; num_gpus=0 runners render via EGL (CUDA_VISIBLE_DEVICES-independent).
+2. VRAM slashed ~15 -> ~4 GB (per-process CUDA context + N DINO copies eliminated).
+3. SPS does NOT rise. Peak ~176 at 32x2 = per-process. Adding runners does not beat
+   it even at MAX CPU (64 cores): 48x2 and 60x2 stay ~155-163 < 176.
+4. Bottleneck is NOT VRAM (freed), NOT DINO count (M2==M1), NOT CPU (64cpu barely
+   helped, +7 sps). It is the SYNCHRONOUS-PPO barrier + per-step pipeline latency:
+   adding envs adds straggler/sync overhead that cancels the extra parallelism
+   (matches the prior "3x doesn't survive RLlib" finding).
+5. Batching is beneficial (no-batch ~2x slower); NOT a straggler source here,
+   because the server is far from compute-saturated so bigger forwards just amortize
+   RPC + GPU-launch overhead.
+
+Implications:
+- On ONE node under synchronous PPO the DINO server is a VRAM optimization, not a
+  throughput one. Freed VRAM buys headroom (bigger model / more panes / higher-res
+  obs / bigger batch), NOT more-runners-for-SPS.
+- To turn VRAM into SPS you must attack the real ceiling: (a) async PPO (APPO/IMPALA)
+  to kill the barrier, or (b) cut per-step LATENCY -> which reframes Phase 2b
+  (on-GPU direct DINO feed, no readback) as the higher-value SPS lever, above packing
+  runners. Or (c) scale across nodes (each GPU hosts more runners, but multi-node
+  re-adds broadcast + straggler tax).
+
 ## Phase 2b implementation notes (CUDA IPC, fully-in-VRAM; ngllib pairing)
 
 Paired worktrees: agent `wt/neurogym-agent-dino-server` <-> ngllib
