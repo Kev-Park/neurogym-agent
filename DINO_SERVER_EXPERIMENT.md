@@ -198,10 +198,22 @@ All measured fresh with bench_single_node_sps.slurm so they are matched (the
 old ~176 was NOT trusted blind — control A below reproduces it, validating it).
 
   A. per-process DINO, numpy, NO MPS ... ~173 sps  (job 930608 COMPLETED; = the ~176 baseline)
-  B. per-process DINO, numpy, MPS ...... ~256 sps  (job 930443 COMPLETED) = +48% vs A
+  B. per-process DINO, numpy, MPS ...... ~256 sps  (job 930443 COMPLETED) = +48% vs A  <-- max SPS
   C. DINO server, numpy ................ ~162 sps  (job 930609 COMPLETED) = -6% vs A (RPC cost)
   D. DINO server, CUDA-IPC (Phase 3) ... ~227 sps  (job 930359 COMPLETED) = +31% vs A, +40% vs C
-  (all four: 32x2=64 envs, H=32/32 every iter, 20 iters, good node, steady-state)
+  E. DINO server, CUDA-IPC, + MPS ...... ~243 sps  (job 938454 COMPLETED) = +41% vs A, +7% vs D
+  (all: 32x2=64 envs, H=32/32 every iter, 20 iters, good node, steady-state)
+
+E = the combined-lever cell (both panes on-GPU via CUDA-IPC, run UNDER MPS).
+MPS lifts the server/IPC path +7% (D 227 -> E 243) -- the 32 GL->CUDA interop
+copies now overlap instead of time-slicing -- but E stays BELOW B (256): the DINO
+forwards in E all funnel through the ONE server context (batched, serial), which
+MPS cannot parallelize, whereas B's 32 per-process forwards are exactly what MPS
+runs concurrently. So the two levers do NOT fully stack.
+Recommendation: max SPS + VRAM is free -> B (per-process + MPS, zero code). VRAM
+constrained (many runners / bigger encoder) -> E (server + CUDA-IPC + MPS): ~95%
+of B's throughput while keeping the single-DINO ~4GB footprint; turn MPS on there
+too, it recovers most of the gap to B for free.
 
 Two independent throughput levers, ranked:
 - MPS (B): +50% vs A, ZERO code — the biggest single-GPU lever. Just a per-job
