@@ -240,8 +240,14 @@ E scales to ~24 runners then SATURATES HARD at ~245-246; 24->40 runners (+67%
 resources) = +0.4%. FLAT (not declining) plateau => a shared SERIAL resource at
 capacity, not the sync barrier (stragglers would bend it down). Prime suspect:
 the single DINO-server context (~490 pane-encodes/s at the plateau); alternative:
-aggregate GPU capacity. Discrimination run: M=2 servers at 32x2 (job 942130) —
-plateau breaks => server-limited; flat => GPU-limited. (Ops note: the sweep's
+aggregate GPU capacity. Discrimination run: M=2 servers at 32x2 (job 942130,
+COMPLETED) => steady ~249 vs M=1's 246 +- 5 — NO break, noise-level. VERDICT:
+**E's plateau is aggregate single-GPU capacity**, not the server context.
+Corroboration: B's ceiling (~256, per-process numpy+MPS) sits within ~4% of E's —
+both architectures converge on the same one-3090 limit; the ~245-256 band IS the
+GPU's total throughput for this workload, and the B-E gap is the server's RPC
+overhead. Levers past it: more GPUs/nodes (the per-node multi-GPU topology), or
+async PPO; NOT more runners, NOT more server instances. (Ops note: the sweep's
 first submission silently ran 5 identical default configs — $VAR through the
 Win10->wsl->ssh bridge gets eaten locally; remote invocations must be literal.)
 
