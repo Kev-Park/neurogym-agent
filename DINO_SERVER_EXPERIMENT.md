@@ -202,7 +202,32 @@ old ~176 was NOT trusted blind — control A below reproduces it, validating it)
   C. DINO server, numpy ................ ~162 sps  (job 930609 COMPLETED) = -6% vs A (RPC cost)
   D. DINO server, CUDA-IPC (Phase 3) ... ~227 sps  (job 930359 COMPLETED) = +31% vs A, +40% vs C
   E. DINO server, CUDA-IPC, + MPS ...... ~243 sps  (job 938454 COMPLETED) = +41% vs A, +7% vs D
+  F. per-process, on-GPU, + MPS ........ ~233 sps  (job 938844 COMPLETED) = below B (256)!
+  F0. per-process, on-GPU, NO MPS ...... ~156 sps  (job 938845 COMPLETED) = below A (173)!
   (all: 32x2=64 envs, H=32/32 every iter, 20 iters, good node, steady-state)
+
+BIG RECAST from F/F0 (per-process + on-GPU feed, the "best of both" guess): the
+on-GPU/CUDA-IPC trick actually HURTS the per-process path -- F0 (155) < A (173),
+F (234) < B (256). The unifying rule across ALL cells:
+
+  on-GPU / CUDA-IPC only pays off when it removes a cross-PROCESS pixel ship.
+    server path:      numpy C 162  ->  on-GPU D 227   (+40%)  [avoids Ray ship]
+    per-process path: numpy A 173  ->  on-GPU F0 155  (-10%)  [nothing to save]
+                      numpy B 256  ->  on-GPU F  234  ( -9%)  [+MPS both ways]
+
+Why: config C/D ship the 84x84->pane pixels to a SEPARATE server process; numpy
+serializes that array through Ray's object store every step (expensive), on-GPU
+ships a tiny handle (cheap) -> big win. In the per-process path the array never
+leaves the process; the GL readback of a 450x450 pane is cheap, and the on-GPU
+path instead ADDS a cudaGraphicsMap + a device-wide cudaDeviceSynchronize every
+step per pane -- under 32-process contention that device sync is a net barrier
+with nothing to pay it back. MPS lifts both per-process cells ~+50% (A->B, F0->F)
+but cannot make on-GPU beat numpy there.
+
+FINAL RANKING: B 256 > E 243 > F 234 > D 227 > A 173 > C 162 > F0 155.
+- Absolute SPS champion: B = per-process DINO + numpy readback + MPS. Zero code.
+- VRAM-constrained champion: E = server + CUDA-IPC + MPS (~4GB, ~95% of B).
+- Lesson: CUDA-IPC is a CROSS-PROCESS optimization; do NOT use it in-process.
 
 E = the combined-lever cell (both panes on-GPU via CUDA-IPC, run UNDER MPS).
 MPS lifts the server/IPC path +7% (D 227 -> E 243) -- the 32 GL->CUDA interop
