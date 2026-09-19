@@ -162,6 +162,30 @@ is a separate +49% throughput win but an ACCURACY tradeoff (3D-pane-only lost
 ~19pp on Chrome historically). Left (2D EM) pane is CPU-composed, so extending the
 on-GPU feed to both panes needs more work (the left pane still bounces via CPU).
 
+## Phase 3 — left pane on GPU (both-panes CUDA-IPC) + overnight plan (2026-09-19)
+
+Left pane IS GPU-implementable: compose_left_parts is per-pixel (EM->RGB, 0.5 tint
+for visible ids, SHOW_ALL when empty, + crosshair). Implemented as MeshRenderer.
+render_em: EM->R8 tex, ids->compact-index tex (per fetch, np.unique), per-step
+K-entry color/vis LUT, fragment shader blend + in-shader crosshair. Fixed a
+vertical-flip bug offline (EM quad needs NO [::-1], unlike the projection-oriented
+3D scene). scripts/em_gl_probe.py validates render_em vs CPU compose_left_parts
+(numeric diff + GPU/CPU/diff PNGs to em_out/).
+
+VPN dropped mid-task (tmux/gpclient died) — cluster blocked till it's back; a
+recovery watcher is armed. Execution order when ssh returns:
+1. Run em_gl_probe (GPU node). PARITY GATE: worst mean diff < 0.5 => pass. scp the
+   em_*_{gpu,cpu,diff8x}.png to Seung Lab/out/ for visual confirmation.
+2. If parity passes: implement both-panes CUDA-IPC. Plan = TWO handles (reuse the
+   proven single-pane path per texture): render_em(to_cuda)->_em_color->left
+   buffer+payload; render(3D,to_cuda)->right buffer+payload; _render returns both;
+   server encode_ipc rebuilds both -> encode_gpu([left,right]) -> 768 feats.
+   (left pane NOT GL-flipped; right pane IS, per render().) Relax the
+   cuda_ipc left_pane=False guard for the both-panes case.
+3. SPS test at 32x2 both-panes IPC vs the ~176 both-panes baseline.
+4. Queue the MPS bench (scripts/mps_bench.slurm in the mps worktree; may need a
+   venv resync + --partition=highpri).
+
 ## MPS experiment (separate worktree `mps`, no code)
 
 Run the existing per-process sim under an `nvidia-cuda-mps-control` daemon;
