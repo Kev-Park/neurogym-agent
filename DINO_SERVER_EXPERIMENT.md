@@ -172,19 +172,31 @@ vertical-flip bug offline (EM quad needs NO [::-1], unlike the projection-orient
 3D scene). scripts/em_gl_probe.py validates render_em vs CPU compose_left_parts
 (numeric diff + GPU/CPU/diff PNGs to em_out/).
 
-VPN dropped mid-task (tmux/gpclient died) — cluster blocked till it's back; a
-recovery watcher is armed. Execution order when ssh returns:
-1. Run em_gl_probe (GPU node). PARITY GATE: worst mean diff < 0.5 => pass. scp the
-   em_*_{gpu,cpu,diff8x}.png to Seung Lab/out/ for visual confirmation.
-2. If parity passes: implement both-panes CUDA-IPC. Plan = TWO handles (reuse the
-   proven single-pane path per texture): render_em(to_cuda)->_em_color->left
-   buffer+payload; render(3D,to_cuda)->right buffer+payload; _render returns both;
-   server encode_ipc rebuilds both -> encode_gpu([left,right]) -> 768 feats.
-   (left pane NOT GL-flipped; right pane IS, per render().) Relax the
-   cuda_ipc left_pane=False guard for the both-panes case.
-3. SPS test at 32x2 both-panes IPC vs the ~176 both-panes baseline.
-4. Queue the MPS bench (scripts/mps_bench.slurm in the mps worktree; may need a
-   venv resync + --partition=highpri).
+### DONE (2026-09-19, autonomous)
+1. **Parity gate PASSED** — em_gl_probe (job 930156): subset mean 0.067, showall
+   0.206, noids 0.071 (worst 0.21/255; only ~0.1-0.3% crosshair-AA px differ).
+   PNGs copied to Seung Lab/out/em_*_{gpu,cpu,diff8x}.png.
+2. **Both-panes CUDA-IPC implemented.** Refactored the proven single-pane path
+   into slot-based helpers `_ipc_register`/`_ipc_copy(gl_tex, slot)` shared by both
+   panes (render3d.py). render_em(to_cuda=True) ships the _em_color payload
+   (unflipped); render(to_cuda=True) ships the _color payload (flipped).
+   SimulatorRenderer returns a [ (left,False), (right,True) ] list of
+   (payload, gl_flip) tuples; the left_pane=False guard is gone. Server
+   encode_ipc takes the pane list, rebuilds each in VRAM with per-pane flip, and
+   encode_gpu returns (n_panes, D) -> 768 feats. Config:
+   configs/native_dinoserver_ipc_bp.yaml (both panes, use_left_pane: true).
+3. **SPS test (job 930359, sarekl15-4, 32x2 BATCH=8000):** RUNNING clean, all 32
+   envs healthy (H=32/32). Early iters: iter2 226.8, iter3 228.8 sps — ~+29% over
+   the ~176 both-panes numpy baseline (consistent with the +27% right-pane on-GPU
+   gain). Full 20-iter mean pending. NO CUDA/interop errors — both-panes on-GPU
+   feed works end-to-end.
+4. **MPS bench queued (job 930443)** — mps worktree, native.yaml 32x2 under a
+   per-job nvidia-cuda-mps daemon vs the ~176 non-MPS baseline.
+
+Result summary table (to finalize once both jobs complete):
+  both-panes numpy (Phase-1 baseline) . ~176 sps
+  both-panes CUDA-IPC (Phase 3) ....... ~227 sps (early)  = +29%
+  MPS (both-panes numpy) .............. pending (job 930443)
 
 ## MPS experiment (separate worktree `mps`, no code)
 
