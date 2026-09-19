@@ -127,6 +127,30 @@ expose the GL texture / a CUDA handle instead of only the numpy image.
 Fallback if GL-interop is too fragile: 2a (per-process DINO + GL-CUDA map, no
 IPC) — proves the latency win but not the VRAM dedup.
 
+## Phase 2b RESULTS (2026-09-18) — WORKS end-to-end
+
+The fully-in-VRAM CUDA-IPC on-GPU DINO feed runs: v7 (8x1, right-pane-only)
+reached H=8/8 healthy at ~199 sps, COMPLETED. render -> GL->CUDA export (in VRAM)
+-> reduce_tensor IPC handle over Ray -> server rebuilds+caches in VRAM -> DINO,
+no pixel to CPU.
+
+Bugs fixed to get there (all subtle, none fundamental):
+1. 208 cudaErrorInvalidGraphicsContext: self._color was the ACTIVE FBO color
+   attachment. Bind a scratch FBO (+ glFinish) before BOTH register and map.
+2. Per-step worker crash ("int() ... not 'tuple'"): cuda-python returns a 1-tuple
+   (err,); `int(rt.cudaMemcpy2DFromArray(...))` raised every step. Unpack `(e,)=`.
+   This was the real crasher; the resource_tracker KeyError / "Producer terminated
+   before shared CUDA tensors released" were DOWNSTREAM cleanup noise, NOT a
+   torch-IPC-over-Ray incompatibility -> the raw-cudaIpc redesign was unnecessary.
+3. IPC churn: build the reduce_tensor payload ONCE (stable VRAM); server caches
+   the rebuilt tensor per handle (rebuild once, re-read each step).
+Runners need --num-gpus-per-env-runner > 0 (a small CUDA context for the interop);
+cuda-python's cudaIpcMemHandle_t serializes via getPtr()+ctypes (no .reserved).
+
+Note: 199 sps @ 8x1 is low-density + right-pane-only, NOT comparable to the
+both-panes ~176 peak (64 envs). Matched-density IPC run pending for the delta;
+Phase 1 predicts a modest SPS gain (barrier-bound), the value is the capability.
+
 ## MPS experiment (separate worktree `mps`, no code)
 
 Run the existing per-process sim under an `nvidia-cuda-mps-control` daemon;
