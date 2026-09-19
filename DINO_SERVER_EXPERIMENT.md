@@ -193,10 +193,27 @@ vertical-flip bug offline (EM quad needs NO [::-1], unlike the projection-orient
 4. **MPS bench queued (job 930443)** — mps worktree, native.yaml 32x2 under a
    per-job nvidia-cuda-mps daemon vs the ~176 non-MPS baseline.
 
-Result summary table (to finalize once both jobs complete):
-  both-panes numpy (Phase-1 baseline) . ~176 sps
-  both-panes CUDA-IPC (Phase 3) ....... ~227 sps (early)  = +29%
-  MPS (both-panes numpy) .............. pending (job 930443)
+### RESULT MATRIX (both-panes, 32x2, single 3090, good node, 20 iters)
+All measured fresh with bench_single_node_sps.slurm so they are matched (the
+old ~176 was NOT trusted blind — control A below reproduces it, validating it).
+
+  A. per-process DINO, numpy, NO MPS ... ~173 sps  (job 930608; = the ~176 baseline)
+  B. per-process DINO, numpy, MPS ...... ~256-265 sps (job 930443)  = +48% vs A
+  C. DINO server, numpy ................ pending (job 930609, Resources)
+  D. DINO server, CUDA-IPC (Phase 3) ... ~227 sps  (job 930359, COMPLETED clean) = +29% vs A
+
+KEY FINDING: **MPS (a runtime daemon, ZERO code) is the bigger throughput lever
+than the CUDA-IPC engineering** — +48% (B) vs +29% (D), and MPS BEATS CUDA-IPC
+outright (~260 vs ~227). Mechanism: MPS lets the 32 per-process CUDA contexts'
+kernels run concurrently on the GPU instead of serializing through the driver's
+time-slicer; the DINO server instead funnels every encode through ONE actor
+(batched, single stream) + a Ray RPC per step, which caps it below MPS.
+Implication for the "combine server+MPS?" question: the server's value is VRAM
+reduction (15GB->4GB), not SPS; for SPS alone, MPS on the per-process path wins.
+Combining (MPS + server) would test whether MPS's concurrency also lifts the
+server path — worth a follow-up, but MPS-only is the throughput recommendation.
+Both-panes CUDA-IPC (D) is still a clean +29% and remains the right choice when
+per-process DINO VRAM is the binding constraint (many runners / bigger models).
 
 ## MPS experiment (separate worktree `mps`, no code)
 
