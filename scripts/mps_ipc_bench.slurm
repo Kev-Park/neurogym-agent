@@ -29,6 +29,8 @@ RUNNERS=${RUNNERS:-32}
 ENVS=${ENVS:-2}
 BATCH=${BATCH:-8000}
 ITERS=${ITERS:-20}
+GPU_PER_RUNNER=${GPU_PER_RUNNER:-0.02}
+CPUS_PER_RUNNER=${CPUS_PER_RUNNER:-1.0}
 
 export NGL_NATIVE_FETCH_WORKERS="${NGL_NATIVE_FETCH_WORKERS:-2}"
 export NGL_NATIVE_MESH_LRU_MB="${NGL_NATIVE_MESH_LRU_MB:-128}"
@@ -51,7 +53,7 @@ UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python -m ngllib_a
   --run-name "mps-ipc-${SLURM_JOB_ID}" \
   --no-spawn-curriculum --learner-gpu \
   --num-env-runners "$RUNNERS" --num-envs-per-env-runner "$ENVS" \
-  --num-gpus-per-env-runner 0.02 --num-cpus-per-env-runner 1.2 \
+  --num-gpus-per-env-runner "$GPU_PER_RUNNER" --num-cpus-per-env-runner "$CPUS_PER_RUNNER" \
   --vector threads --iters "$ITERS" --train-batch-size "$BATCH" \
   --checkpoint-every 999999 --no-degraded-exit --wandb-mode disabled
 
