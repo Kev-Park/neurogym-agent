@@ -95,6 +95,26 @@ def _interop_check(tag=""):
     return f"{tag} OK match={ok}"
 
 
+def _child_raw(handle_bytes, nbytes, shape):
+    """RAW CUDA IPC (cuda-python, no torch reduce_tensor / resource_tracker):
+    reopen a cudaMalloc'd buffer by its 64-byte handle and read it."""
+    import torch
+    from cuda.bindings import runtime as rt
+    torch.cuda.set_device(0)
+    h = rt.cudaIpcMemHandle_t()
+    h.reserved = handle_bytes
+    e, ptr = rt.cudaIpcOpenMemHandle(h, rt.cudaIpcMemLazyEnablePeerAccess)
+    if int(e) != 0:
+        raise RuntimeError(f"OpenMemHandle {int(e)}")
+    buf = torch.empty(shape, dtype=torch.uint8, device="cuda")
+    e = rt.cudaMemcpy(buf.data_ptr(), ptr, nbytes,
+                      rt.cudaMemcpyKind.cudaMemcpyDeviceToDevice)
+    torch.cuda.synchronize()
+    flat = buf.reshape(-1, shape[-1])
+    print(f"CHILD-RAW: shape={tuple(buf.shape)} sum={int(buf.sum().item())} "
+          f"px00={flat[0].tolist()} memcpy_err={int(e)}", flush=True)
+
+
 def main():
     import os
     import torch
@@ -196,7 +216,36 @@ def main():
         import traceback
         traceback.print_exc()
         print(f"STAGE5 FAIL Ray-style IPC: {type(e).__name__}: {e}", flush=True)
-    return 0 if (ok and ok2) else 1
+
+    # ---- STAGE 6: RAW CUDA IPC (cuda-python) — no torch reduce_tensor, so no
+    # multiprocessing.resource_tracker (the Ray-worker crasher). ----
+    ok3 = False
+    try:
+        nbytes = H * W * 4
+        e, raw = rt.cudaMalloc(nbytes)
+        if int(e) != 0:
+            raise RuntimeError(f"cudaMalloc {int(e)}")
+        _chk(rt.cudaGraphicsMapResources(1, resource, 0), "Map6")
+        (arr2,) = _chk(rt.cudaGraphicsSubResourceGetMappedArray(resource, 0, 0), "Arr6")
+        _chk(rt.cudaMemcpy2DFromArray(raw, W * 4, arr2, 0, 0, W * 4, H,
+             rt.cudaMemcpyKind.cudaMemcpyDeviceToDevice), "Memcpy6")
+        _chk(rt.cudaGraphicsUnmapResources(1, resource, 0), "Unmap6")
+        eh, handle = rt.cudaIpcGetMemHandle(raw)
+        if int(eh) != 0:
+            raise RuntimeError(f"IpcGetMemHandle {int(eh)}")
+        hb = bytes(handle.reserved)
+        print(f"STAGE6a raw IPC handle OK ({len(hb)}B)", flush=True)
+        p3 = mp.Process(target=_child_raw, args=(hb, nbytes, (H, W, 4)))
+        p3.start()
+        p3.join(30)
+        ok3 = (p3.exitcode == 0)
+        print(f"STAGE6 {'PASS' if ok3 else 'FAIL'} raw CUDA IPC "
+              f"(exitcode={p3.exitcode})", flush=True)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"STAGE6 FAIL raw IPC: {type(e).__name__}: {e}", flush=True)
+    return 0 if (ok and ok2 and ok3) else 1
 
 
 if __name__ == "__main__":
