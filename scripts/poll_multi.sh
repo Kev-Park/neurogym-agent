@@ -5,6 +5,10 @@
 # job leaves the queue prints one DONE line with its last iter sps + exit state;
 # exits when all jobs are gone. Lean stdout so it is safe to stream as events.
 set -u
+# POLL_INTERVAL (s, default 30) / POLL_CYCLES (default 60): a long queue pend
+# wants e.g. INTERVAL=180 CYCLES=40 so the watch covers hours without tick spam.
+INTERVAL=${POLL_INTERVAL:-30}
+CYCLES=${POLL_CYCLES:-60}
 PAIRS=("$@")
 declare -A OUT
 IDS=""
@@ -14,7 +18,7 @@ for p in "${PAIRS[@]}"; do
   IDS="${IDS:+$IDS,}$jid"
 done
 declare -A DONE
-for c in $(seq 1 60); do
+for c in $(seq 1 "$CYCLES"); do
   live=$(squeue -h -j "$IDS" -o '%i:%T' 2>/dev/null | tr '\n' ' ')
   # Report any job that was live before and is now absent.
   for jid in "${!OUT[@]}"; do
@@ -29,5 +33,5 @@ for c in $(seq 1 60); do
   for jid in "${!OUT[@]}"; do [ -z "${DONE[$jid]:-}" ] && remaining=$((remaining+1)); done
   echo "TICK $c live=[$live] remaining=$remaining"
   [ "$remaining" -eq 0 ] && { echo "ALL-DONE"; break; }
-  sleep 30
+  sleep "$INTERVAL"
 done
