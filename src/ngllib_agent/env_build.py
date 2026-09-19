@@ -11,6 +11,7 @@ configs that produced existing checkpoints still build.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from .providers import FlywireSkeletonProvider
@@ -152,6 +153,17 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None,
         if server_ipc or local_gpu:
             sim_kwargs["cuda_ipc"] = True
             sim_kwargs["ipc_export"] = server_ipc  # False => raw tensor, in-process
+        # render_batch (throughput-scaling): batch the process's envs' 3D renders
+        # through one shared GL context (atlas) instead of one context per env.
+        # render_batch_size MUST be >= num_envs_per_env_runner (the atlas cell
+        # count); the bench sets it equal. Pairs with cuda_local for the all-VRAM
+        # arm (interop) or plain readback otherwise.
+        if ec.get("render_batch"):
+            sim_kwargs["render_batch"] = True
+            # NGL_RENDER_BATCH_SIZE (set by the bench = num_envs_per_env_runner)
+            # sizes the atlas; falls back to the config value.
+            sim_kwargs["render_batch_size"] = int(os.environ.get(
+                "NGL_RENDER_BATCH_SIZE", ec.get("render_batch_size", 1)))
         renderer = SimulatorRenderer(**layout, **sim_kwargs)
         # The simulator has always defaulted to reset-ahead prefetch (its
         # warm work is a background fetch, free to start immediately).
