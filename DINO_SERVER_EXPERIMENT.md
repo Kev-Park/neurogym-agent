@@ -229,6 +229,22 @@ FINAL RANKING: B 256 > E 243 > F 234 > D 227 > A 173 > C 162 > F0 155.
 - VRAM-constrained champion: E = server + CUDA-IPC + MPS (~4GB, ~95% of B).
 - Lesson: CUDA-IPC is a CROSS-PROCESS optimization; do NOT use it in-process.
 
+### E runner-count scaling sweep (2026-09-19, highpri, batch = 125 steps/env)
+Steady-state means (iter-1 warmup + <100sps stall iters excluded):
+  R=8  (16 envs, job 941790) ... ~204 sps  (25.5 /runner; noisy — few envs to average stragglers)
+  R=16 (32 envs, job 941791) ... ~231 sps  (14.4 /runner)
+  R=24 (48 envs, job 941792) ... ~245 sps  (10.2 /runner)
+  R=32 (64 envs, 4 replicates: 938454/940817/940818/940819) ... ~246 +- 5  (7.7 /runner)
+  R=40 (80 envs, job 941793) ... ~246 sps  (6.1 /runner)
+E scales to ~24 runners then SATURATES HARD at ~245-246; 24->40 runners (+67%
+resources) = +0.4%. FLAT (not declining) plateau => a shared SERIAL resource at
+capacity, not the sync barrier (stragglers would bend it down). Prime suspect:
+the single DINO-server context (~490 pane-encodes/s at the plateau); alternative:
+aggregate GPU capacity. Discrimination run: M=2 servers at 32x2 (job 942130) —
+plateau breaks => server-limited; flat => GPU-limited. (Ops note: the sweep's
+first submission silently ran 5 identical default configs — $VAR through the
+Win10->wsl->ssh bridge gets eaten locally; remote invocations must be literal.)
+
 E = the combined-lever cell (both panes on-GPU via CUDA-IPC, run UNDER MPS).
 MPS lifts the server/IPC path +7% (D 227 -> E 243) -- the 32 GL->CUDA interop
 copies now overlap instead of time-slicing -- but E stays BELOW B (256): the DINO
