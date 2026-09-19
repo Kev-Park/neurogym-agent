@@ -84,12 +84,14 @@ class DinoServer:
         await self._queue.put(("np", images, fut, int(images.shape[0])))
         return await fut
 
-    async def encode_ipc(self, payload) -> np.ndarray:
-        """payload: a reduce_tensor() (rebuild, args) for a GPU frame (H, W, 4)
-        uint8, GL orientation -> (1, D) float32. Pixels stay in VRAM."""
+    async def encode_ipc(self, payloads) -> np.ndarray:
+        """payloads: a list of (reduce_tensor (rebuild, args), gl_flip) for the
+        env's GPU panes -- [ (left,False), (right,True) ] both-panes, or
+        [ (right,True) ] right-only -> (len, D) float32, one row per pane in
+        order. Pixels stay in VRAM."""
         await self._ensure_loop()
         fut: asyncio.Future = asyncio.get_event_loop().create_future()
-        await self._queue.put(("ipc", payload, fut, 1))
+        await self._queue.put(("ipc", payloads, fut, len(payloads)))
         return await fut
 
     def _run_batch(self, batch: list, total: int) -> np.ndarray:
@@ -101,21 +103,27 @@ class DinoServer:
         if kinds == {"np"}:
             stacked = np.concatenate([d for _, d in batch], axis=0)
             return self._enc.encode(list(stacked))
-        # ipc (or mixed): rebuild each GPU frame; keep pixels in VRAM.
+        # ipc (or mixed): rebuild each GPU frame; keep pixels in VRAM. Each ipc
+        # item is a LIST of (payload, gl_flip) panes; keep per-pane flips so the
+        # left EM pane (unflipped) and right 3D pane (flipped) coexist in a batch.
         gpu_imgs = []
+        flips = []
         for kind, d in batch:
             if kind == "ipc":
-                rebuild, args = d
-                key = tuple(a for a in args if isinstance(a, bytes))  # IPC handles
-                t = self._ipc_cache.get(key)
-                if t is None:
-                    t = rebuild(*args)          # open/map once per runner handle
-                    self._ipc_cache[key] = t
-                gpu_imgs.append(t)              # (H, W, 4) uint8 cuda, re-read
+                for payload, flip in d:
+                    rebuild, args = payload
+                    key = tuple(a for a in args if isinstance(a, bytes))  # IPC handles
+                    t = self._ipc_cache.get(key)
+                    if t is None:
+                        t = rebuild(*args)      # open/map once per runner handle
+                        self._ipc_cache[key] = t
+                    gpu_imgs.append(t)          # (H, W, 4) uint8 cuda, re-read
+                    flips.append(bool(flip))
             else:
                 for im in d:
                     gpu_imgs.append(torch.from_numpy(im).cuda())
-        return self._enc.encode_gpu(gpu_imgs, gl_flip=True)
+                    flips.append(False)         # np frames are already image-order
+        return self._enc.encode_gpu(gpu_imgs, gl_flip=flips)
 
     async def _batch_loop(self) -> None:
         loop = asyncio.get_event_loop()
@@ -216,7 +224,8 @@ class DinoServerClient:
         arr = np.ascontiguousarray(np.stack(images)).astype(np.uint8, copy=False)
         return ray.get(self._actor.encode.remote(arr))
 
-    def encode_ipc(self, payload) -> np.ndarray:
-        """Ship a reduce_tensor() (rebuild, args) payload for a GPU frame; the
-        server rebuilds it in-VRAM and runs DINO. Returns (1, D) float32."""
-        return ray.get(self._actor.encode_ipc.remote(payload))
+    def encode_ipc(self, payloads) -> np.ndarray:
+        """Ship a list of (reduce_tensor (rebuild, args), gl_flip) pane payloads;
+        the server rebuilds them in-VRAM and runs DINO. Returns (len, D) float32,
+        one row per pane in order (left EM then right 3D for both-panes)."""
+        return ray.get(self._actor.encode_ipc.remote(payloads))

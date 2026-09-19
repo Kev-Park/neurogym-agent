@@ -109,8 +109,8 @@ def _child_raw(handle_bytes, nbytes, shape):
     if int(e) != 0:
         raise RuntimeError(f"OpenMemHandle {int(e)}")
     buf = torch.empty(shape, dtype=torch.uint8, device="cuda")
-    e = rt.cudaMemcpy(buf.data_ptr(), ptr, nbytes,
-                      rt.cudaMemcpyKind.cudaMemcpyDeviceToDevice)
+    (e,) = rt.cudaMemcpy(buf.data_ptr(), ptr, nbytes,
+                         rt.cudaMemcpyKind.cudaMemcpyDeviceToDevice)  # returns (err,)
     torch.cuda.synchronize()
     flat = buf.reshape(-1, shape[-1])
     print(f"CHILD-RAW: shape={tuple(buf.shape)} sum={int(buf.sum().item())} "

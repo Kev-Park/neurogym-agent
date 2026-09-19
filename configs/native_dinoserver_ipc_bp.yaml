@@ -1,0 +1,72 @@
+# DINO-server CUDA-IPC config, BOTH PANES (Phase 3): like native_dinoserver_ipc.yaml
+# but BOTH GL panes stay in VRAM — the 3D pane via the mesh renderer and the 2D EM
+# pane via MeshRenderer.render_em (GPU equivalent of compose_left_parts, pixel-parity
+# validated by em_gl_probe, worst mean diff 0.21/255). observe() returns a list of
+# reduce_tensor handles [left EM, right 3D]; the server rebuilds both in-VRAM and
+# encodes to 768 features (2x384). Launch runners with --num-gpus-per-env-runner > 0
+# (small) so each has a CUDA context for the GL->CUDA interop. This is the both-panes
+# comparison against the ~176 sps both-panes numpy baseline. See DINO_SERVER_EXPERIMENT.md.
+
+env:
+  backend: simulator
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
+  projection_scale_range: [3500, 14000]
+  spawn_curriculum:
+    start_frac: 0.10
+    end_steps: 492000
+  orientation: euler
+  headless: true
+  renderer: gpu
+  left_pane: true
+  right_pane: true
+  image_size: [84, 84]
+  max_episode_steps: 300
+
+obs:
+  mode: pos            # forced to dino by train.py --obs default
+  use_left_pane: true  # both panes: left EM (unflipped) + right 3D (flipped), on-GPU
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+    server:
+      enabled: true
+      cuda_ipc: true      # renderer -> CUDA-IPC handles -> server rebuilds in VRAM
+      instances: 1        # M
+      max_batch: 64
+      max_delay_ms: 3.0
+      num_gpus: 0.1
+      feature_dim: 384
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+model:
+  pos_hidden_dim: 64
+  trunk_hiddens: [256, 256]
+  normalize_entropy: true
+
+action:
+  grid_rows: 32
+  grid_cols: 32
+  pane_3d_bounds: [900, 0, 1800, 900]   # x0, y0, x1, y1
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  z_tolerance: 10.0
+  z_tolerance_frac: 0.05
+  success: 1.0
+  z_shaping_coef: 0.001
+  step_penalty: 0.0
+
+ppo:
+  train_batch_size: 2000
+  sgd_minibatch_size: 256
+  num_sgd_iter: 4
+  entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01

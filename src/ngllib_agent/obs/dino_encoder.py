@@ -50,13 +50,16 @@ class DinoEncoder:
         return feats.detach().cpu().numpy().astype(np.float32)
 
     @torch.no_grad()
-    def encode_gpu(self, imgs: list, *, gl_flip: bool = False) -> np.ndarray:
+    def encode_gpu(self, imgs: list, *, gl_flip: bool | list = False) -> np.ndarray:
         """Encode a list of (H, W, C) uint8 CUDA tensors already on the GPU (the
         CUDA-IPC path — pixels never touch the CPU). C in {3,4}; alpha is dropped.
-        `gl_flip` reverses rows for GL's bottom-up framebuffer orientation."""
+        `gl_flip` reverses rows for GL's bottom-up framebuffer orientation — a
+        bool applied to all, or a per-image list (the left EM pane is read
+        unflipped, the right 3D pane flipped, so a mixed batch needs both)."""
+        flips = [gl_flip] * len(imgs) if isinstance(gl_flip, bool) else list(gl_flip)
         procd = []
-        for t in imgs:
-            if gl_flip:
+        for t, flip in zip(imgs, flips):
+            if flip:
                 t = torch.flip(t, dims=[0])
             t = t[:, :, :3].permute(2, 0, 1).float().div(255.0)  # (3, H, W)
             procd.append(t)

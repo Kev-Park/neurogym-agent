@@ -98,8 +98,10 @@ class DinoObservationWrapper:
                     panes = list(split_panes(img)) if use_left else [img]  # [EM,3D] or [3D]
                     feats = self._encoder.encode(panes)
                 else:
-                    # cuda_ipc: img is a reduce_tensor payload for the GPU-resident
-                    # 3D pane (right-pane-only); the server rebuilds + encodes in VRAM.
+                    # cuda_ipc: img is a list of (reduce_tensor payload, gl_flip)
+                    # for the GPU-resident panes ([left EM, right 3D] both-panes,
+                    # or [right 3D] right-only); the server rebuilds + encodes in
+                    # VRAM and returns one feature row per pane, in order.
                     feats = self._encoder.encode_ipc(img)
                 return {
                     "image_features": feats.reshape(-1).astype(np.float32),
