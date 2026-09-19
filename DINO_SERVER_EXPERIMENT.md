@@ -148,8 +148,19 @@ Runners need --num-gpus-per-env-runner > 0 (a small CUDA context for the interop
 cuda-python's cudaIpcMemHandle_t serializes via getPtr()+ctypes (no .reserved).
 
 Note: 199 sps @ 8x1 is low-density + right-pane-only, NOT comparable to the
-both-panes ~176 peak (64 envs). Matched-density IPC run pending for the delta;
-Phase 1 predicts a modest SPS gain (barrier-bound), the value is the capability.
+both-panes ~176 peak (64 envs).
+
+### Matched-density result (32x2 = 64 envs, all H=32/32, steady-state)
+  both-panes numpy (Phase-1 baseline) ... ~176 sps
+  right-pane  numpy control ............. ~263 sps   (+49% from dropping the left pane)
+  right-pane  IPC (on-GPU feed) ......... ~333 sps   (+27% over numpy readback; +89% vs baseline)
+Threaded multi-context CUDA-IPC scales (32 procs, each own GL ctx + IPC handle).
+Attribution: the on-GPU-IPC feed itself is a clean, accuracy-neutral +27% at this
+density (bigger than the Phase-1 "small gain" call, because with the lighter
+right-pane-only step the readback/ship latency is a larger share). Right-pane-only
+is a separate +49% throughput win but an ACCURACY tradeoff (3D-pane-only lost
+~19pp on Chrome historically). Left (2D EM) pane is CPU-composed, so extending the
+on-GPU feed to both panes needs more work (the left pane still bounces via CPU).
 
 ## MPS experiment (separate worktree `mps`, no code)
 
