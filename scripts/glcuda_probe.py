@@ -98,14 +98,13 @@ def _interop_check(tag=""):
 def _child_raw(handle_bytes, nbytes, shape):
     """RAW CUDA IPC (cuda-python, no torch reduce_tensor / resource_tracker):
     reopen a cudaMalloc'd buffer by its 64-byte handle and read it."""
+    import ctypes
+
     import torch
     from cuda.bindings import runtime as rt
     torch.cuda.set_device(0)
-    try:
-        h = rt.cudaIpcMemHandle_t(handle_bytes)      # construct from bytes
-    except Exception:
-        h = rt.cudaIpcMemHandle_t()
-        h.reserved = handle_bytes                    # fallback
+    h = rt.cudaIpcMemHandle_t()
+    ctypes.memmove(h.getPtr(), handle_bytes, len(handle_bytes))  # write 64B struct
     e, ptr = rt.cudaIpcOpenMemHandle(h, rt.cudaIpcMemLazyEnablePeerAccess)
     if int(e) != 0:
         raise RuntimeError(f"OpenMemHandle {int(e)}")
@@ -236,14 +235,10 @@ def main():
         eh, handle = rt.cudaIpcGetMemHandle(raw)
         if int(eh) != 0:
             raise RuntimeError(f"IpcGetMemHandle {int(eh)}")
-        attrs = [a for a in dir(handle) if not a.startswith("__")]
-        try:
-            hb = bytes(handle)                       # buffer protocol
-        except Exception as bex:
-            hb = None
-            print(f"STAGE6 bytes(handle) failed: {bex}; attrs={attrs}", flush=True)
-        if not hb:
-            raise RuntimeError(f"cannot serialize handle; attrs={attrs}")
+        import ctypes
+        # cuda-python's cudaIpcMemHandle_t exposes only getPtr() (address of the
+        # 64-byte C struct); read those bytes for a plain, Ray-serializable handle.
+        hb = bytes((ctypes.c_char * 64).from_address(handle.getPtr()))
         print(f"STAGE6a raw IPC handle OK ({len(hb)}B; type={type(handle).__name__})",
               flush=True)
         p3 = mp.Process(target=_child_raw, args=(hb, nbytes, (H, W, 4)))
