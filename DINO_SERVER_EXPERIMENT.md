@@ -159,8 +159,8 @@ Attribution: the on-GPU-IPC feed itself is a clean, accuracy-neutral +27% at thi
 density (bigger than the Phase-1 "small gain" call, because with the lighter
 right-pane-only step the readback/ship latency is a larger share). Right-pane-only
 is a separate +49% throughput win but an ACCURACY tradeoff (3D-pane-only lost
-~19pp on Chrome historically). Left (2D EM) pane is CPU-composed, so extending the
-on-GPU feed to both panes needs more work (the left pane still bounces via CPU).
+~19pp on Chrome historically). Left (2D EM) pane WAS CPU-composed; Phase 3 below
+moves it onto the GPU too (render_em), so both-panes now runs fully on-GPU.
 
 ## Phase 3 — left pane on GPU (both-panes CUDA-IPC) + overnight plan (2026-09-19)
 
@@ -198,9 +198,18 @@ All measured fresh with bench_single_node_sps.slurm so they are matched (the
 old ~176 was NOT trusted blind — control A below reproduces it, validating it).
 
   A. per-process DINO, numpy, NO MPS ... ~173 sps  (job 930608; = the ~176 baseline)
-  B. per-process DINO, numpy, MPS ...... ~256-265 sps (job 930443)  = +48% vs A
-  C. DINO server, numpy ................ pending (job 930609, Resources)
-  D. DINO server, CUDA-IPC (Phase 3) ... ~227 sps  (job 930359, COMPLETED clean) = +29% vs A
+  B. per-process DINO, numpy, MPS ...... ~260 sps  (job 930443, COMPLETED) = +50% vs A
+  C. DINO server, numpy ................ ~160 sps  (job 930609, running)   = -7% vs A (RPC cost)
+  D. DINO server, CUDA-IPC (Phase 3) ... ~227 sps  (job 930359, COMPLETED) = +31% vs A, +42% vs C
+
+Two independent throughput levers, ranked:
+- MPS (B): +50% vs A, ZERO code — the biggest single-GPU lever. Just a per-job
+  nvidia-cuda-mps daemon; the 32 per-process CUDA contexts' kernels run
+  concurrently instead of driver-time-sliced.
+- CUDA-IPC in the server (D): the server ALONE (C) COSTS ~7% (one Ray RPC/step),
+  but keeping the panes in VRAM (D) more than pays it back: +42% over C, +31%
+  over baseline. So the server is worth it for SPS *only* with CUDA-IPC; its
+  standalone value is the VRAM cut (15GB->4GB).
 
 KEY FINDING: **MPS (a runtime daemon, ZERO code) is the bigger throughput lever
 than the CUDA-IPC engineering** — +48% (B) vs +29% (D), and MPS BEATS CUDA-IPC
