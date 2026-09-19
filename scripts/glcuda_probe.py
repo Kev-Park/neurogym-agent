@@ -101,8 +101,11 @@ def _child_raw(handle_bytes, nbytes, shape):
     import torch
     from cuda.bindings import runtime as rt
     torch.cuda.set_device(0)
-    h = rt.cudaIpcMemHandle_t()
-    h.reserved = handle_bytes
+    try:
+        h = rt.cudaIpcMemHandle_t(handle_bytes)      # construct from bytes
+    except Exception:
+        h = rt.cudaIpcMemHandle_t()
+        h.reserved = handle_bytes                    # fallback
     e, ptr = rt.cudaIpcOpenMemHandle(h, rt.cudaIpcMemLazyEnablePeerAccess)
     if int(e) != 0:
         raise RuntimeError(f"OpenMemHandle {int(e)}")
@@ -233,8 +236,16 @@ def main():
         eh, handle = rt.cudaIpcGetMemHandle(raw)
         if int(eh) != 0:
             raise RuntimeError(f"IpcGetMemHandle {int(eh)}")
-        hb = bytes(handle.reserved)
-        print(f"STAGE6a raw IPC handle OK ({len(hb)}B)", flush=True)
+        attrs = [a for a in dir(handle) if not a.startswith("__")]
+        try:
+            hb = bytes(handle)                       # buffer protocol
+        except Exception as bex:
+            hb = None
+            print(f"STAGE6 bytes(handle) failed: {bex}; attrs={attrs}", flush=True)
+        if not hb:
+            raise RuntimeError(f"cannot serialize handle; attrs={attrs}")
+        print(f"STAGE6a raw IPC handle OK ({len(hb)}B; type={type(handle).__name__})",
+              flush=True)
         p3 = mp.Process(target=_child_raw, args=(hb, nbytes, (H, W, 4)))
         p3.start()
         p3.join(30)
