@@ -140,12 +140,18 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None,
         sim_kwargs = dict(cache_dir=ec.get("cv_cache"))
         if "pane_mode" in ec:
             sim_kwargs["pane_mode"] = ec["pane_mode"]
-        # cuda_ipc (dino-server CUDA-IPC path): each enabled GL pane stays in VRAM
-        # and observe() returns a list of reduce_tensor payloads (both panes are
-        # GPU-composed). Requires obs.dino.server.enabled + .cuda_ipc.
-        _srv = (oc.get("dino") or {}).get("server") or {}
-        if _srv.get("enabled") and _srv.get("cuda_ipc"):
+        # On-GPU feed: each enabled GL pane stays in VRAM (no CPU readback).
+        #   server + cuda_ipc  -> cross-process CUDA-IPC payloads to a DINO server
+        #   cuda_local (no srv)-> RAW CUDA tensors to THIS process's DINO encoder
+        #                         (encode_gpu; no server, no IPC handle).
+        # Both need a small --num-gpus-per-env-runner for the interop context.
+        _dino = oc.get("dino") or {}
+        _srv = _dino.get("server") or {}
+        server_ipc = bool(_srv.get("enabled") and _srv.get("cuda_ipc"))
+        local_gpu = bool(_dino.get("cuda_local") and not _srv.get("enabled"))
+        if server_ipc or local_gpu:
             sim_kwargs["cuda_ipc"] = True
+            sim_kwargs["ipc_export"] = server_ipc  # False => raw tensor, in-process
         renderer = SimulatorRenderer(**layout, **sim_kwargs)
         # The simulator has always defaulted to reset-ahead prefetch (its
         # warm work is a background fetch, free to start immediately).
