@@ -35,7 +35,7 @@ CUDA_VISIBLE_DEVICES=0 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
     --config configs/native_rb_interop.yaml --run-name cpuattr-$J \
     --no-spawn-curriculum --learner-gpu \
     --num-env-runners 24 --num-envs-per-env-runner 8 \
-    --num-gpus-per-env-runner 0.02 --num-cpus-per-env-runner 1.0 \
+    --num-gpus-per-env-runner 0.02 --num-cpus-per-env-runner 0.5 \
     --vector threads --iters 12 --train-batch-size 24000 \
     --checkpoint-every 999999 --no-degraded-exit --wandb-mode disabled \
     > slurm_outputs/cpuattr-$J.out 2>&1 &
