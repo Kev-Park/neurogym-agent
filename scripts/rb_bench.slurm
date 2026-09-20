@@ -40,6 +40,11 @@ RUN=${RUN:-${SLURM_JOB_NAME}-${SLURM_JOB_ID}}
 # Atlas cell count = envs per runner. The render service sizes its atlas from this.
 export NGL_RENDER_BATCH_SIZE="$ENVS"
 
+# M: DINO-server instance count (only used by the *_srv_* configs). Empty = use
+# the config's value.
+DINO_ARGS=""
+[ -n "${M:-}" ] && DINO_ARGS="--dino-server-instances $M"
+
 export NGL_NATIVE_FETCH_WORKERS="${NGL_NATIVE_FETCH_WORKERS:-2}"
 export NGL_NATIVE_MESH_LRU_MB="${NGL_NATIVE_MESH_LRU_MB:-128}"
 export NGL_NATIVE_CHUNK_LRU_MB="${NGL_NATIVE_CHUNK_LRU_MB:-256}"
@@ -62,7 +67,8 @@ UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python -m ngllib_a
   --num-env-runners "$RUNNERS" --num-envs-per-env-runner "$ENVS" \
   --num-gpus-per-env-runner "$GPU_PER_RUNNER" --num-cpus-per-env-runner "$CPUS_PER_RUNNER" \
   --vector threads --iters "$ITERS" --train-batch-size "$BATCH" \
-  --checkpoint-every 999999 --no-degraded-exit --wandb-mode disabled
+  --checkpoint-every 999999 --no-degraded-exit --wandb-mode disabled \
+  $DINO_ARGS
 
 echo quit | nvidia-cuda-mps-control 2>&1 | sed 's/^/[mps] /' || true
 echo "[rb] done"
