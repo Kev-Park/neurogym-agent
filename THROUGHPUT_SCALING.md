@@ -1,0 +1,86 @@
+# Render-batching throughput experiment (throughput-scaling)
+
+Question: does batching the per-env 3D renders through ONE shared GL context per
+runner (instead of one GL context per env) raise single-GPU SPS? The prior
+finding was that GPU **context contention** is the per-step ceiling (MPS on the
+CUDA side gave +48%), and MPS does NOT cover GL — so N per-env GL contexts still
+time-slice. This tests collapsing them.
+
+## Design
+
+- `ngllib/simulator/render_service.py` — `RenderService`, a per-process singleton
+  owning ONE `MeshRenderer` (one GL context, one shared mesh slot pool) on ONE
+  dedicated thread. Env threads marshal render/load_mesh/pick via a queue+future
+  and block; the service thread **coalesces** the per-step render calls into a
+  single ATLAS render (grid of cells) + a single readback (or a single GL->CUDA
+  interop copy). So `#GL contexts = #DINO = #runner processes`; batch size =
+  `num_envs_per_env_runner`.
+- DINO stays **in-process** (per-process singleton) — the controlled variable, so
+  the experiment isolates render batching. (A server would add IPC/RPC that
+  confounds it; its VRAM-dedup value is orthogonal, measured separately.)
+- Transfer A/B: `readback` (one glReadPixels of the atlas) vs `interop`
+  (one GL->CUDA copy of the atlas, split into per-cell CUDA views, fed to
+  `encode_gpu`). Interop's device-wide sync is amortized over the whole batch.
+- Configs `native_rb_{base,readback,interop}.yaml` (right-pane-only, in-process
+  DINO; only the render path differs). `env.render_batch` + `NGL_RENDER_BATCH_SIZE`.
+
+## Gates (both PASS)
+
+- **Parity** (`render_batch_probe`, job 942326): batched-atlas cells are
+  pixel-identical to per-env `MeshRenderer.render` — readback worst max diff = 1,
+  interop worst max diff = 1 (rounding on one rotated scene).
+- **Integration**: the batched service runs healthy under real PPO + concurrent
+  env threads + MPS, both transfer modes, up to 256 envs (H all-healthy).
+
+## Results — envs/runner axis (16 runners, 1x 3090, right-pane, MPS, real PPO)
+
+Mean SPS (iters 2+, batched INTEROP vs per-env-context BASELINE):
+
+| batch (envs/runner) | total envs | baseline | interop | Δ |
+|---|---|---|---|---|
+| 2  | 32  | ~315 | ~310 | -1.6% (wash) |
+| 4  | 64  | 349  | 355  | +1.6% (wash) |
+| 8  | 128 | 353  | 373  | +5.7% |
+| 12 | 192 | ~350 -> CRATERS (H=15/16, ~255) | **378** | batched wins; baseline unstable |
+| 16 | 256 | ~350 -> CRATERS (H=15/16, ~255) | 360  | batched wins; baseline unstable |
+
+readback tracked interop but a bit lower (batch 8: 362 vs 373) — interop >=
+readback across the batched regime.
+
+### Findings
+1. **Batching's advantage grows monotonically with batch size** (-1.6% -> +5.7%
+   -> decisive). At low density it is a wash: per-env GL contexts aren't contended
+   enough to beat batching's coalescing/marshaling overhead.
+2. **At high density the win is STABILITY, not just throughput.** At >=192 per-env
+   GL contexts the BASELINE collapses — a runner dies (H=15/16) and iters crater
+   to ~255 sps — because 192+ GL contexts + per-env mesh pools exhaust the GPU.
+   The batched arm (16 shared contexts + one shared mesh pool) stays steady at
+   ~360-378. Collapsing N contexts into one removes the pressure that breaks the
+   per-env design at scale.
+3. **Interop >= readback** in the batched regime: the atlas amortizes the
+   device-wide `cudaDeviceSynchronize` over the whole batch, reversing the
+   in-process per-env loss seen earlier (dino-server config F).
+4. Peak healthy single-GPU: **~378 sps at 16x12 batched-interop** — and it stays
+   healthy where the per-env baseline cannot.
+
+## Results — runner axis ("how many runners/GPU"): PENDING
+
+Jobs 946146/147/148 (24/32/40 runners x 8 envs, batched interop, highpri,
+30-min walltime, VAO_LRU=128 / CHUNK_LRU=192 to find the real ceiling not an OOM
+artifact) — queued behind heavy external highpri load (68 jobs running at submit).
+Will populate: runners-vs-SPS curve + the health ceiling (runner count where H
+drops / sps craters / VRAM OOMs).
+
+## Takeaway
+
+Render-batching (in-process DINO, interop transfer) is a **"turn on when packing
+envs densely" lever**: neutral at low envs/runner, but a throughput AND stability
+win as envs/runner grows — it lets one runner host many envs without the per-env
+GL-context explosion that collapses the default design at scale. Not a universal
+speedup; the per-env-context default is fine at low density.
+
+## Reproduce
+
+- Parity: `sbatch scripts/rb_parity.slurm`
+- Sweep: `bash scripts/rb_sweep.sh` (GRID/ARMS env vars), or `scripts/rb_bench.slurm`
+  with CONFIG/RUNNERS/ENVS. All under a per-job CUDA MPS daemon.
