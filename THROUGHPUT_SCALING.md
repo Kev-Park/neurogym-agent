@@ -174,26 +174,36 @@ N independent 24x8 in-process-interop trainings, one per GPU, sharing one node's
 | 1 | ~385 | 385 | — | ~80% (20% idle) | fine |
 | 2 | ~272 / ~283 (-28%) | **~555 (1.44x)** | +170 | ~85% (14% idle) | 109/386 GB |
 | 3 (concurrent) | ~200 | **~608** | +53 | ~84% (16% idle) | ~48 GB used |
-| 4 | -- 4th job STARVES -- | **~608 (no gain)** | **~0** | ~85% | fine |
+| 4 | -- 4th job CUDA-init FAILS -- | **~608 (no gain)** | **~0** | ~85% | fine |
 
 N=2 = COMPLETED job 957258, both H=24/24: GPU0 ~272 / GPU1 ~283 sps -> ~555
 aggregate. CPU ~85% busy (bulk is %nice ~66 = the niced fetch/decode worker pool),
 RAM 109/386 GB.
 
 N=3/N=4 = job 957815 (launches STAGGERED 180s apart to avoid the cold-fetch
-stampede). With 3 jobs running concurrently: ~227/~192/~189 sps -> ~608 aggregate,
-CPU 84%. The **4th job never bootstrapped** — it sat at 0 iters/>11 min in startup
-because the 3 already-running jobs saturate the node's fetch/CPU bandwidth and
-starve the newcomer's cold mesh-fetch (the same wedge that killed the un-staggered
-N=4, now just pushed onto whichever job launches into a busy node).
+stampede that wedged the un-staggered N=4). The stagger WORKED for the first 3:
+with 3 jobs concurrent, ~227/~192/~189 sps -> ~608 aggregate, CPU 84%; and as each
+finished, the survivor sped back up (g2 finished last, nearly alone, at 378 sps ~=
+single-GPU). But the **4th job never produced a single iter in 55 min** — for a
+DIFFERENT reason than the fetch stampede: its DINO workers crashed on
+`model.to(cuda)` with `RuntimeError: CUDA error: CUDA-capable device(s) is/are
+busy or unavailable`, then RLlib crash-looped them. So the 4th GPU could not bring
+up its CUDA/DINO context under the 3 running jobs' MPS-client load (an MPS/CUDA-init
+wall; possibly also node-specific/flaky — worth a re-probe, but it recurred).
 
-**Multi-GPU-per-node scaling is CPU-bound (fetch/decode), and saturates between 3
-and 4 GPUs at full 24x8 density.** Marginal gain collapses fast: N1->N2 +170,
-N2->N3 +53, N3->N4 ~0. RAM never binds (386 GB node, <110 GB used). So the
-per-node ceiling at full density is **~3 GPUs / ~600 sps**; a 4th GPU adds nothing
-because the shared 48 cores are already the wall. To use more GPUs/node you must
-cut per-runner CPU (fewer fetch workers / coarser mips) or DISAGGREGATE (DINO-only
-GPUs are CPU-light, so a node fits more of them within the core budget).
+**Two independent ceilings cap multi-GPU-per-node at full 24x8 density:**
+1. **CPU (fetch/decode)** — the soft wall: per-GPU SPS falls 385 -> 277 -> 200 as
+   GPUs stack; marginal aggregate gain collapses N1->N2 +170, N2->N3 +53. CPU sits
+   ~85%, RAM never binds (<110 GB of 386).
+2. **CUDA/MPS init on the 4th GPU** — the hard wall: the 4th full job's DINO
+   context fails to initialize ("device busy/unavailable") and crash-loops.
+
+Net: the per-node ceiling at full density is **~3 GPUs / ~600 sps**. A 4th GPU
+adds nothing (and here failed to start at all). To use more GPUs/node: cut
+per-runner CPU (fewer fetch workers / coarser mips) or DISAGGREGATE (DINO-only GPUs
+are CPU-light, so a node fits more of them within the 48-core budget) — and check
+whether the batched DINO-server path sidesteps the per-worker CUDA-init wall (one
+context per GPU instead of 24).
 Consequences: (a) for aggregate throughput, either accept sub-linear multi-GPU/node
 or cut per-runner CPU (fewer fetch workers / coarser mips); (b) this is a direct
 argument for DISAGGREGATION — DINO-only GPUs are CPU-light, so a node fits more of
