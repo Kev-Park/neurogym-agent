@@ -111,33 +111,44 @@ Runner-ceiling probes (readback, num_gpus=0 runners):
    runners (CUDA-context exhaustion). With the shared server + num_gpus=0 runners
    (no per-runner CUDA context), **64 runners run H=64/64 healthy** (48 too) — the
    crash point is above 64, not found. This is the answer to "how many runners/GPU".
-2. **Peak SPS is PPO-barrier-capped ~385-396, NOT raised by the server.** Best
-   server config (interop, batch12, 32 runners) ~385 ~= in-process peak (384@24).
-   Adding runners does NOT raise total sps; for readback it LOWERS it (32->239,
-   48->186, 64->160) as the per-iter batch is split thinner + Ray-ship grows. So
-   the server's value is CAPACITY / VRAM / stability at scale, not throughput.
-3. **With a server, INTEROP is essential: +50-65% over readback** (e8: ~365 vs
+2. **SPS is PPO-barrier-capped ~370-384; the server does NOT raise it.** Stable
+   server-interop peak is 32x8 ~370, which is BELOW the in-process peak (24x8 ~384)
+   because the server adds a Ray RPC per step. Adding runners does NOT raise total
+   sps; for readback it LOWERS it (32->239, 48->186, 64->160) as the per-iter batch
+   splits thinner + Ray-ship grows. The server's value is CAPACITY / VRAM, not sps.
+3. **batch12 at 32 runners is UNSTABLE (OOM collapse).** Both e12 jobs (M1 and M2)
+   ran ~13 healthy iters at ~385 then ALL 32 workers died (SYSTEM_ERROR exit 1,
+   H=0/32) — a memory cascade (384 envs: bigger atlas + per-cell dst + fetch caches
+   over the edge). The earlier "~385" was pre-collapse. e8 is rock-stable (20/20
+   H=32/32). **So batch8 is the stable sweet spot; batch12 needs lower runners or
+   trimmed caches to be usable.**
+4. **With a server, INTEROP is essential: +50-65% over readback** (e8: ~365 vs
    ~239). Readback ships full numpy panes over Ray's object store to the server
    (expensive); interop ships ~64-byte CUDA-IPC handles. This is the opposite of
    the IN-PROCESS batched result (where readback ~= interop) — because there the
    pixels never crossed a process. So interop only earns its keep across a
    process boundary, which is exactly the server case.
-4. **M=1 ~= M=2:** a second DINO server never helps — the server is not the
-   bottleneck (the barrier + per-step render/fetch are), matching Phase-1.
-5. **batch12 > batch8** for interop (~385 vs ~365): bigger atlas amortizes more.
+5. **M=1 ~= M=2:** a second DINO server never helps SPS — not the bottleneck. But
+   M=1 is a single point of failure (if the one server OOMs, ALL runners lose their
+   encoder -> H=0/32), so M>=2 is worth it for robustness at scale.
 
 ## OVERALL CONCLUSION (all axes)
 
-- **Single-GPU SPS ceiling ~385-396 is set by synchronous PPO**, not by the
-  encoder path, GL contexts, or runner/DINO count. Every healthy config tops out
+- **Single-GPU SPS ceiling ~370-384 (stable) is set by synchronous PPO**, not by
+  the encoder path, GL contexts, or runner/DINO count. Every stable config tops out
   there. To go higher needs async/off-policy PPO, not more packing.
-- **To pack the most runners on one GPU:** shared DINO server + num_gpus=0
-  readback runners -> 64+ healthy. To get the most SPS at a given packing:
-  batched render + interop + in-process-or-server DINO -> ~385-396.
-- **Render batching** is neutral at low density but becomes a throughput+stability
-  win as envs/runner grows; **the DINO server** is a VRAM/capacity win (more
-  runners, bigger model/obs) but not an SPS win; **interop** matters only across a
-  process boundary (server), where it beats readback by ~50-65%.
+- **FASTEST STABLE single-GPU config:** in-process DINO + batched render + interop
+  + ~24 runners x 8 envs + MPS = **~384 sps** (job 946146, 20/20 H=24/24). The DINO
+  server does NOT beat this (its per-step Ray RPC costs ~15 sps: 32x8 server-interop
+  = ~370). So the server is for CAPACITY, not speed.
+- **To pack the most runners on one GPU:** shared DINO server + num_gpus=0 readback
+  runners -> 64+ healthy (crash point >64, not found), but SPS DROPS with runners
+  (barrier + Ray-ship): 32->239, 48->186, 64->160. Use this only when you need the
+  env count / freed VRAM (bigger model/obs), not for throughput.
+- **Levers:** render batching = throughput+stability at high envs/runner (neutral
+  low); DINO server = VRAM/capacity win, NOT an SPS win; interop = matters only
+  across a process boundary (server), +50-65% vs readback; batch8 stable, batch12
+  OOM-collapses at 32 runners.
 
 ## Takeaway
 
