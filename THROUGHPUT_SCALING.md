@@ -150,6 +150,20 @@ GPU work (smaller/quantized DINO, lower render res, fewer overlay draws) or asyn
 PPO (reclaims the ~9% inter-iter idle + removes straggler gating). CPU/runner count
 are not the constraint.
 
+### GPU-time split (job 957257, gl_dino_profile) — the saturation is DINO
+Timing render-only vs DINO-only vs combined for one batch (B=8/12/16):
+- render-only ~0.25-0.27 ms/pane; **DINO-only ~1.15-1.30 ms/pane (~5x render)**.
+- combined ~= render + DINO (overlap only +0.4-2.5%) => on the GPU they're
+  essentially SERIAL; the SM-100% is **~83% DINO, ~17% GL raster**.
+- bigger batch lowers DINO/pane ~11% (1.30 B8 -> 1.15 B16): a dedicated big-batch
+  DINO forward is more SM-efficient than many small per-process forwards.
+
+**So the GPU bottleneck is the DINO ViT forward, not rendering.** Implications:
+(1) the #1 SPS lever is a CHEAPER ENCODER (smaller/distilled/quantized ViT, lower
+input res) — it attacks the 83%; (2) disaggregation should dedicate GPUs to DINO
+(the hog), not GL (cheap) — see DISAGGREGATION.md; (3) rendering could feed ~5
+DINO-GPUs per render-GPU (0.25 vs 1.25 ms/pane), or stay co-located since it's minor.
+
 ## OVERALL CONCLUSION (all axes)
 
 - **Single-GPU SPS ceiling ~370-384 (stable) is set by synchronous PPO**, not by
