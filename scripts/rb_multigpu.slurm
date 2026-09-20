@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:3090:2
 #SBATCH --cpus-per-task=48
 #SBATCH --mem=360G
-#SBATCH --time=00:40:00
+#SBATCH --time=01:00:00
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
 #SBATCH --output=slurm_outputs/rb-mgpu-%j.out
 #
@@ -53,6 +53,10 @@ for i in $(seq 0 $((N - 1))); do
       > slurm_outputs/mg-$J-g$i.out 2>&1 &
   pids="$pids $!"
   echo "[mgpu] launched GPU $i pid $!"
+  # Stagger launches so each job's ~192-env cold mesh-fetch mostly warms before
+  # the next starts. Firing all N at once stampedes CloudVolume (768 concurrent
+  # cold fetches at N=4 wedged the node in startup, 97% idle, 0 iters/40min).
+  if [ "$i" -lt "$((N - 1))" ]; then sleep "${MGPU_STAGGER_S:-180}"; fi
 done
 
 wait $pids

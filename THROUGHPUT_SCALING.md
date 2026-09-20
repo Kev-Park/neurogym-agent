@@ -164,6 +164,31 @@ input res) — it attacks the 83%; (2) disaggregation should dedicate GPUs to DI
 (the hog), not GL (cheap) — see DISAGGREGATION.md; (3) rendering could feed ~5
 DINO-GPUs per render-GPU (0.25 vs 1.25 ms/pane), or stay co-located since it's minor.
 
+## Multi-GPU per NODE (job 957258 N=2; 957374 N=4 pending)
+
+N independent 24x8 in-process-interop trainings, one per GPU, sharing one node's
+48 cores + 386 GB RAM (goal = aggregate SPS, density fixed):
+
+| GPUs/node | per-GPU sps | aggregate | node CPU (idle) | node RAM |
+|---|---|---|---|---|
+| 1 | ~385 | 385 | ~80% (20% idle) | fine |
+| 2 | **~272 / ~283 (-28%)** | **~555 (1.44x)** | **~85% (14% idle)** | 109/386 GB (fine) |
+| 4 | (running, job 957374) | | | |
+
+N=2 = COMPLETED job 957258, both trainings H=24/24: GPU0 steady ~272 sps, GPU1
+~283 sps -> aggregate ~555. CPU busy ~85% (idle ~14%; the bulk is %nice ~66 =
+the niced fetch/decode worker pool). RAM only 109/386 GB used.
+
+**Multi-GPU-per-node scaling is CPU-bound, not RAM- or GPU-bound.** Even 2 GPUs
+lose 28%/GPU: 2x the runners' fetch/decode contend for the 48 shared cores, so
+per-step fetch stalls grow and drag SPS. RAM is a non-issue (386 GB node). So you
+cannot pack many full-density GPUs/node -- the fetch/decode CPU is the wall (only
+~14% idle at N=2, so N=4 must saturate).
+Consequences: (a) for aggregate throughput, either accept sub-linear multi-GPU/node
+or cut per-runner CPU (fewer fetch workers / coarser mips); (b) this is a direct
+argument for DISAGGREGATION — DINO-only GPUs are CPU-light, so a node fits more of
+them within the core budget than CPU-hungry mixed-role GPUs.
+
 ## OVERALL CONCLUSION (all axes)
 
 - **Single-GPU SPS ceiling ~370-384 (stable) is set by synchronous PPO**, not by
