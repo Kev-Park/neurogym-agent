@@ -40,12 +40,21 @@ code, not new rendering code:
   handle), skipping host RAM. 3090 P2P works over PCIe; NVLink only if bridged
   (likely not on these nodes -> PCIe P2P). Removes the readback+Ray-ship cost.
 
-## Sizing (gated on the profiling run rb_profile / gl_dino_profile)
-The render:DINO GPU RATIO comes from the GL-vs-DINO GPU-time split:
-- If DINO dominates (e.g., 60% DINO / 40% GL): ~2 render : 3 DINO, or big-batch
-  DINO on fewer-but-saturated GPUs.
-- If GL dominates: more render GPUs, consolidate DINO.
-DO NOT size the layout until that split is measured (rb_profile job).
+## Sizing — MEASURED (rb_profile job 957257)
+GPU-time split is **DINO ~83% / GL render ~17%** (per pane: DINO ~1.15-1.30 ms vs
+render ~0.25 ms — DINO is ~5x render), and they DON'T overlap (combined ~= sum).
+So:
+- **DINO is the GPU hog; dedicate GPUs to DINO, not GL.** By raw capacity one
+  render GPU (~4000 panes/s) can feed ~4-5 DINO GPUs (~800-870 panes/s each). So a
+  disaggregated node skews heavily to DINO GPUs + few render GPUs.
+- Because rendering is only ~17% and cheap, "dedicated GL GPUs" is a minor lever;
+  render could even stay co-located. The real disaggregation win is **giving DINO
+  its own GPU(s) to run ONE big batched forward** (~11% more efficient/pane at B16
+  vs B8) instead of N small per-process forwards.
+- **Caveat that may dominate:** the #1 SPS lever is a CHEAPER ENCODER (smaller/
+  distilled/quantized ViT, lower input res) — it cuts the 83% directly and may beat
+  any GPU-shuffling. Worth A/B-ing a lighter ViT (e.g. ViT-S->ViT-tiny, or 224->
+  smaller) alongside disaggregation.
 
 ## Experiment (once sized)
 Compare, on a multi-GPU node, at equal total envs:
