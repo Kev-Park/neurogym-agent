@@ -63,13 +63,37 @@ readback across the batched regime.
 4. Peak healthy single-GPU: **~378 sps at 16x12 batched-interop** — and it stays
    healthy where the per-env baseline cannot.
 
-## Results — runner axis ("how many runners/GPU"): PENDING
+## Results — runner axis ("how many runners/GPU"), in-process DINO
 
-Jobs 946146/147/148 (24/32/40 runners x 8 envs, batched interop, highpri,
-30-min walltime, VAO_LRU=128 / CHUNK_LRU=192 to find the real ceiling not an OOM
-artifact) — queued behind heavy external highpri load (68 jobs running at submit).
-Will populate: runners-vs-SPS curve + the health ceiling (runner count where H
-drops / sps craters / VRAM OOMs).
+Batched interop, envs/runner=8, 1x 3090, MPS, VAO_LRU=128 / CHUNK_LRU=192:
+
+| runners | envs | result |
+|---|---|---|
+| 16 | 128 | 373, healthy |
+| **24** | 192 | **~384, H=24/24 — PEAK** |
+| 32 | 256 | DEGRADES: H=25/32 (7 runners die), sps craters to ~150 |
+| 40 | 320 | unstable (mass actor restarts) |
+| 48 | 384 | CRASH: `CUDA error: device busy/unavailable` at init |
+
+**Ceiling ~24 runners; the wall is per-process DINO context count.** Batching
+already collapsed the RENDER contexts (1 GL ctx/runner), so what binds is each
+runner carrying its OWN DINO (weights + CUDA context) + a GL interop context —
+past ~24 the GPU can't init that many contexts (H drops at 32, CUDA-device-busy
+at 48). Note a naive r40 also failed on GPU-token oversubscription
+(40x0.02 + learner > 1.0); dropping to 0.015 fixed the tokens but 40/48 still hit
+the real context wall.
+
+Peak healthy single-GPU (in-process DINO) = **~384 sps at 24x8 = 192 envs.**
+
+## Results — batched render + DINO SERVER (removes per-runner DINO): IN PROGRESS
+
+To lift the per-process-DINO ceiling: pair batched render with the SHARED DINO
+server (M instances) so runners hold NO DINO/CUDA-DINO context. Composition
+built (per-cell CUDA-IPC handles for the interop arm; numpy cells for readback).
+Sweep: RUNNERS (push past 24) x batch(envs/runner) x M(server instances) x
+{readback, interop}. Smoke: server+interop 32x8 M=1 (32 crashed in-process).
+Will populate the runners-vs-SPS curve under the server + the batch/M/interop
+tradeoffs.
 
 ## Takeaway
 
