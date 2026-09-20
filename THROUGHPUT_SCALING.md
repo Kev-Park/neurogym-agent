@@ -169,21 +169,31 @@ DINO-GPUs per render-GPU (0.25 vs 1.25 ms/pane), or stay co-located since it's m
 N independent 24x8 in-process-interop trainings, one per GPU, sharing one node's
 48 cores + 386 GB RAM (goal = aggregate SPS, density fixed):
 
-| GPUs/node | per-GPU sps | aggregate | node CPU (idle) | node RAM |
-|---|---|---|---|---|
-| 1 | ~385 | 385 | ~80% (20% idle) | fine |
-| 2 | **~272 / ~283 (-28%)** | **~555 (1.44x)** | **~85% (14% idle)** | 109/386 GB (fine) |
-| 4 | (running, job 957374) | | | |
+| GPUs/node | per-GPU sps | aggregate | Δ vs prev | node CPU (idle) | node RAM |
+|---|---|---|---|---|---|
+| 1 | ~385 | 385 | — | ~80% (20% idle) | fine |
+| 2 | ~272 / ~283 (-28%) | **~555 (1.44x)** | +170 | ~85% (14% idle) | 109/386 GB |
+| 3 (concurrent) | ~200 | **~608** | +53 | ~84% (16% idle) | ~48 GB used |
+| 4 | -- 4th job STARVES -- | **~608 (no gain)** | **~0** | ~85% | fine |
 
-N=2 = COMPLETED job 957258, both trainings H=24/24: GPU0 steady ~272 sps, GPU1
-~283 sps -> aggregate ~555. CPU busy ~85% (idle ~14%; the bulk is %nice ~66 =
-the niced fetch/decode worker pool). RAM only 109/386 GB used.
+N=2 = COMPLETED job 957258, both H=24/24: GPU0 ~272 / GPU1 ~283 sps -> ~555
+aggregate. CPU ~85% busy (bulk is %nice ~66 = the niced fetch/decode worker pool),
+RAM 109/386 GB.
 
-**Multi-GPU-per-node scaling is CPU-bound, not RAM- or GPU-bound.** Even 2 GPUs
-lose 28%/GPU: 2x the runners' fetch/decode contend for the 48 shared cores, so
-per-step fetch stalls grow and drag SPS. RAM is a non-issue (386 GB node). So you
-cannot pack many full-density GPUs/node -- the fetch/decode CPU is the wall (only
-~14% idle at N=2, so N=4 must saturate).
+N=3/N=4 = job 957815 (launches STAGGERED 180s apart to avoid the cold-fetch
+stampede). With 3 jobs running concurrently: ~227/~192/~189 sps -> ~608 aggregate,
+CPU 84%. The **4th job never bootstrapped** — it sat at 0 iters/>11 min in startup
+because the 3 already-running jobs saturate the node's fetch/CPU bandwidth and
+starve the newcomer's cold mesh-fetch (the same wedge that killed the un-staggered
+N=4, now just pushed onto whichever job launches into a busy node).
+
+**Multi-GPU-per-node scaling is CPU-bound (fetch/decode), and saturates between 3
+and 4 GPUs at full 24x8 density.** Marginal gain collapses fast: N1->N2 +170,
+N2->N3 +53, N3->N4 ~0. RAM never binds (386 GB node, <110 GB used). So the
+per-node ceiling at full density is **~3 GPUs / ~600 sps**; a 4th GPU adds nothing
+because the shared 48 cores are already the wall. To use more GPUs/node you must
+cut per-runner CPU (fewer fetch workers / coarser mips) or DISAGGREGATE (DINO-only
+GPUs are CPU-light, so a node fits more of them within the core budget).
 Consequences: (a) for aggregate throughput, either accept sub-linear multi-GPU/node
 or cut per-runner CPU (fewer fetch workers / coarser mips); (b) this is a direct
 argument for DISAGGREGATION — DINO-only GPUs are CPU-light, so a node fits more of
