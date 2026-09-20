@@ -132,6 +132,24 @@ Runner-ceiling probes (readback, num_gpus=0 runners):
    M=1 is a single point of failure (if the one server OOMs, ALL runners lose their
    encoder -> H=0/32), so M>=2 is worth it for robustness at scale.
 
+## Utilization — where the fastest-stable config actually spends (job 952786)
+
+Instrumented 24x8 in-process interop (~390 sps, H=24/24) with nvidia-smi dmon +
+mpstat during training:
+- **GPU SM ~98-100% through the rollout** (mem-controller ~25-40%) => GPU
+  COMPUTE-bound (not memory-bandwidth). GL rasterization + DINO forwards fill the
+  SMs; MPS is what lets them pack to 100%.
+- **CPU ~76-80% busy (~20% idle)** => NOT CPU-bound; headroom to spare.
+- Brief dips (GPU->~15%, CPU idle->~80%) at each iteration boundary = the
+  synchronous-PPO barrier + learner update + weight sync (~9%, per the timers).
+
+Bottleneck (ignoring the barrier): **GPU compute is saturated.** Hence more
+runners/envs don't help (GPU already full), and the encoder-path swaps barely move
+peak SPS (rearranging work on a full GPU). Levers to go faster: cheaper per-step
+GPU work (smaller/quantized DINO, lower render res, fewer overlay draws) or async
+PPO (reclaims the ~9% inter-iter idle + removes straggler gating). CPU/runner count
+are not the constraint.
+
 ## OVERALL CONCLUSION (all axes)
 
 - **Single-GPU SPS ceiling ~370-384 (stable) is set by synchronous PPO**, not by
