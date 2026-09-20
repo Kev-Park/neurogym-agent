@@ -85,15 +85,59 @@ the real context wall.
 
 Peak healthy single-GPU (in-process DINO) = **~384 sps at 24x8 = 192 envs.**
 
-## Results — batched render + DINO SERVER (removes per-runner DINO): IN PROGRESS
+## Results — batched render + DINO SERVER (removes per-runner DINO)
 
-To lift the per-process-DINO ceiling: pair batched render with the SHARED DINO
-server (M instances) so runners hold NO DINO/CUDA-DINO context. Composition
-built (per-cell CUDA-IPC handles for the interop arm; numpy cells for readback).
-Sweep: RUNNERS (push past 24) x batch(envs/runner) x M(server instances) x
-{readback, interop}. Smoke: server+interop 32x8 M=1 (32 crashed in-process).
-Will populate the runners-vs-SPS curve under the server + the batch/M/interop
-tradeoffs.
+Pairing batched render with the SHARED DINO server (M instances): runners hold NO
+DINO / DINO-CUDA context. Readback runners can even run num_gpus=0 (EGL render
+only); interop runners keep a tiny CUDA context for the GL->CUDA handoff.
+
+Server + batched, 32 runners, 1x 3090, MPS, real PPO (mean sps):
+
+| arm      | batch8 M1 | batch8 M2 | batch12 M1 | batch12 M2 |
+|----------|-----------|-----------|------------|------------|
+| interop  | 355       | 370       | **~385** (pk 397) | ~380 |
+| readback | 239       | ~237      | —          | ~220 |
+
+Runner-ceiling probes (readback, num_gpus=0 runners):
+
+| runners | envs | health | sps |
+|---|---|---|---|
+| 32 | 256 | H=32/32 | ~239 |
+| 48 | 384 | **H=48/48 healthy** | ~186 |
+| 64 | 512 | **H=64/64 healthy** | ~160 |
+
+### Findings (server + batched)
+1. **The server ~doubles+ the runner ceiling.** In-process DINO capped at ~24
+   runners (CUDA-context exhaustion). With the shared server + num_gpus=0 runners
+   (no per-runner CUDA context), **64 runners run H=64/64 healthy** (48 too) — the
+   crash point is above 64, not found. This is the answer to "how many runners/GPU".
+2. **Peak SPS is PPO-barrier-capped ~385-396, NOT raised by the server.** Best
+   server config (interop, batch12, 32 runners) ~385 ~= in-process peak (384@24).
+   Adding runners does NOT raise total sps; for readback it LOWERS it (32->239,
+   48->186, 64->160) as the per-iter batch is split thinner + Ray-ship grows. So
+   the server's value is CAPACITY / VRAM / stability at scale, not throughput.
+3. **With a server, INTEROP is essential: +50-65% over readback** (e8: ~365 vs
+   ~239). Readback ships full numpy panes over Ray's object store to the server
+   (expensive); interop ships ~64-byte CUDA-IPC handles. This is the opposite of
+   the IN-PROCESS batched result (where readback ~= interop) — because there the
+   pixels never crossed a process. So interop only earns its keep across a
+   process boundary, which is exactly the server case.
+4. **M=1 ~= M=2:** a second DINO server never helps — the server is not the
+   bottleneck (the barrier + per-step render/fetch are), matching Phase-1.
+5. **batch12 > batch8** for interop (~385 vs ~365): bigger atlas amortizes more.
+
+## OVERALL CONCLUSION (all axes)
+
+- **Single-GPU SPS ceiling ~385-396 is set by synchronous PPO**, not by the
+  encoder path, GL contexts, or runner/DINO count. Every healthy config tops out
+  there. To go higher needs async/off-policy PPO, not more packing.
+- **To pack the most runners on one GPU:** shared DINO server + num_gpus=0
+  readback runners -> 64+ healthy. To get the most SPS at a given packing:
+  batched render + interop + in-process-or-server DINO -> ~385-396.
+- **Render batching** is neutral at low density but becomes a throughput+stability
+  win as envs/runner grows; **the DINO server** is a VRAM/capacity win (more
+  runners, bigger model/obs) but not an SPS win; **interop** matters only across a
+  process boundary (server), where it beats readback by ~50-65%.
 
 ## Takeaway
 
