@@ -6,8 +6,8 @@
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:3090:1
-#SBATCH --cpus-per-task=62
-#SBATCH --mem=220G
+#SBATCH --cpus-per-task=22
+#SBATCH --mem=120G
 #SBATCH --time=00:45:00
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
 #SBATCH --output=slurm_outputs/disagg-fetch-%j.out
@@ -34,7 +34,7 @@ export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0          # shared /scratch; no CWD upload
 export NGL_NATIVE_FETCH_BACKEND=ray
 export NGL_NATIVE_FETCH_RESOURCE=fetch_cpu       # pins _FetchActors onto node1
 export NGL_NATIVE_FETCH_AFFINITY=$AFFINITY
-export NGL_NATIVE_FETCH_WORKERS=3                # 16 runners x 3 = 48 actors <= 60 fetch_cpu
+export NGL_NATIVE_FETCH_WORKERS=1                # 16 runners x 1 = 16 actors <= 20 fetch_cpu (fits 24-idle mix nodes)
 export NGL_NATIVE_CHUNK_LRU_MB=160 NGL_NATIVE_VAO_LRU_MB=128
 export NGL_RENDER_BATCH_SIZE=8
 export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps-$J
@@ -51,14 +51,14 @@ srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" bash -c "
   mkdir -p $CUDA_MPS_PIPE_DIRECTORY $CUDA_MPS_LOG_DIRECTORY
   nvidia-cuda-mps-control -d && echo '[disagg] mps up on head'
   uv run --no-sync ray start --head --node-ip-address=$HEAD_IP --port=6379 \
-      --num-cpus=44 --num-gpus=1 --block" &
+      --num-cpus=20 --num-gpus=1 --block" &
 HEAD_PID=$!
 sleep 20
 
 # Ray worker on the fetch node: no GPU, advertises fetch_cpu for the actors.
 srun --overlap --nodes=1 --ntasks=1 -w "$FETCH" \
   uv run --no-sync ray start --address="$HEAD_IP:6379" \
-      --num-cpus=60 --num-gpus=0 --resources='{"fetch_cpu": 60}' --block &
+      --num-cpus=20 --num-gpus=0 --resources='{"fetch_cpu": 20}' --block &
 FETCH_PID=$!
 sleep 20
 

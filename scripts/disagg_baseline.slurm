@@ -6,8 +6,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:3090:1
-#SBATCH --cpus-per-task=62
-#SBATCH --mem=220G
+#SBATCH --cpus-per-task=22
+#SBATCH --mem=120G
 #SBATCH --time=00:30:00
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
 #SBATCH --output=slurm_outputs/disagg-base-%j.out
@@ -20,7 +20,7 @@ set -u
 cd /scratch/kp0374/wt/neurogym-agent-throughput-scaling
 J=$SLURM_JOB_ID
 export PYTHONUNBUFFERED=1 RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
-export NGL_NATIVE_FETCH_BACKEND=process NGL_NATIVE_FETCH_WORKERS=3
+export NGL_NATIVE_FETCH_BACKEND=process NGL_NATIVE_FETCH_WORKERS=1
 export NGL_NATIVE_CHUNK_LRU_MB=160 NGL_NATIVE_VAO_LRU_MB=128 NGL_RENDER_BATCH_SIZE=8
 export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps-$J
 export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-mps-log-$J
