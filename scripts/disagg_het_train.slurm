@@ -26,6 +26,8 @@ set -u
 cd /scratch/kp0374/wt/neurogym-agent-throughput-scaling
 J=$SLURM_JOB_ID
 AFFINITY=${AFFINITY:-1}
+RAY_PORT=$(( 20000 + (SLURM_JOB_ID % 20000) ))   # unique per job (avoid 6379 collision
+RAY_TMP=/tmp/ray_$J                               # when co-tenanting a node)
 export PYTHONUNBUFFERED=1 RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 export RAY_memory_monitor_refresh_ms=0          # disable Ray OOM killer (misfires in
                                                 # the SLURM cgroup -> raylet SIGKILL)
@@ -44,17 +46,17 @@ echo "[het] gpu=$GPU_NODE cpu=$CPU_NODE head_ip=$HEAD_IP affinity=$AFFINITY"
 srun --het-group=0 --overlap --nodes=1 --ntasks=1 bash -c "
   mkdir -p $CUDA_MPS_PIPE_DIRECTORY $CUDA_MPS_LOG_DIRECTORY
   nvidia-cuda-mps-control -d && echo '[het] mps up on gpu node'
-  uv run --no-sync ray start --head --node-ip-address=$HEAD_IP --port=6379 \
-      --num-cpus=20 --num-gpus=1 --block" &
+  uv run --no-sync ray start --head --node-ip-address=$HEAD_IP --port=$RAY_PORT \
+      --temp-dir=$RAY_TMP --num-cpus=20 --num-gpus=1 --block" &
 sleep 20
 # Ray worker on the CPU node: no GPU, big fetch_cpu pool.
 srun --het-group=1 --overlap --nodes=1 --ntasks=1 \
-  uv run --no-sync ray start --address="$HEAD_IP:6379" \
+  uv run --no-sync ray start --address="$HEAD_IP:$RAY_PORT" --temp-dir=$RAY_TMP \
       --num-cpus=104 --num-gpus=0 --resources='{"fetch_cpu": 100}' --block &
 sleep 20
 
 echo "[het] launching training (driver on gpu node)"
-export RAY_ADDRESS="$HEAD_IP:6379"
+export RAY_ADDRESS="$HEAD_IP:$RAY_PORT"
 srun --het-group=0 --overlap --nodes=1 --ntasks=1 \
   env UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
   uv run --no-sync python -m ngllib_agent.train \

@@ -27,6 +27,9 @@ set -u
 cd /scratch/kp0374/wt/neurogym-agent-throughput-scaling
 J=$SLURM_JOB_ID
 AFFINITY=${AFFINITY:-1}
+RAY_PORT=$(( 20000 + (SLURM_JOB_ID % 20000) ))   # unique per job: two of my jobs can
+RAY_TMP=/tmp/ray_$J                               # co-tenant a node without colliding
+                                                  # on 6379 / /tmp/ray (session clash)
 
 # --- env inherited by ALL srun steps (raylets + their actors read these) ---
 export PYTHONUNBUFFERED=1
@@ -53,20 +56,20 @@ echo "[disagg] head(gpu)=$HEAD ($HEAD_IP)  fetch(cpu)=$FETCH  affinity=$AFFINITY
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" bash -c "
   mkdir -p $CUDA_MPS_PIPE_DIRECTORY $CUDA_MPS_LOG_DIRECTORY
   nvidia-cuda-mps-control -d && echo '[disagg] mps up on head'
-  uv run --no-sync ray start --head --node-ip-address=$HEAD_IP --port=6379 \
-      --num-cpus=20 --num-gpus=1 --block" &
+  uv run --no-sync ray start --head --node-ip-address=$HEAD_IP --port=$RAY_PORT \
+      --temp-dir=$RAY_TMP --num-cpus=20 --num-gpus=1 --block" &
 HEAD_PID=$!
 sleep 20
 
 # Ray worker on the fetch node: no GPU, advertises fetch_cpu for the actors.
 srun --overlap --nodes=1 --ntasks=1 -w "$FETCH" \
-  uv run --no-sync ray start --address="$HEAD_IP:6379" \
+  uv run --no-sync ray start --address="$HEAD_IP:$RAY_PORT" --temp-dir=$RAY_TMP \
       --num-cpus=20 --num-gpus=0 --resources='{"fetch_cpu": 20}' --block &
 FETCH_PID=$!
 sleep 20
 
 echo "[disagg] launching training (driver on head)"
-export RAY_ADDRESS="$HEAD_IP:6379"
+export RAY_ADDRESS="$HEAD_IP:$RAY_PORT"
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
   env UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
   uv run --no-sync python -m ngllib_agent.train \
