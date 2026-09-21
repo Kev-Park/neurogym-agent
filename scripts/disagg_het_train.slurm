@@ -28,6 +28,12 @@ J=$SLURM_JOB_ID
 AFFINITY=${AFFINITY:-1}
 RAY_PORT=$(( 20000 + (SLURM_JOB_ID % 20000) ))   # unique per job (avoid 6379 collision
 RAY_TMP=/tmp/ray_$J                               # when co-tenanting a node)
+# Fixed inter-node ray ports (job-id-derived) so CROSS-PARTITION traffic uses KNOWN
+# ports -- ray's default random node-manager/object-manager/worker ports are the
+# likely thing firewalled between highpri<->preempt (the join on the GCS port worked
+# but sustained GCS/object traffic timed out). Stable across a SLURM requeue (same
+# job id -> same ports, free on the fresh node).
+RAY_PORTS="--node-manager-port=$((RAY_PORT+1)) --object-manager-port=$((RAY_PORT+2)) --min-worker-port=$((RAY_PORT+100)) --max-worker-port=$((RAY_PORT+199)) --include-dashboard=false"
 export PYTHONUNBUFFERED=1 RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 export RAY_memory_monitor_refresh_ms=0          # disable Ray OOM killer (misfires in
                                                 # the SLURM cgroup -> raylet SIGKILL)
@@ -52,11 +58,11 @@ srun --het-group=0 --overlap --nodes=1 --ntasks=1 bash -c "
   mkdir -p $CUDA_MPS_PIPE_DIRECTORY $CUDA_MPS_LOG_DIRECTORY
   nvidia-cuda-mps-control -d && echo '[het] mps up on gpu node'
   uv run --no-sync ray start --head --node-ip-address=$HEAD_IP --port=$RAY_PORT \
-      --temp-dir=$RAY_TMP --num-cpus=20 --num-gpus=1 --block" &
+      $RAY_PORTS --temp-dir=$RAY_TMP --num-cpus=20 --num-gpus=1 --block" &
 sleep 20
 # Ray worker on the CPU node: no GPU, big fetch_cpu pool.
 srun --het-group=1 --overlap --nodes=1 --ntasks=1 \
-  uv run --no-sync ray start --address="$HEAD_IP:$RAY_PORT" --temp-dir=$RAY_TMP \
+  uv run --no-sync ray start --address="$HEAD_IP:$RAY_PORT" $RAY_PORTS --temp-dir=$RAY_TMP \
       --num-cpus=104 --num-gpus=0 --resources='{"fetch_cpu": 100}' --block &
 sleep 20
 
