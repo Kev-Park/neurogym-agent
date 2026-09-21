@@ -69,3 +69,30 @@ Worktree paired (neurogym-disaggregation <-> neurogym-agent-disaggregation, bran
 disaggregation off throughput-scaling). Architecture only — implementation waits
 on (a) the GL/DINO split from rb_profile and (b) the CPU/RAM saturation curve from
 rb_multigpu, so the render:DINO ratio and GPU-count target are data-driven.
+
+## UPDATE 2026-09-21 — fetch/decode breakdown corrects the plan
+
+Login-node per-stage timing (`fetch_cpu_breakdown.py`, calibrated public data):
+- 3D-pane plane fetch `em.tile(subpixel=False)`: **237 ms cold / 12 ms warm** per
+  move — it is a raw cutout, **no resample** (the ~12 ms warm is a numpy transpose).
+- `resample_em` (12 ms) and the subpixel affine (32 ms) are **LEFT-pane only** — not
+  in the fast 3D-only configs.
+- Mesh `store.get` lod0 = **3.8 s** (download+Draco), normals = **0.99 s** — huge but
+  **episodic** (per new selection/reset), on the reset-latency path.
+
+Two premises in this doc were WRONG and are corrected:
+1. **"Render GPU is only 17% used, offload decode there" is false.** The GPU is
+   ~100 % SM = DINO 83 % + render 17 % *combined*. No spare cycles on a shared GPU;
+   on-GPU decode would steal from DINO. It pays ONLY on a *dedicated* render GPU.
+2. **The steady-state per-node wall is chunk-decompression CPU** (per-move `em.tile`
+   CloudVolume decode), not resample and not GPU-offloadable. So the primary
+   disaggregation axis is **FETCH → dedicated CPU-only nodes** (the fleet's GPU-less
+   144-core `sarek-r27-*` boxes), which adds decode cores independent of GPUs and
+   attacks the actual wall. Dedicated DINO-vs-render GPUs is the secondary axis.
+
+Revised plan: **disaggregate FETCH first** (CPU nodes decode + ship over the network
+to the render/DINO node), measure the per-node SPS lift, then layer DINO/render GPU
+separation. GPU-offload of decode/resample onto a shared GPU is dropped; it only
+returns as on-dedicated-render-GPU normals (0.99 s numpy → torch scatter_add,
+parity-exact) once roles are split. Network cost of shipping decoded tiles/meshes is
+the trade to measure (Stage-1 readback over Ray; Stage-2 P2P if it bottlenecks).
