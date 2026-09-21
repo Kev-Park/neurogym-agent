@@ -85,10 +85,10 @@ class DinoServer:
         return await fut
 
     async def encode_ipc(self, payloads) -> np.ndarray:
-        """payloads: a list of (reduce_tensor (rebuild, args), gl_flip) for the
-        env's GPU panes -- [ (left,False), (right,True) ] both-panes, or
-        [ (right,True) ] right-only -> (len, D) float32, one row per pane in
-        order. Pixels stay in VRAM."""
+        """payloads: a list of (reduce_tensor (rebuild, args), gl_flip, top_pad)
+        for the env's GPU panes -- [ (left,False,TOOLBAR), (right,True,TOOLBAR) ]
+        both-panes, or [ (right,True,TOOLBAR) ] right-only -> (len, D) float32, one
+        row per pane in order. Pixels stay in VRAM; top_pad re-adds the toolbar."""
         await self._ensure_loop()
         fut: asyncio.Future = asyncio.get_event_loop().create_future()
         await self._queue.put(("ipc", payloads, fut, len(payloads)))
@@ -108,9 +108,10 @@ class DinoServer:
         # left EM pane (unflipped) and right 3D pane (flipped) coexist in a batch.
         gpu_imgs = []
         flips = []
+        pads = []
         for kind, d in batch:
             if kind == "ipc":
-                for payload, flip in d:
+                for payload, flip, pad in d:
                     rebuild, args = payload
                     key = tuple(a for a in args if isinstance(a, bytes))  # IPC handles
                     t = self._ipc_cache.get(key)
@@ -119,11 +120,13 @@ class DinoServer:
                         self._ipc_cache[key] = t
                     gpu_imgs.append(t)          # (H, W, 4) uint8 cuda, re-read
                     flips.append(bool(flip))
+                    pads.append(int(pad))       # toolbar strip re-added at encode
             else:
                 for im in d:
                     gpu_imgs.append(torch.from_numpy(im).cuda())
                     flips.append(False)         # np frames are already image-order
-        return self._enc.encode_gpu(gpu_imgs, gl_flip=flips)
+                    pads.append(0)              # ...and already toolbar-padded
+        return self._enc.encode_gpu(gpu_imgs, gl_flip=flips, top_pad=pads)
 
     async def _batch_loop(self) -> None:
         loop = asyncio.get_event_loop()

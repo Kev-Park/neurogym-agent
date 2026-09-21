@@ -106,8 +106,11 @@ class DinoObservationWrapper:
                     if isinstance(img[0][0], tuple):
                         feats = self._encoder.encode_ipc(img)
                     else:
+                        # panes are (cuda_tensor, gl_flip, top_pad); top_pad re-adds
+                        # the toolbar strip so interop matches the readback framing.
                         feats = self._encoder.encode_gpu(
-                            [t for t, _ in img], gl_flip=[f for _, f in img])
+                            [t for t, _, _ in img], gl_flip=[f for _, f, _ in img],
+                            top_pad=[p for _, _, p in img])
                 return {
                     "image_features": feats.reshape(-1).astype(np.float32),
                     "pos_state": pos_state_from_obs(obs, self._scale),

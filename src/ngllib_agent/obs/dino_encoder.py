@@ -50,17 +50,27 @@ class DinoEncoder:
         return feats.detach().cpu().numpy().astype(np.float32)
 
     @torch.no_grad()
-    def encode_gpu(self, imgs: list, *, gl_flip: bool | list = False) -> np.ndarray:
+    def encode_gpu(self, imgs: list, *, gl_flip: bool | list = False,
+                   top_pad: int | list = 0) -> np.ndarray:
         """Encode a list of (H, W, C) uint8 CUDA tensors already on the GPU (the
         CUDA-IPC path — pixels never touch the CPU). C in {3,4}; alpha is dropped.
         `gl_flip` reverses rows for GL's bottom-up framebuffer orientation — a
         bool applied to all, or a per-image list (the left EM pane is read
-        unflipped, the right 3D pane flipped, so a mixed batch needs both)."""
+        unflipped, the right 3D pane flipped, so a mixed batch needs both).
+        `top_pad` prepends N black rows in IMAGE order (after the flip), matching
+        the numpy path's `canvas[TOOLBAR:] = pane` toolbar strip so the interop
+        frame is framed identically to readback (else DINO sees a different
+        aspect + no toolbar -> divergent obs). An int for all or a per-image list."""
         flips = [gl_flip] * len(imgs) if isinstance(gl_flip, bool) else list(gl_flip)
+        pads = [top_pad] * len(imgs) if isinstance(top_pad, int) else list(top_pad)
         procd = []
-        for t, flip in zip(imgs, flips):
+        for t, flip, pad in zip(imgs, flips, pads):
             if flip:
                 t = torch.flip(t, dims=[0])
+            if pad:
+                z = torch.zeros((int(pad), t.shape[1], t.shape[2]),
+                                dtype=t.dtype, device=t.device)
+                t = torch.cat([z, t], dim=0)          # black toolbar strip on top
             t = t[:, :, :3].permute(2, 0, 1).float().div(255.0)  # (3, H, W)
             procd.append(t)
         batch = torch.stack(procd, 0).to(self.device, non_blocking=True)

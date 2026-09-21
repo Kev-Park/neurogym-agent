@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from PIL import Image
 
-from ngllib.simulator.pane2d import PANE, PANE_H
+from ngllib.simulator.pane2d import PANE, PANE_H, TOOLBAR
 from ngllib.simulator.render3d import MeshRenderer
 from ngllib.simulator.render_service import RenderService
 
@@ -120,6 +120,23 @@ def main():
                   flush=True)
         print(f"RB-INTEROP-PARITY {'PASS' if iworst <= 2 else 'FAIL'} (worst max={iworst})",
               flush=True)
+
+        # OBS-LEVEL parity: the training obs is toolbar-padded to (PANE, PANE) --
+        # readback does `out[TOOLBAR:] = pane`; interop must match AFTER gl_flip +
+        # top_pad=TOOLBAR. This mirrors encode_gpu's real toolbar handling end to
+        # end (the raw-render checks above bypass _render_right's padding).
+        oworst = 0
+        for b, t in zip(base_out, iviews):
+            rb = np.zeros((PANE, PANE, 3), dtype=np.uint8)
+            rb[TOOLBAR:] = b                                    # readback framing
+            img = torch.flip(t, dims=[0])[:, :, :3]            # gl_flip
+            z = torch.zeros((TOOLBAR, img.shape[1], 3), dtype=img.dtype,
+                            device=img.device)
+            io = torch.cat([z, img], dim=0).cpu().numpy()       # + top_pad=TOOLBAR
+            oworst = max(oworst, int(np.abs(rb.astype(np.int32)
+                                            - io.astype(np.int32)).max()))
+        print(f"RB-INTEROP-OBS-PARITY {'PASS' if oworst <= 2 else 'FAIL'} "
+              f"(worst max={oworst})", flush=True)
     except Exception as e:  # noqa: BLE001
         print(f"interop path skipped/failed: {e}", flush=True)
 
