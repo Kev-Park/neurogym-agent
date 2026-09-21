@@ -4,7 +4,7 @@
 #SBATCH --qos=normal
 #SBATCH --time=00:45:00
 #SBATCH --output=slurm_outputs/disagg-het-%j.out
-#SBATCH --partition=highpri
+#SBATCH --partition=preempt
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:3090:1
 #SBATCH --cpus-per-task=22
@@ -65,6 +65,10 @@ srun --het-group=1 --overlap --nodes=1 --ntasks=1 \
   uv run --no-sync ray start --address="$HEAD_IP:$RAY_PORT" $RAY_PORTS --temp-dir=$RAY_TMP \
       --num-cpus=104 --num-gpus=0 --resources='{"fetch_cpu": 100}' --block &
 sleep 20
+
+# Reachability from the CPU node to the head: FAIL ping => routing; ping OK + tcp
+# BLOCKED => host firewall on the port; both OK but ray fails => deeper.
+srun --het-group=1 --overlap --nodes=1 --ntasks=1 bash scripts/net_probe.sh "$HEAD_IP" "$RAY_PORT" || true
 
 echo "[het] launching training (driver on gpu node)"
 export RAY_ADDRESS="$HEAD_IP:$RAY_PORT"
