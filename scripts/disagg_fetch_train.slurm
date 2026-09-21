@@ -43,6 +43,9 @@ export NGL_NATIVE_FETCH_AFFINITY=$AFFINITY
 export NGL_NATIVE_FETCH_WORKERS=1                # 16 runners x 1 = 16 actors <= 20 fetch_cpu (fits 24-idle mix nodes)
 export NGL_NATIVE_CHUNK_LRU_MB=160 NGL_NATIVE_VAO_LRU_MB=128
 export NGL_RENDER_BATCH_SIZE=8
+export UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp   # NB: never `srun env VAR=..` -
+                                                      # a broken ~/.local/bin/env shim
+                                                      # shadows /usr/bin/env (exit 13)
 export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps-$J
 export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-mps-log-$J
 
@@ -71,7 +74,6 @@ sleep 20
 echo "[disagg] launching training (driver on head)"
 export RAY_ADDRESS="$HEAD_IP:$RAY_PORT"
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
-  env UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
   uv run --no-sync python -m ngllib_agent.train \
       --config configs/native_rb_interop.yaml --run-name disagg-$J-aff$AFFINITY \
       --no-spawn-curriculum --learner-gpu \

@@ -34,6 +34,8 @@ export RAY_memory_monitor_refresh_ms=0          # disable Ray OOM killer (misfir
 export NGL_NATIVE_FETCH_BACKEND=ray NGL_NATIVE_FETCH_RESOURCE=fetch_cpu
 export NGL_NATIVE_FETCH_AFFINITY=$AFFINITY NGL_NATIVE_FETCH_WORKERS=6
 export NGL_NATIVE_CHUNK_LRU_MB=160 NGL_NATIVE_VAO_LRU_MB=128 NGL_RENDER_BATCH_SIZE=8
+export UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp   # NOT `srun env VAR=..`: broken
+                                                      # ~/.local/bin/env shim (exit 13)
 export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps-$J
 export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-mps-log-$J
 
@@ -58,7 +60,6 @@ sleep 20
 echo "[het] launching training (driver on gpu node)"
 export RAY_ADDRESS="$HEAD_IP:$RAY_PORT"
 srun --het-group=0 --overlap --nodes=1 --ntasks=1 \
-  env UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
   uv run --no-sync python -m ngllib_agent.train \
       --config configs/native_rb_interop.yaml --run-name disagg-het-$J-aff$AFFINITY \
       --no-spawn-curriculum --learner-gpu \
