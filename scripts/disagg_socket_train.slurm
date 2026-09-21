@@ -7,8 +7,8 @@
 #SBATCH --partition=preempt
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:3090:1
-#SBATCH --cpus-per-task=22
-#SBATCH --mem=120G
+#SBATCH --cpus-per-task=44
+#SBATCH --mem=140G
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
 #SBATCH hetjob
 #SBATCH --partition=preempt
@@ -42,7 +42,7 @@ echo "[socket] gpu=$GPU_NODE cpu=$CPU_NODE cpu_ip=$CPU_IP fport=$FPORT affinity=
 # HOST + PORT (env-runner actors are LOCAL ray on the GPU node -> inherit the driver).
 export NGL_FETCH_SERVER_HOST=$CPU_IP NGL_FETCH_SERVER_PORT=$FPORT
 export NGL_NATIVE_FETCH_BACKEND=socket NGL_NATIVE_FETCH_AFFINITY=$AFFINITY
-export NGL_NATIVE_FETCH_WORKERS=6
+export NGL_NATIVE_FETCH_WORKERS=${FW:-6}   # NRUN x FW connections <= CPU-node cores (~104)
 
 # Fetch server on the CPU node (background; forks a handler per connection).
 srun --het-group=1 --overlap --nodes=1 --ntasks=1 \
@@ -62,8 +62,8 @@ srun --het-group=0 --overlap --nodes=1 --ntasks=1 \
   uv run --no-sync python -m ngllib_agent.train \
       --config configs/native_rb_interop.yaml --run-name disagg-socket-$J-aff$AFFINITY \
       --no-spawn-curriculum --learner-gpu \
-      --num-env-runners 16 --num-envs-per-env-runner 8 \
-      --num-gpus-per-env-runner 0.03 --num-cpus-per-env-runner 1.0 \
+      --num-env-runners ${NRUN:-16} --num-envs-per-env-runner 8 \
+      --num-gpus-per-env-runner ${GPUFRAC:-0.03} --num-cpus-per-env-runner 0.5 \
       --vector threads --iters 15 --train-batch-size 24000 \
       --checkpoint-every 999999 --no-degraded-exit --wandb-mode disabled
 EXIT=$?

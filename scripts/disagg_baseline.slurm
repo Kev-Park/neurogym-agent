@@ -21,7 +21,7 @@ cd /scratch/kp0374/wt/neurogym-agent-throughput-scaling
 J=$SLURM_JOB_ID
 export PYTHONUNBUFFERED=1 RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 export RAY_memory_monitor_refresh_ms=0          # disable Ray OOM killer (cgroup misfire)
-export NGL_NATIVE_FETCH_BACKEND=process NGL_NATIVE_FETCH_WORKERS=1
+export NGL_NATIVE_FETCH_BACKEND=process NGL_NATIVE_FETCH_WORKERS=${FW:-1}
 export NGL_NATIVE_CHUNK_LRU_MB=160 NGL_NATIVE_VAO_LRU_MB=128 NGL_RENDER_BATCH_SIZE=8
 export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps-$J
 export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-mps-log-$J
@@ -36,8 +36,8 @@ UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
   uv run --no-sync python -m ngllib_agent.train \
     --config configs/native_rb_interop.yaml --run-name disagg-base-$J \
     --no-spawn-curriculum --learner-gpu \
-    --num-env-runners 16 --num-envs-per-env-runner 8 \
-    --num-gpus-per-env-runner 0.03 --num-cpus-per-env-runner 1.0 \
+    --num-env-runners ${NRUN:-16} --num-envs-per-env-runner 8 \
+    --num-gpus-per-env-runner ${GPUFRAC:-0.03} --num-cpus-per-env-runner 0.5 \
     --vector threads --iters 15 --train-batch-size 24000 \
     --checkpoint-every 999999 --no-degraded-exit --wandb-mode disabled
 
