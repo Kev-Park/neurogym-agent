@@ -27,6 +27,8 @@ cd /scratch/kp0374/wt/neurogym-agent-throughput-scaling
 J=$SLURM_JOB_ID
 AFFINITY=${AFFINITY:-1}
 export PYTHONUNBUFFERED=1 RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
+export RAY_memory_monitor_refresh_ms=0          # disable Ray OOM killer (misfires in
+                                                # the SLURM cgroup -> raylet SIGKILL)
 export NGL_NATIVE_FETCH_BACKEND=ray NGL_NATIVE_FETCH_RESOURCE=fetch_cpu
 export NGL_NATIVE_FETCH_AFFINITY=$AFFINITY NGL_NATIVE_FETCH_WORKERS=6
 export NGL_NATIVE_CHUNK_LRU_MB=160 NGL_NATIVE_VAO_LRU_MB=128 NGL_RENDER_BATCH_SIZE=8

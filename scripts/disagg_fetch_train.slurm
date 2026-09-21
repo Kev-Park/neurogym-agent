@@ -31,6 +31,9 @@ AFFINITY=${AFFINITY:-1}
 # --- env inherited by ALL srun steps (raylets + their actors read these) ---
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0          # shared /scratch; no CWD upload
+export RAY_memory_monitor_refresh_ms=0          # disable Ray OOM killer: it misfires
+                                                # in the SLURM cgroup ("negative used
+                                                # memory for cgroup -1" -> raylet SIGKILL)
 export NGL_NATIVE_FETCH_BACKEND=ray
 export NGL_NATIVE_FETCH_RESOURCE=fetch_cpu       # pins _FetchActors onto node1
 export NGL_NATIVE_FETCH_AFFINITY=$AFFINITY
