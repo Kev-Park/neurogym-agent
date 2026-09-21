@@ -37,10 +37,10 @@ export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0          # shared /scratch; no CWD upload
 export RAY_memory_monitor_refresh_ms=0          # disable Ray OOM killer: it misfires
                                                 # in the SLURM cgroup ("negative used
                                                 # memory for cgroup -1" -> raylet SIGKILL)
-export NGL_NATIVE_FETCH_BACKEND=ray
-export NGL_NATIVE_FETCH_RESOURCE=fetch_cpu       # pins _FetchActors onto node1
-export NGL_NATIVE_FETCH_AFFINITY=$AFFINITY
-export NGL_NATIVE_FETCH_WORKERS=1                # 16 runners x 1 = 16 actors <= 20 fetch_cpu (fits 24-idle mix nodes)
+# NB: NGL_NATIVE_FETCH_BACKEND=ray is set ONLY in the head ray-start below, so the
+# env-runner ACTORS (spawned by that raylet) use the ray backend, while the DRIVER's
+# RLlib spec-inference env (this srun's env) keeps the default PROCESS backend -- a
+# ray-backend spec env on the driver hung build_algo (0 actors, 0 ray usage, silent).
 export NGL_NATIVE_CHUNK_LRU_MB=160 NGL_NATIVE_VAO_LRU_MB=128
 export NGL_RENDER_BATCH_SIZE=8
 export UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp   # NB: never `srun env VAR=..` -
@@ -57,6 +57,8 @@ echo "[disagg] head(gpu)=$HEAD ($HEAD_IP)  fetch(cpu)=$FETCH  affinity=$AFFINITY
 # Ray head on the GPU node: start MPS first so env-runner actors (spawned by this
 # raylet) inherit CUDA_MPS_PIPE_DIRECTORY and co-schedule render+DINO+learner.
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" bash -c "
+  export NGL_NATIVE_FETCH_BACKEND=ray NGL_NATIVE_FETCH_RESOURCE=fetch_cpu
+  export NGL_NATIVE_FETCH_AFFINITY=$AFFINITY NGL_NATIVE_FETCH_WORKERS=1
   mkdir -p $CUDA_MPS_PIPE_DIRECTORY $CUDA_MPS_LOG_DIRECTORY
   nvidia-cuda-mps-control -d && echo '[disagg] mps up on head'
   uv run --no-sync ray start --head --node-ip-address=$HEAD_IP --port=$RAY_PORT \

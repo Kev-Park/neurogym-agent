@@ -31,8 +31,9 @@ RAY_TMP=/tmp/ray_$J                               # when co-tenanting a node)
 export PYTHONUNBUFFERED=1 RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 export RAY_memory_monitor_refresh_ms=0          # disable Ray OOM killer (misfires in
                                                 # the SLURM cgroup -> raylet SIGKILL)
-export NGL_NATIVE_FETCH_BACKEND=ray NGL_NATIVE_FETCH_RESOURCE=fetch_cpu
-export NGL_NATIVE_FETCH_AFFINITY=$AFFINITY NGL_NATIVE_FETCH_WORKERS=6
+# FETCH_BACKEND=ray set ONLY in the head ray-start (below) so env-runner ACTORS use
+# ray while the DRIVER's RLlib spec env keeps the process backend (a ray spec env on
+# the driver hangs build_algo).
 export NGL_NATIVE_CHUNK_LRU_MB=160 NGL_NATIVE_VAO_LRU_MB=128 NGL_RENDER_BATCH_SIZE=8
 export UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp   # NOT `srun env VAR=..`: broken
                                                       # ~/.local/bin/env shim (exit 13)
@@ -46,6 +47,8 @@ echo "[het] gpu=$GPU_NODE cpu=$CPU_NODE head_ip=$HEAD_IP affinity=$AFFINITY"
 
 # Ray head on the GPU node (MPS for render+DINO+learner contention).
 srun --het-group=0 --overlap --nodes=1 --ntasks=1 bash -c "
+  export NGL_NATIVE_FETCH_BACKEND=ray NGL_NATIVE_FETCH_RESOURCE=fetch_cpu
+  export NGL_NATIVE_FETCH_AFFINITY=$AFFINITY NGL_NATIVE_FETCH_WORKERS=6
   mkdir -p $CUDA_MPS_PIPE_DIRECTORY $CUDA_MPS_LOG_DIRECTORY
   nvidia-cuda-mps-control -d && echo '[het] mps up on gpu node'
   uv run --no-sync ray start --head --node-ip-address=$HEAD_IP --port=$RAY_PORT \
