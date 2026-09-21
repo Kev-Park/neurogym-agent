@@ -17,6 +17,9 @@
 set -u
 cd /scratch/kp0374/wt/neurogym-agent-throughput-scaling
 export PYTHONUNBUFFERED=1
+# Ray>=2.43 under `uv run` auto-uploads the 1.2GB CWD as runtime_env (stalls actor
+# startup, >512MB limit). Shared /scratch => no upload needed. (see m3_ray_multi.)
+export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 echo "[fetch-probe] node=$(hostname) cpus=$SLURM_CPUS_PER_TASK"
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
   uv run --no-sync python /scratch/kp0374/wt/neurogym-throughput-scaling/scripts/fetch_backend_probe.py
