@@ -73,6 +73,11 @@ srun --overlap --nodes=1 --ntasks=1 -w "$FETCH" \
 FETCH_PID=$!
 sleep 20
 
+# VRAM/util sampler on the GPU node -> diagnose the worker-death (VRAM OOM?).
+srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" bash -c \
+  "nvidia-smi --query-gpu=timestamp,memory.used,memory.total,utilization.gpu --format=csv -l 3 > slurm_outputs/vram-$J.log 2>&1" &
+SAMP_PID=$!
+
 echo "[disagg] launching training (driver on head)"
 export RAY_ADDRESS="$HEAD_IP:$RAY_PORT"
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
@@ -90,6 +95,7 @@ for n in "$HEAD" "$FETCH"; do
   srun --overlap --nodes=1 --ntasks=1 -w "$n" uv run --no-sync ray stop --force 2>&1 | tail -1 || true
 done
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" bash -c "echo quit | nvidia-cuda-mps-control 2>&1 | tail -1" || true
-kill "$HEAD_PID" "$FETCH_PID" 2>/dev/null || true
+kill "$HEAD_PID" "$FETCH_PID" "$SAMP_PID" 2>/dev/null || true
 wait 2>/dev/null || true
-echo "[disagg] done exit=$EXIT (affinity=$AFFINITY)"
+echo "[disagg] done exit=$EXIT (affinity=$AFFINITY) ; peak VRAM:"
+grep -oE '[0-9]+ MiB' slurm_outputs/vram-$J.log 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1 || true

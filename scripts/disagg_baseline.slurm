@@ -28,6 +28,10 @@ export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-mps-log-$J
 mkdir -p "$CUDA_MPS_PIPE_DIRECTORY" "$CUDA_MPS_LOG_DIRECTORY"
 nvidia-cuda-mps-control -d && echo "[base] mps up on $(hostname)"
 
+# VRAM/util sampler -> diagnose the H=0/16 worker-death (VRAM OOM?).
+nvidia-smi --query-gpu=timestamp,memory.used,memory.total,utilization.gpu --format=csv -l 3 > slurm_outputs/vram-$J.log 2>&1 &
+SAMP_PID=$!
+
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
   uv run --no-sync python -m ngllib_agent.train \
     --config configs/native_rb_interop.yaml --run-name disagg-base-$J \
@@ -37,5 +41,7 @@ UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
     --vector threads --iters 15 --train-batch-size 24000 \
     --checkpoint-every 999999 --no-degraded-exit --wandb-mode disabled
 
+kill "$SAMP_PID" 2>/dev/null || true
 echo quit | nvidia-cuda-mps-control 2>&1 | tail -1 || true
-echo "[base] done"
+echo "[base] done ; peak VRAM MiB:"
+grep -oE '[0-9]+ MiB' slurm_outputs/vram-$J.log 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1 || true
