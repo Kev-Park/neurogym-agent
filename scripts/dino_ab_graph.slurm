@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=dino-ab-graph
-#SBATCH --partition=preempt
+#SBATCH --partition=highpri
 #SBATCH --account=pni
 #SBATCH --qos=normal
 #SBATCH --nodes=1
