@@ -28,6 +28,10 @@ obs:
     model_name: dinov2_vits14
     input_size: 224
     cuda_local: true          # all-VRAM: batched interop -> in-process encode_gpu
+    cuda_graph: true          # SOTA (2026-09-22): replay the ViT forward -> frees the
+                              # GIL from DINO's per-layer dispatch (~+6% sps at M=2/N=24,
+                              # bitwise-identical). Reliable via flock-serialized capture
+                              # + 8-iter warmup; per-signature eager fallback if capture fails.
   pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
 
 model:
