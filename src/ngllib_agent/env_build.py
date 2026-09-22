@@ -284,6 +284,16 @@ def make_env_creator(cfg: dict[str, Any], vector_mode: str = "spawn"):
         # worker_index (EnvContext attr) both staggers resets AND, when the DINO
         # server is enabled, routes this runner's envs to server worker_index % M.
         widx = int(getattr(env_config, "worker_index", 0) or 0)
+        # Startup stagger: N runners creating GL/EGL contexts SIMULTANEOUSLY on one
+        # GPU can stall/deadlock at init (36 runners hung, 2026-09-22). Spread env
+        # construction over time -- runner widx waits widx * NGL_RUNNER_STAGGER_SEC
+        # before building its envs. Env-var gated (default 0 = off). One-time per
+        # runner process; lets high runner counts start cleanly on many-core nodes.
+        import os as _os
+        _stagger = float(_os.environ.get("NGL_RUNNER_STAGGER_SEC", "0") or 0)
+        if _stagger > 0 and widx > 0:
+            import time as _time
+            _time.sleep(widx * _stagger)
         # M1a: evenly-spaced first-episode limits desynchronize TimeLimit
         # truncations. Spread across the NODE's envs (2 runners/GPU share a
         # node): runners interleave via worker_index parity, so the node's 2M
