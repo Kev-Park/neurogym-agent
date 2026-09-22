@@ -22,8 +22,13 @@ class DinoEncoder:
         input_size: int = 224,
         device: str | None = None,
         use_cuda_graph: bool = False,
+        use_noop: bool = False,
     ):
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        # R_cap probe: skip the ViT forward, return zero features. Renders + interop
+        # + env still run identically (upstream in env.step), so training sps then
+        # measures the render+env pipeline capacity with DINO removed.
+        self._noop = bool(use_noop)
         self.model = torch.hub.load(repo, model_name, trust_repo=True)
         self.model.eval()
         for p in self.model.parameters():
@@ -49,6 +54,8 @@ class DinoEncoder:
     @torch.no_grad()
     def encode(self, images: list[np.ndarray]) -> np.ndarray:
         """Encode a list of RGB numpy arrays (H, W, 3) uint8 into DINO feature vectors."""
+        if self._noop:
+            return np.zeros((len(images), self.feature_dim), dtype=np.float32)
         batch = torch.from_numpy(np.stack(images)).permute(0, 3, 1, 2).float().div_(255.0)
         batch = batch.to(self.device, non_blocking=True)
         batch = F.interpolate(
@@ -70,6 +77,8 @@ class DinoEncoder:
         the numpy path's `canvas[TOOLBAR:] = pane` toolbar strip so the interop
         frame is framed identically to readback (else DINO sees a different
         aspect + no toolbar -> divergent obs). An int for all or a per-image list."""
+        if self._noop:
+            return np.zeros((len(imgs), self.feature_dim), dtype=np.float32)
         flips = [gl_flip] * len(imgs) if isinstance(gl_flip, bool) else list(gl_flip)
         pads = [int(top_pad)] * len(imgs) if isinstance(top_pad, int) else [int(p) for p in top_pad]
         if self._use_graph:
@@ -160,12 +169,13 @@ def get_dino_encoder(
     input_size: int = 224,
     device: str | None = None,
     use_cuda_graph: bool = False,
+    use_noop: bool = False,
 ) -> DinoEncoder:
     """Per-process singleton so all envs in an env-runner share one frozen model."""
-    key = (repo, model_name, input_size, device, bool(use_cuda_graph))
+    key = (repo, model_name, input_size, device, bool(use_cuda_graph), bool(use_noop))
     if key not in _ENCODER_CACHE:
         _ENCODER_CACHE[key] = DinoEncoder(
             repo=repo, model_name=model_name, input_size=input_size, device=device,
-            use_cuda_graph=use_cuda_graph,
+            use_cuda_graph=use_cuda_graph, use_noop=use_noop,
         )
     return _ENCODER_CACHE[key]
