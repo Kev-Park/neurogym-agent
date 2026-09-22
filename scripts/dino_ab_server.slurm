@@ -1,0 +1,23 @@
+#!/bin/bash
+#SBATCH --job-name=dino-ab-srv
+#SBATCH --partition=preempt
+#SBATCH --account=pni
+#SBATCH --qos=normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --gres=gpu:3090:1
+#SBATCH --cpus-per-task=24
+#SBATCH --mem=140G
+#SBATCH --time=00:35:00
+#SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
+#SBATCH --output=slurm_outputs/dino-ab-srv-%j.out
+# DINO-lever A/B, arm B: 1 shared DinoServer/GPU, big dynamic batch (Exp 1). Single GPU, 24x2, MPS.
+set -u
+cd /scratch/kp0374/wt/neurogym-agent-throughput-scaling
+J=$SLURM_JOB_ID
+export PYTHONUNBUFFERED=1 RAY_memory_monitor_refresh_ms=0
+export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps-$J CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-mps-log-$J
+mkdir -p "$CUDA_MPS_PIPE_DIRECTORY" "$CUDA_MPS_LOG_DIRECTORY" slurm_outputs
+nvidia-cuda-mps-control -d && echo "[dino-ab-srv] mps up on $(hostname)"
+bash scripts/dino_lever_arm.sh server 48
+echo quit | nvidia-cuda-mps-control 2>&1 | tail -1 || true
