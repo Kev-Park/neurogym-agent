@@ -23,6 +23,7 @@ class DinoEncoder:
         device: str | None = None,
         use_cuda_graph: bool = False,
         use_noop: bool = False,
+        use_compile: bool = False,
     ):
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         # R_cap probe: skip the ViT forward, return zero features. Renders + interop
@@ -43,13 +44,23 @@ class DinoEncoder:
         # preprocess (flip/pad/resize/norm) is a static graph for a given input
         # signature, so we capture once and replay from static input buffers to
         # kill per-launch overhead on the batch=M interop path. Only on CUDA.
-        self._use_graph = bool(use_cuda_graph) and self.device.type == "cuda"
+        # CUDA graphs and torch.compile both collapse the ViT's per-layer Python
+        # dispatch (the ~78% GIL holder). They're alternatives, not stacked: compile
+        # has its own graph/fusion, so it disables the manual cuda-graph path.
+        self._use_graph = bool(use_cuda_graph) and (not use_compile) and self.device.type == "cuda"
         self._graphs: dict = {}   # sig -> (graph, static_in list, static_out)
         self._graph_failed: set = set()  # sigs that failed capture -> stay eager
 
         with torch.no_grad():
             dummy = torch.zeros(1, 3, input_size, input_size, device=self.device)
             self.feature_dim = int(self.model(dummy).shape[-1])
+
+        # torch.compile (Inductor fusion): fewer, fused kernels + traced-away Python
+        # module dispatch -> less GIL-held time, WITHOUT CUDA-graph capture (default
+        # mode; NOT reduce-overhead, which re-adds cudagraphs + the MPS capture race).
+        # Numerics drift slightly from eager (fused fp reorder) -> dynamics-gated.
+        if bool(use_compile) and self.device.type == "cuda":
+            self.model = torch.compile(self.model)
 
     @torch.no_grad()
     def encode(self, images: list[np.ndarray]) -> np.ndarray:
@@ -196,12 +207,14 @@ def get_dino_encoder(
     device: str | None = None,
     use_cuda_graph: bool = False,
     use_noop: bool = False,
+    use_compile: bool = False,
 ) -> DinoEncoder:
     """Per-process singleton so all envs in an env-runner share one frozen model."""
-    key = (repo, model_name, input_size, device, bool(use_cuda_graph), bool(use_noop))
+    key = (repo, model_name, input_size, device, bool(use_cuda_graph), bool(use_noop),
+           bool(use_compile))
     if key not in _ENCODER_CACHE:
         _ENCODER_CACHE[key] = DinoEncoder(
             repo=repo, model_name=model_name, input_size=input_size, device=device,
-            use_cuda_graph=use_cuda_graph, use_noop=use_noop,
+            use_cuda_graph=use_cuda_graph, use_noop=use_noop, use_compile=use_compile,
         )
     return _ENCODER_CACHE[key]

@@ -30,6 +30,9 @@ case "$ARM" in
   noop)
     CFG=configs/native_rb_interop_noop.yaml   # R_cap: render+interop, ViT skipped
     EXTRA="--num-gpus-per-env-runner 0.03" ;;
+  compile)
+    CFG=configs/native_rb_interop_compile.yaml   # torch.compile the ViT
+    EXTRA="--num-gpus-per-env-runner 0.03" ;;
   server)
     CFG=configs/native_rb_srv_interop.yaml
     EXTRA="--num-gpus-per-env-runner 0 --dino-server-instances 1 --dino-server-max-batch $MAXB --dino-server-max-delay-ms 3" ;;

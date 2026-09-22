@@ -240,6 +240,7 @@ def _wrap_obs_and_limits(env, cfg: dict[str, Any], first_episode_limit: int | No
                 device=dc.get("device"),
                 use_cuda_graph=bool(dc.get("cuda_graph", False)),
                 use_noop=bool(dc.get("noop", False)),
+                use_compile=bool(dc.get("compile", False)),
             )
         env = DinoObservationWrapper(env, encoder, pos_state_scale=scale)
     elif obs_mode == "pos":
