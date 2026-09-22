@@ -13,9 +13,10 @@ set -u
 cd /scratch/kp0374/wt/neurogym-agent-throughput-scaling
 ARM="$1"
 MAXB="${2:-48}"
+NRUN="${3:-24}"                         # env-runners (concurrency sweep knob)
 J="${SLURM_JOB_ID:-manual}"
-COMMON="--no-spawn-curriculum --learner-gpu --num-env-runners 24 --num-envs-per-env-runner 2 \
-  --num-cpus-per-env-runner 0.5 --vector threads --iters 8 --train-batch-size 24000 \
+COMMON="--no-spawn-curriculum --learner-gpu --num-env-runners $NRUN --num-envs-per-env-runner 2 \
+  --num-cpus-per-env-runner 0.5 --vector threads --iters ${ITERS:-8} --train-batch-size 24000 \
   --checkpoint-every 999999 --no-degraded-exit --wandb-mode disabled"
 
 case "$ARM" in

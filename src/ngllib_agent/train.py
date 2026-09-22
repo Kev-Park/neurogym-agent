@@ -439,6 +439,18 @@ def main(argv=None) -> int:
     finally:
         checkpointer.finalize()
         wandb.finish()
+        # DINO-server batch-efficiency readout: log each server's achieved
+        # mean_batch (why big-batch consolidation did/didn't beat in-process).
+        if _oc.get("mode") == "dino" and _dscfg.get("enabled"):
+            try:
+                from .obs.dino_server import SERVER_NAME_FMT
+                m = max(1, int(_dscfg.get("instances", 1)))
+                for si in range(m):
+                    st = ray.get(ray.get_actor(SERVER_NAME_FMT.format(si)).stats.remote())
+                    print(f"DINO-SERVER-STATS server={si} batches={st['batches']} "
+                          f"images={st['images']} mean_batch={st['mean_batch']:.2f}", flush=True)
+            except Exception as e:
+                print(f"[train] server stats readout failed: {e}", flush=True)
         algo.stop()
         ray.shutdown()
     return 0
