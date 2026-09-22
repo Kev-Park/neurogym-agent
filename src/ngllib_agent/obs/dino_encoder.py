@@ -135,15 +135,33 @@ class DinoEncoder:
         (a data-dependent op in the model, an unsupported kernel) returns None so
         the signature falls back to eager permanently -- a graph must never crash
         a training run."""
-        import logging
+        import logging, os
+        lf = None
         try:
             static_in = [torch.empty_like(t) for t in imgs]
             for buf, t in zip(static_in, imgs):
                 buf.copy_(t)
+            # Serialize capture across co-resident MPS processes: concurrent capture
+            # on a shared GPU races (one client's cudaMalloc/sync breaks another's
+            # in-flight capture -> only ~half succeed). An exclusive NODE-LOCAL file
+            # lock makes captures happen one at a time. Best-effort (fnctl only on
+            # POSIX; if unavailable we just capture without the lock).
+            try:
+                import fcntl
+                lockpath = os.environ.get("NGL_DINO_CAPTURE_LOCK", "/tmp/ngl_dino_cudagraph.lock")
+                lf = open(lockpath, "w")
+                fcntl.flock(lf, fcntl.LOCK_EX)
+            except Exception:
+                if lf is not None:
+                    lf.close()
+                lf = None
+            # Warm up enough to trigger ALL lazy allocations (cuDNN/cuBLAS workspaces,
+            # DINOv2 pos-encoding interpolation) BEFORE capture, so capture itself
+            # never calls cudaMalloc (the other capture-failure cause).
             s = torch.cuda.Stream()
             s.wait_stream(torch.cuda.current_stream())
             with torch.cuda.stream(s):
-                for _ in range(3):
+                for _ in range(8):
                     self._forward_from(static_in, flips, pads)
             torch.cuda.current_stream().wait_stream(s)
             graph = torch.cuda.CUDAGraph()
@@ -158,6 +176,14 @@ class DinoEncoder:
             logging.getLogger(__name__).warning(
                 "DinoEncoder: CUDA-graph capture failed (%s) -> eager for sig=%s", e, sig)
             return None
+        finally:
+            if lf is not None:
+                try:
+                    import fcntl
+                    fcntl.flock(lf, fcntl.LOCK_UN)
+                    lf.close()
+                except Exception:
+                    pass
 
 
 _ENCODER_CACHE: dict[tuple, DinoEncoder] = {}
