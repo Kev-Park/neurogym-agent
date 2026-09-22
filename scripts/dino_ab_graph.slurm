@@ -6,9 +6,9 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:3090:1
-#SBATCH --cpus-per-task=24
-#SBATCH --mem=140G
-#SBATCH --time=00:35:00
+#SBATCH --cpus-per-task=20
+#SBATCH --mem=120G
+#SBATCH --time=00:20:00
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
 #SBATCH --output=slurm_outputs/dino-ab-graph-%j.out
 # DINO-lever A/B, arm C: in-process DINO + CUDA-graph replay (Exp 2). Single GPU, 24x2, MPS.
