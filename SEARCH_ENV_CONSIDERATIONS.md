@@ -157,6 +157,43 @@ token.)
 CUA-baseline comparison, where a real logged-in browser session handles
 middleauth interactively — which is exactly what the CUA-baseline branch does.
 
+## 2026-09-23 — Reset-link *content* correctness (beyond render format)
+
+Verifying a generated pair (Pair 5 CUA miss) surfaced rules about what the
+link must CONTAIN. A link can render perfectly (all the 2026-09-17 facts
+satisfied) and still not pose the intended task. The render format is
+necessary; these are the correctness conditions on top of it.
+
+- **The loaded root must actually CONTAIN the marked error.** For a split op
+  we load its `before_root_ids` and mark the op coord — correct because an
+  op's before-root is by definition the pre-cut (still-merged) geometry.
+  Sanity rule for any (root, op-coord) pair: the marked op must be either
+  (a) the op whose `before_root` == the loaded root, or (b) an op in the
+  loaded root's **forward** lineage (`timestamp` > root creation) — a fix
+  applied later, so the error is present now. An op in the root's **ancestry**
+  is already applied and is **NOT a findable error** in that state. (Pair 5's
+  object carried 3 ancestor splits within 2.5–3.4 µm of the CUA's declared
+  point — all already cut before the loaded root existed, invisible as errors;
+  only a forward-lineage cluster ~4.5 µm away was the real target.)
+- **Errors are CLUSTERS, not points.** Pair 5's real merge error was **6 split
+  ops within 0.6 µm** of each other (one proofreading session); the EVAL link
+  marks a single representative op coord. Scoring consequence: judge a
+  declaration by **distance to the nearest op in the cluster**, not to one
+  arbitrary point, and choose ε with the cluster spread in mind. (A 4.6 µm
+  miss is still a miss at ε≤3 µm, but single-point scoring can otherwise be
+  unfairly harsh or lucky by ~1 µm.)
+- **One before-root already carries the object's full pre-fix state** for that
+  op — no need to also load ancestor/descendant roots. The static bank stores
+  `(before_root_ids, representative op coord, and the same-session op-cluster
+  coords for scoring)`.
+- **Validation recipe** (per candidate op; all server-side via CAVE, no
+  browser): `get_tabular_change_log(before_root)` → ancestry;
+  `get_latest_roots(before_root)` + its change log → forward ops (keep those
+  with `timestamp` > root-creation); `get_operation_details` → coords
+  (×(4,4,1) to the 4×4×40 grid). Confirm the target op is same-op-or-forward,
+  and gather same-session neighbouring ops as the error cluster. Reference:
+  the Pair 5 walk-through used exactly these three calls.
+
 ## Open items
 
 - Lab asks: full operation-log export (avoids the ~5-day full-corpus API
