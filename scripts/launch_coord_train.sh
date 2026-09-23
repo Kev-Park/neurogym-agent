@@ -28,7 +28,7 @@ CKPT=/scratch/kp0374/checkpoints/${RUN}
 STATE_DIR=/scratch/kp0374/coord-state
 mkdir -p "$STATE_DIR" "$CKPT"
 
-export RAY_NUM_CPUS=44
+export RAY_NUM_CPUS=${RAY_NUM_CPUS:-44}
 export RAY_HEAD_ENDPOINT_FILE="${STATE_DIR}/ray_head_endpoint-${RUN}.txt"
 export NUM_RENDERERS="$RENDERERS"
 # Long sample timeout ON PURPOSE (2026-08-17): with the watchdog tree-kill
@@ -43,9 +43,9 @@ export SAMPLE_TIMEOUT_S="${SAMPLE_TIMEOUT_S:-600}"
 # --target-iterations. train.py writes meta.json in --checkpoint-dir each iter.
 export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --run-name ${RUN} --num-env-runners ${NUM_ENV_RUNNERS} \
-  --iters 100000 --train-batch-size 4000 --sample-timeout-s ${SAMPLE_TIMEOUT_S} \
+  --iters 100000 --train-batch-size ${TRAIN_BATCH:-4000} --sample-timeout-s ${SAMPLE_TIMEOUT_S} \
   --checkpoint-dir ${CKPT} --checkpoint-every 10 \
-  --wandb-project neurogym-agent --resume"
+  --wandb-project neurogym-agent --resume ${EXTRA_TRAIN_ARGS:-}"
 
 # PARTITION=highpri when the preempt partition is starved (established practice:
 # no preemption of running jobs, we queue for the next opening). SALLOC_TIME
@@ -80,8 +80,8 @@ for attempt in 1 2 3 4 5; do
     --partition "${PARTITION:-preempt}" \\
     --salloc-time "${SALLOC_TIME:-24:00:00}" \\
     --salloc-gres gpu:3090:1 \\
-    --salloc-cpus-per-node 48 \\
-    --salloc-mem 200G \\
+    --salloc-cpus-per-node ${SALLOC_CPUS:-48} \\
+    --salloc-mem ${SALLOC_MEM:-200G} \\
     --exclude sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5 \\
     --target-iterations "${TARGET_ITERS}" \\
     --progress-file "${CKPT}/meta.json" \\

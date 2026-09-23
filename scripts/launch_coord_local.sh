@@ -51,7 +51,7 @@ CKPT=/scratch/kp0374/checkpoints/${RUN}
 STATE_DIR=/scratch/kp0374/coord-state
 mkdir -p "$STATE_DIR" "$CKPT"
 
-export RAY_NUM_CPUS=44
+export RAY_NUM_CPUS=${RAY_NUM_CPUS:-44}
 # Fetch workers are PER RUNNER: at 32 runners/node the ngllib default (6)
 # spawns 192 fetch procs on 44 cores and throttled a plane-on run to 72 sps.
 # 2 lets a runner's canvas+plane job overlap the next without thrashing.
@@ -89,7 +89,7 @@ export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --lr ${LR:-5.0e-4} \
   --sample-timeout-s ${SAMPLE_TIMEOUT_S} \
   --checkpoint-dir ${CKPT} --checkpoint-every ${CHECKPOINT_EVERY:-10} \
-  --wandb-project neurogym-agent --resume"
+  --wandb-project neurogym-agent --resume ${EXTRA_TRAIN_ARGS:-}"
 
 LOG="${STATE_DIR}/coord-${RUN}-$(date +%Y%m%d-%H%M%S).log"
 SUP="${STATE_DIR}/supervisor-${RUN}.sh"
