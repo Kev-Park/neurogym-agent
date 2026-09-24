@@ -22,8 +22,34 @@ def test_for_nvec_validates():
     with pytest.raises(ValueError):
         HierarchicalMultiCategorical.for_nvec([2, 1024, 9, 9, 9])  # legacy 5-dim
     with pytest.raises(ValueError):
-        HierarchicalMultiCategorical.for_nvec([5, 1024, 9, 9, 9, 9])  # verbs must be 3 or 4
+        HierarchicalMultiCategorical.for_nvec([6, 1024, 9, 9, 9, 9])  # verbs must be 3, 4 or 5
     HierarchicalMultiCategorical.for_nvec([4, 1024, 9, 9, 9, 9])      # double_click verb: valid
+    HierarchicalMultiCategorical.for_nvec([5, 1024, 9, 9, 9, 9])      # xs_zoom verb: valid
+
+
+def test_zoom_head_is_credited_by_both_zoom_verbs():
+    """Verbs 2 (3D) and 4 (2D) share the zoom bin head.
+
+    If only verb 2 credited it, an xs_zoom step would train an ungated head --
+    the same bug the cell head had before double_click was added to it.
+    """
+    torch = pytest.importorskip("torch")
+    cls = HierarchicalMultiCategorical.for_nvec([5, 8, 3, 3, 3, 3])
+    logits = torch.zeros(2, 5 + 8 + 3 * 3 + 3)
+    d = cls.from_logits(logits)
+    a3d = torch.zeros(2, 6, dtype=torch.long)
+    a3d[:, 0] = 2                                  # 3D zoom
+    a2d = torch.zeros(2, 6, dtype=torch.long)
+    a2d[:, 0] = 4                                  # 2D zoom
+    a2d[:, 5] = a3d[:, 5] = 1                      # same zoom bin
+    # Same bin, same head: the only logp difference is the verb's own term,
+    # which is equal here because the verb logits are uniform.
+    assert torch.allclose(d.logp(a3d), d.logp(a2d))
+    # And a rotate step must NOT pick up the zoom head.
+    arot = torch.zeros(2, 6, dtype=torch.long)
+    arot[:, 0] = 1
+    arot[:, 5] = 1
+    assert not torch.allclose(d.logp(arot), d.logp(a2d))
 
 
 def test_sample_shape_and_ranges():

@@ -34,8 +34,9 @@ def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
     # key is still read so existing run configs stay reproducible.
     x0, y0, x1, y1 = ac.get("click_bounds") or ac["pane_3d_bounds"]
     # action.verbs sizes the policy head (3 = every checkpoint before the
-    # double-click verb, 4 = with it). Legacy configs carry `pane_3d_bounds`
-    # and no `verbs`; they are 3-verb by construction.
+    # double-click verb, 4 = with it, 5 = with the 2D pane's own zoom). Legacy
+    # configs carry `pane_3d_bounds` and no `verbs`; they are 3-verb by
+    # construction.
     verbs = int(ac.get("verbs", 4 if "click_bounds" in ac else 3))
     return ActionSpec(
         verbs=verbs,
@@ -48,6 +49,7 @@ def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
         rotation_bins_per_axis=ac["rotation_bins_per_axis"],
         rotation_step_rad=ac["rotation_step_rad"],
         zoom_bins=ac["zoom_bins"],
+        **({"xs_zoom_step": float(ac["xs_zoom_step"])} if "xs_zoom_step" in ac else {}),
         zoom_step=ac["zoom_step"],
     )
 

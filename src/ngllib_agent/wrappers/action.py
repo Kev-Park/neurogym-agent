@@ -32,9 +32,15 @@ _NGL_EDIT_STATE = 3
 @dataclass(frozen=True)
 class ActionSpec:
     # 3 = right_click / rotate / zoom (every checkpoint before 2026-09-10);
-    # 4 adds double_click. Part of the spec because it sizes the policy head:
-    # a 3-verb checkpoint cannot be loaded into a 4-verb module. Configs say
-    # which they are (action.verbs); the default is the current action space.
+    # 4 adds double_click; 5 adds xs_zoom, the 2D pane's own zoom. Part of the
+    # spec because it sizes the policy head: a 3-verb checkpoint cannot be
+    # loaded into a 4-verb module. Configs say which they are (action.verbs);
+    # the default is the current action space.
+    #
+    # xs_zoom is a VERB rather than a second zoom axis on verb 2: the verbs are
+    # already mutually exclusive modes, so a new axis would add an nvec
+    # dimension every other verb has to learn to ignore, while a verb reuses
+    # the existing zoom bin and only widens the verb head.
     verbs: int = 4
     grid_rows: int = 32
     grid_cols: int = 64
@@ -46,14 +52,19 @@ class ActionSpec:
     rotation_step_rad: float = 0.08
     zoom_bins: int = 9
     zoom_step: float = 500.0
+    # crossSectionScale is canonical voxels per CSS px (~2.03 on the calibrated
+    # FlyWire start state), so its steps are small in absolute terms where the
+    # 3D zoom's are hundreds. 0.25 per bin gives +/-1.0 over four bins from
+    # centre -- roughly a halving/doubling of the 2D field of view.
+    xs_zoom_step: float = 0.25
 
     @property
     def num_cells(self) -> int:
         return self.grid_rows * self.grid_cols
 
     def __post_init__(self) -> None:
-        if self.verbs not in (3, 4):
-            raise ValueError(f"verbs must be 3 or 4; got {self.verbs}")
+        if self.verbs not in (3, 4, 5):
+            raise ValueError(f"verbs must be 3, 4 or 5; got {self.verbs}")
 
     def nvec(self) -> list[int]:
         # [action_type, click_cell, rot_x, rot_y, rot_z, zoom]
@@ -108,7 +119,10 @@ def decode(md_action, spec: ActionSpec, orient_dim: int = 3) -> dict[str, Any]:
     elif a_type == 2:  # zoom (projection scale delta)
         act["action_type"] = _NGL_EDIT_STATE
         act["delta_proj_scale"][0] = _bin_to_signed(dzoom, spec.zoom_bins, spec.zoom_step)
-    elif a_type == 3 and spec.verbs == 4:  # double_click: NG `select` toggles the segment
+    elif a_type == 4 and spec.verbs == 5:  # xs_zoom: the 2D pane's own zoom
+        act["action_type"] = _NGL_EDIT_STATE
+        act["delta_xs_scale"][0] = _bin_to_signed(dzoom, spec.zoom_bins, spec.xs_zoom_step)
+    elif a_type == 3 and spec.verbs >= 4:  # double_click: NG `select` toggles the segment
         act["action_type"] = _NGL_DOUBLE_CLICK
         x, y = cell_to_pixel(cell, spec)
         act["mouse_xy"] = np.array([x, y], dtype=np.float32)
