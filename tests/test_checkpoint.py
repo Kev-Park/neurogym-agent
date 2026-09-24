@@ -61,7 +61,8 @@ def test_make_env_creator_single_env(monkeypatch, tmp_path):
     import ngllib_agent.env_build as eb
 
     built = []
-    monkeypatch.setattr(eb, "build_env", lambda cfg: built.append(cfg) or "ENV")
+    # **kw: make_env_creator threads dino_server_index through to build_env.
+    monkeypatch.setattr(eb, "build_env", lambda cfg, **kw: built.append(cfg) or "ENV")
     creator = eb.make_env_creator({"k": 1})
     assert creator() == "ENV"                       # no num_envs -> single env
     assert creator({"num_envs": 1}) == "ENV"        # M=1 -> single env
