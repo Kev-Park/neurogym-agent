@@ -102,7 +102,8 @@ def test_spaces_and_num_envs():
 def test_creator_threads_mode(monkeypatch):
     import ngllib_agent.env_build as eb
 
-    monkeypatch.setattr(eb, "build_env", lambda cfg: _ThreadProbeEnv(0))
+    # **kw: make_env_creator threads dino_server_index through to build_env.
+    monkeypatch.setattr(eb, "build_env", lambda cfg, **kw: _ThreadProbeEnv(0))
     creator = eb.make_env_creator({"x": 1}, vector_mode="threads")
     v = creator({"num_envs": 3})
     assert isinstance(v, ThreadedVectorEnv) and v.num_envs == 3
