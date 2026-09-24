@@ -5,10 +5,17 @@
 #SBATCH --qos=normal
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:3090:1
-#SBATCH --cpus-per-task=48
-#SBATCH --mem=110G
+# Sized to BACKFILL: the fleet typically has ~24 idle CPUs per node, and a
+# 48-CPU request waits for a full drain instead (job 967819 was quoted a start
+# six days out). Chrome 2x16 needs two runner processes, not 48 cores.
+#SBATCH --cpus-per-task=20
+#SBATCH --mem=48G
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
-#SBATCH --time=02:30:00
+#SBATCH --time=01:10:00
+# preempt partition: job 967905 was preempted 27s in and died because this
+# wrapper lacked --requeue (the production training scripts have it).
+#SBATCH --requeue
+#SBATCH --open-mode=append
 #SBATCH --output=/scratch/kp0374/native_spike/slurm-%x-%j.out
 #
 # V6: does serving the viewer off disk cost throughput?  Chrome at the pinned
@@ -30,7 +37,7 @@ REPO=${REPO:-/scratch/kp0374/neurogym-agent}
 WT=${WT:-/scratch/kp0374/wt/neurogym-agent-login}
 cd "$REPO"
 export PYTHONUNBUFFERED=1
-export RAY_NUM_CPUS=44
+export RAY_NUM_CPUS=${RAY_NUM_CPUS:-44}
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 [ -n "${NGLLIB:-}" ] && export PYTHONPATH="$NGLLIB:$WT/src:${PYTHONPATH:-}"
 ITERS=${ITERS:-12}
