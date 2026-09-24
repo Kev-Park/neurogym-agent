@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ngllib.dataset import DatasetSpec
+
 from .providers import FlywireSkeletonProvider
 from .rewards import ZRewardConfig, make_z_reward_factory, make_z_termination_factory
 from .wrappers import (
@@ -133,6 +135,10 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None,
     )
     if "capture_scale" in ec:
         layout["capture_scale"] = ec["capture_scale"]
+    if "start_url" in ec:
+        layout_start_url = ec["start_url"]
+    else:
+        layout_start_url = None
 
     if backend == "simulator":
         # env.pane_mode: the 2D-pane fill policy (atomic | progressive |
@@ -152,6 +158,8 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None,
         if server_ipc or local_gpu:
             sim_kwargs["cuda_ipc"] = True
             sim_kwargs["ipc_export"] = server_ipc  # False => raw tensor, in-process
+        if layout_start_url:
+            sim_kwargs["dataset"] = DatasetSpec.from_start_url(layout_start_url)
         renderer = SimulatorRenderer(**layout, **sim_kwargs)
         # The simulator has always defaulted to reset-ahead prefetch (its
         # warm work is a background fetch, free to start immediately).
@@ -169,10 +177,17 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None,
         # glitch) vs 'in_place' (cheap context recycle at the source).
         # Cycle-time levers (2026-08-16): optional per-episode HTTP-cache clear,
         # extra Chrome flags (footprint experiments).
+        # env.viewer: which Neuroglancer build renders -- a path, "packaged"
+        # (the default, shipped inside ngllib) or "hosted". env.storage_state:
+        # an explicit Playwright credential file, otherwise a middleauth start
+        # URL is seeded from the CAVE secret CloudVolume already reads.
         for k in ("browser_restart_every", "retry_on_reset", "recovery_mode",
-                  "clear_cache_on_recycle", "extra_launch_args", "state_ready_timeout_s"):
+                  "clear_cache_on_recycle", "extra_launch_args", "state_ready_timeout_s",
+                  "viewer", "storage_state", "cave_secret"):
             if k in ec:
                 chrome_kwargs[k] = ec[k]
+        if layout_start_url:
+            chrome_kwargs["start_url"] = layout_start_url
         renderer = ChromeRenderer(**chrome_kwargs)
         # M5 reset-ahead (2026-08): pre-navigate the next episode in a warm
         # context off the critical path; reset swaps pages instead of paying
