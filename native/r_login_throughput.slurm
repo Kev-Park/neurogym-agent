@@ -12,6 +12,10 @@
 #SBATCH --mem=48G
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
 #SBATCH --time=01:10:00
+# preempt partition: job 967905 was preempted 27s in and died because this
+# wrapper lacked --requeue (the production training scripts have it).
+#SBATCH --requeue
+#SBATCH --open-mode=append
 #SBATCH --output=/scratch/kp0374/native_spike/slurm-%x-%j.out
 #
 # V6: does serving the viewer off disk cost throughput?  Chrome at the pinned
