@@ -168,7 +168,10 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         # URL is seeded from the CAVE secret CloudVolume already reads.
         for k in ("browser_restart_every", "retry_on_reset", "recovery_mode",
                   "clear_cache_on_recycle", "extra_launch_args", "state_ready_timeout_s",
-                  "viewer", "storage_state", "cave_secret"):
+                  "viewer", "storage_state", "cave_secret",
+                  # PNG capture: parity gates must not measure JPEG artefacts
+                  # (2D IoU 0.859 JPEG vs 0.914 PNG on the same frames).
+                  "screenshot_format"):
             if k in ec:
                 chrome_kwargs[k] = ec[k]
         if layout_start_url:

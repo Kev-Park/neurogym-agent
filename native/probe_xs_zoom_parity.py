@@ -51,7 +51,12 @@ def iou(a: np.ndarray, b: np.ndarray) -> float:
     return float((a & b).sum()) / u if u else 1.0
 
 
-def run_backend(cfg, backend, zoom_bins, settle_s, out_dir):
+def run_backend(cfg, backend, zoom_bins, settle_s, out_dir, seed_state=None):
+    """One episode of xs_zoom steps. `seed_state` forces the SAME reset state
+    as another backend: this config carries a step-anchored curriculum, so two
+    independent resets land on different neurons and nothing is comparable
+    (measured the hard way, job 972442: block_ssim 0.18 against 0.974 in the
+    calibration gates)."""
     from PIL import Image
 
     from ngllib_agent.env_build import build_env
@@ -63,9 +68,13 @@ def run_backend(cfg, backend, zoom_bins, settle_s, out_dir):
     env = build_env(c)
     frames, states = [], []
     try:
-        obs, info = env.reset(seed=11)
+        if seed_state is None:
+            obs, info = env.reset(seed=11)
+        else:
+            obs, info = env.reset(options={"state": seed_state[0],
+                                           "task_info": seed_state[1]})
         states.append(dict(info["json_state"]))
-        spec = env.unwrapped.spec if hasattr(env.unwrapped, "spec") else None  # noqa: F841
+        reset_seed = (dict(info["json_state"]), info.get("task_info"))
         mid = 4                                    # centre bin of 9 = no-op
         for i, zbin in enumerate(zoom_bins):
             # [verb=4 (xs_zoom), cell, rot x/y/z, zoom bin]
@@ -82,7 +91,7 @@ def run_backend(cfg, backend, zoom_bins, settle_s, out_dir):
             print(f"  [{backend}] bin={zbin} xs={states[-1]['crossSectionScale']:.4f}", flush=True)
     finally:
         env.close()
-    return frames, states
+    return frames, states, reset_seed
 
 
 def main() -> int:
@@ -104,8 +113,9 @@ def main() -> int:
     # Zoom in twice, out four times (crossing below the start), then a big
     # zoom-out to hit the keep-previous boundary from the other side.
     bins = [8, 8, 0, 0, 0, 0, 8]
-    cf, cs = run_backend(cfg, "chrome", bins, args.settle_s, args.out_dir)
-    sf, ss = run_backend(cfg, "simulator", bins, args.settle_s, args.out_dir)
+    cf, cs, seed_state = run_backend(cfg, "chrome", bins, args.settle_s, args.out_dir)
+    sf, ss, _ = run_backend(cfg, "simulator", bins, args.settle_s, args.out_dir,
+                            seed_state=seed_state)
 
     print()
     print("=== crossSectionScale, step by step ===", flush=True)
