@@ -9,10 +9,10 @@ wipes the HTTP cache every episode so all ~17 assets are re-served per recycle.
 This measures the per-reset cost directly (resets are where contexts recycle),
 and reports the route counters the renderer now keeps, for four arms:
 
-  packaged            today's default
-  packaged+cache      cache-control headers + no per-episode cache clear
-  hosted              the Google-hosted build, cache cleared (production today)
-  hosted+cache        hosted without the per-episode clear, for a fair pairing
+  packaged-route         every asset through a Python callback
+  packaged-server        loopback static server (the new default)
+  packaged-server+cache  the same, without the per-episode HTTP-cache clear
+  hosted                 the Google-hosted build
 
 Needs a GPU node.
 
@@ -40,13 +40,15 @@ def main() -> int:
     layout = dict(window_size=(1800, 900), capture_scale=0.5,
                   left_pane=True, right_pane=True)
     arms = {
-        "packaged": dict(clear_cache_on_recycle=True),
-        "packaged+cache": dict(clear_cache_on_recycle=False),
+        # route: every asset through a Python callback (the original transport)
+        "packaged-route": dict(viewer_transport="route", clear_cache_on_recycle=True),
+        # server: loopback static server, Chrome's own network threads
+        "packaged-server": dict(viewer_transport="server", clear_cache_on_recycle=True),
+        "packaged-server+cache": dict(viewer_transport="server", clear_cache_on_recycle=False),
         "hosted": dict(viewer="hosted", clear_cache_on_recycle=True),
-        "hosted+cache": dict(viewer="hosted", clear_cache_on_recycle=False),
     }
 
-    print(f"{'arm':16s} {'reset med':>10s} {'reset mean':>11s} {'step med':>9s} "
+    print(f"{'arm':22s} {'reset med':>10s} {'reset mean':>11s} {'step med':>9s} "
           f"{'route calls':>12s} {'route MB':>9s} {'route s':>8s}", flush=True)
     for name, kw in arms.items():
         r = ChromeRenderer(screenshot_format="png", **layout, **kw)
@@ -63,11 +65,12 @@ def main() -> int:
                     t1 = time.perf_counter()
                     r.observe()
                     steps.append(time.perf_counter() - t1)
-            stats = r.route_stats if r.viewer_dist is not None else {
-                "calls": 0, "bytes": 0, "seconds": 0.0}
+            stats = (r.route_stats if (r.viewer_dist is not None
+                                       and r.viewer_transport == "route")
+                     else {"calls": 0, "bytes": 0, "seconds": 0.0})
         finally:
             r.close()
-        print(f"{name:16s} {statistics.median(resets):9.2f}s {statistics.mean(resets):10.2f}s "
+        print(f"{name:22s} {statistics.median(resets):9.2f}s {statistics.mean(resets):10.2f}s "
               f"{statistics.median(steps) * 1000:8.0f}ms {stats['calls']:12.0f} "
               f"{stats['bytes'] / 1e6:9.1f} {stats['seconds']:8.1f}", flush=True)
     print("VIEWERCOST-DONE")
