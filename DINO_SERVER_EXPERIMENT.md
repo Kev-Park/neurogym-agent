@@ -1,5 +1,11 @@
 # DINO-server throughput experiment (simulator backend)
 
+> **SUPERSEDED (2026-09-24, USER DECISION).** Main is the new SOTA (~317 sps/GPU,
+> SM-saturation ceiling — see the DINO-throughput-levers line of work) and is to
+> be used for future experiments UNCHANGED. This branch's conclusions and code
+> (DINO server, CUDA-IPC, the A–F matrix and its ~245–256 ceilings) are rejected
+> and must not be carried forward. This document stays as an archival record only.
+
 Goal: cut the per-process DINO + CUDA-context VRAM cost so freed VRAM can host
 MORE env-runners on one GPU slice, raising per-GPU SPS — and check the gain
 beats the added image-shipping cost. Single-node first (this is about per-GPU
