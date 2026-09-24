@@ -120,8 +120,12 @@ def test_three_verb_spec_matches_legacy_checkpoints():
     act = decode([0, 0, 4, 4, 4, 4], legacy)
     assert act["action_type"] == 1
 
+    # A 3-verb policy can emit neither double_click nor xs_zoom.
+    for verb in (3, 4):
+        with pytest.raises(ValueError):
+            decode([verb, 0, 4, 4, 4, 4], legacy)
     with pytest.raises(ValueError):
-        ActionSpec(verbs=5)
+        ActionSpec(verbs=6)
 
 
 def test_hierarchical_head_accepts_both_verb_counts():
