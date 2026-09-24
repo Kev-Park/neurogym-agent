@@ -120,22 +120,68 @@ def test_three_verb_spec_matches_legacy_checkpoints():
     act = decode([0, 0, 4, 4, 4, 4], legacy)
     assert act["action_type"] == 1
 
+    # A 3-verb policy can emit neither double_click nor xs_zoom.
+    for verb in (3, 4):
+        with pytest.raises(ValueError):
+            decode([verb, 0, 4, 4, 4, 4], legacy)
     with pytest.raises(ValueError):
-        ActionSpec(verbs=5)
+        ActionSpec(verbs=6)
 
 
 def test_hierarchical_head_accepts_both_verb_counts():
     torch = pytest.importorskip("torch")
     from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
 
-    for verbs in (3, 4):
+    for verbs in (3, 4, 5):
         cls = HierarchicalMultiCategorical.for_nvec([verbs, 8, 3, 3, 3, 3])
         logits = torch.zeros(2, verbs + 8 + 3 * 3 + 3)
         d = cls.from_logits(logits)
         a = torch.zeros(2, 6, dtype=torch.long)
-        a[1, 0] = verbs - 1                       # last verb (zoom for 3, select for 4)
+        a[1, 0] = verbs - 1        # last verb: zoom (3), select (4), xs_zoom (5)
         assert d.logp(a).shape == (2,)
         assert torch.isfinite(d.entropy()).all()
         assert torch.isfinite(d.kl(cls.from_logits(logits + 0.1))).all()
     with pytest.raises(ValueError):
-        HierarchicalMultiCategorical.for_nvec([5, 8, 3, 3, 3, 3])
+        HierarchicalMultiCategorical.for_nvec([6, 8, 3, 3, 3, 3])
+
+
+def test_xs_zoom_verb_edits_the_2d_pane_only():
+    """Verb 4 moves crossSectionScale, the 2D pane's zoom, and nothing else.
+
+    The 2D pane's zoom was unreachable by any policy until 2026-09-24: the zoom
+    verb wrote only delta_proj_scale (the 3D camera), so crossSectionScale was
+    fixed for a whole episode at whatever the reset state carried.
+    """
+    spec = ActionSpec(verbs=5, xs_zoom_step=0.25, zoom_bins=9)
+    assert spec.nvec() == [5, 2048, 9, 9, 9, 9]
+
+    zoom_in = decode([4, 0, 4, 4, 4, 6], spec)          # 2 bins above centre
+    assert zoom_in["action_type"] == 3                          # edit_state
+    assert zoom_in["delta_xs_scale"][0] == pytest.approx(0.5)
+    assert zoom_in["delta_proj_scale"][0] == 0.0                # 3D camera untouched
+    assert zoom_in["delta_pos"].tolist() == [0.0, 0.0, 0.0]
+    assert zoom_in["delta_orient"].tolist() == [0.0, 0.0, 0.0]
+
+    zoom_out = decode([4, 0, 4, 4, 4, 2], spec)
+    assert zoom_out["delta_xs_scale"][0] == pytest.approx(-0.5)
+    assert decode([4, 0, 4, 4, 4, 4], spec)["delta_xs_scale"][0] == 0.0   # centre bin
+
+
+def test_the_zoom_verbs_are_independent():
+    """Verb 2 must not touch the 2D zoom, and verb 4 must not touch the 3D."""
+    spec = ActionSpec(verbs=5)
+    three_d = decode([2, 0, 4, 4, 4, 6], spec)
+    assert three_d["delta_proj_scale"][0] != 0.0
+    assert three_d["delta_xs_scale"][0] == 0.0
+
+
+def test_a_four_verb_spec_cannot_emit_xs_zoom():
+    spec = ActionSpec(verbs=4)
+    assert spec.nvec()[0] == 4
+    with pytest.raises(ValueError):
+        decode([4, 0, 4, 4, 4, 6], spec)
+
+
+def test_verbs_must_be_3_4_or_5():
+    with pytest.raises(ValueError):
+        ActionSpec(verbs=6)
