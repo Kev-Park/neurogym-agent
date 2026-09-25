@@ -61,6 +61,9 @@ def action_label(a, spec) -> str:
     return f"xs_zoom bin {int(a[5]) - spec.zoom_bins // 2:+d}"
 
 
+GRAPH_H = 80  # z-trajectory strip appended below the panes
+
+
 def annotate(frames, zs, nsegs, labels, z0, seg_z_max):
     from PIL import Image, ImageDraw, ImageFont
 
@@ -70,11 +73,47 @@ def annotate(frames, zs, nsegs, labels, z0, seg_z_max):
     except TypeError:
         font = font_big = ImageFont.load_default()
 
-    z_best_series = np.maximum.accumulate(np.asarray(zs))
+    zarr = np.asarray(zs, dtype=float)
+    z_best_series = np.maximum.accumulate(zarr)
+    # y-scale for the strip: episode z range, padded; own-ceiling included so
+    # the reference line is always on-screen.
+    lo = min(float(zarr.min()), z0) - 1.0
+    hi = max(float(zarr.max()), seg_z_max, z0) + 1.0
+
+    def graph_strip(width: int, upto: int) -> "Image.Image":
+        from PIL import Image, ImageDraw
+        g = Image.new("RGB", (width, GRAPH_H), (12, 12, 12))
+        gd = ImageDraw.Draw(g)
+        n_pts = len(zarr)
+        xs_px = [int(4 + (width - 8) * t / max(1, n_pts - 1)) for t in range(n_pts)]
+
+        def ypx(z):
+            return int(GRAPH_H - 6 - (GRAPH_H - 12) * (z - lo) / (hi - lo))
+
+        # reference lines: start z (grey) and own ceiling (orange)
+        gd.line([(0, ypx(z0)), (width, ypx(z0))], fill=(90, 90, 90), width=1)
+        gd.line([(0, ypx(seg_z_max)), (width, ypx(seg_z_max))],
+                fill=(200, 140, 0), width=1)
+        # full trajectory faint, progress-to-now bright, best-so-far green
+        pts = list(zip(xs_px, (ypx(z) for z in zarr)))
+        if len(pts) > 1:
+            gd.line(pts, fill=(60, 60, 80), width=1)
+            gd.line(pts[: upto + 1], fill=(120, 190, 255), width=2)
+        best_pts = list(zip(xs_px, (ypx(z) for z in z_best_series)))
+        gd.line(best_pts[: upto + 1], fill=(0, 200, 90), width=1)
+        x, y = pts[min(upto, len(pts) - 1)]
+        gd.ellipse([x - 3, y - 3, x + 3, y + 3], fill=(255, 255, 255))
+        gd.text((4, 1), f"z over time  (grey=start z, orange=own ceiling)",
+                fill=(150, 150, 150))
+        return g
+
     out = []
     n = len(frames)
     for i, (frame, z) in enumerate(zip(frames, zs)):
-        img = Image.fromarray(frame)
+        pane = Image.fromarray(frame)
+        img = Image.new("RGB", (pane.width, pane.height + GRAPH_H))
+        img.paste(pane, (0, 0))
+        img.paste(graph_strip(pane.width, i), (0, pane.height))
         d = ImageDraw.Draw(img)
         d.rectangle([0, 0, img.width, 44], fill=(0, 0, 0))
         d.text((8, 2),
