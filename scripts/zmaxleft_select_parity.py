@@ -121,6 +121,42 @@ def main() -> int:
             save(img_s, f"s{i}_pre_sim.png")
             save(img_c, f"s{i}_pre_chrome.png")
 
+            # -- SHOW_ALL flip FIRST (states still identical: only root visible;
+            #    running it after the hop compared DIFFERENT states — the 3D
+            #    pick offsets diverge positions, which is expected) -------------
+            if i < 2:
+                pix = None
+                for y in SCAN_Y:
+                    for x in SCAN_X:
+                        rid = sim.r._segment_under_2d(float(x), float(y))
+                        if rid is not None and str(rid) == root:
+                            pix = (float(x), float(y))
+                            break
+                    if pix:
+                        break
+                if pix:
+                    _, rem_s, img_s = sim.dblclick(*pix)
+                    _, rem_c, img_c = chrome.dblclick(*pix)
+                    empty_s = not visible(sim.state)
+                    empty_c = not visible(chrome.state)
+                    ok = empty_s and empty_c
+                    showall_ok += int(ok)
+                    showall_bad += int(not ok)
+                    print(f"[state {i}] SHOW_ALL flip: sim_empty={empty_s} "
+                          f"chrome_empty={empty_c}", flush=True)
+                    save(img_s, f"s{i}_showall_sim.png")
+                    save(img_c, f"s{i}_showall_chrome.png")
+                    # re-select the root from the SHOW_ALL state on both; verify
+                    # the round trip restored the identical starting selection
+                    add_s, _, _ = sim.dblclick(*pix)
+                    add_c, _, _ = chrome.dblclick(*pix)
+                    if visible(sim.state) != {root} or visible(chrome.state) != {root}:
+                        print(f"[state {i}] SHOW_ALL round-trip diverged "
+                              f"(sim={visible(sim.state)} chrome={visible(chrome.state)}); "
+                              f"re-resetting", flush=True)
+                        sim.reset_to(state)
+                        chrome.reset_to(state)
+
             # -- candidate neighbor pixels, chosen via the sim's id map --------
             cands, seen = [], {root}
             for y in SCAN_Y:
@@ -183,36 +219,6 @@ def main() -> int:
                       flush=True)
                 save(img_s, f"s{i}_hop_sim.png")
                 save(img_c, f"s{i}_hop_chrome.png")
-
-            # -- SHOW_ALL flip (first two states only): deselect down to zero --
-            if i < 2:
-                pix = None
-                for y in SCAN_Y:
-                    for x in SCAN_X:
-                        rid = sim.r._segment_under_2d(float(x), float(y))
-                        if rid is not None and str(rid) == root:
-                            pix = (float(x), float(y))
-                            break
-                    if pix:
-                        break
-                if pix:
-                    # drop any extra selections via state edits so the root's
-                    # CLICK is the one that empties the set on both backends
-                    for b in (sim, chrome):
-                        for extra in sorted(visible(b.state) - {root}):
-                            b.state = S.toggle_select(b.state, extra)
-                            b.r.set_state(b.state)
-                    _, rem_s, img_s = sim.dblclick(*pix)
-                    _, rem_c, img_c = chrome.dblclick(*pix)
-                    empty_s = not visible(sim.state)
-                    empty_c = not visible(chrome.state)
-                    ok = empty_s and empty_c
-                    showall_ok += int(ok)
-                    showall_bad += int(not ok)
-                    print(f"[state {i}] SHOW_ALL flip: sim_empty={empty_s} "
-                          f"chrome_empty={empty_c}", flush=True)
-                    save(img_s, f"s{i}_showall_sim.png")
-                    save(img_c, f"s{i}_showall_chrome.png")
         except Exception:
             print(f"[state {i}] EXCEPTION:\n{traceback.format_exc()}", flush=True)
 

@@ -1,0 +1,81 @@
+# zmax-left: free-climb z-max ACROSS neurons, using the left pane to hop.
+#
+# From native_xszoom.yaml (5 verbs, both-pane clicks). Task changes:
+#   - reward.mode z_free: best-so-far z potential + annealed selection-novelty
+#     scaffold; NO task terminal — episodes are TimeLimit-only (500 steps).
+#     There is no computable per-start optimum (the reachable max would need a
+#     segment-contact-graph oracle), so success predicates exist only post-hoc
+#     in eval, never in training.
+#   - no spawn_curriculum: spawns are uniform over the bank (the old curriculum
+#     spawns near a KNOWN target, which this task does not have).
+#   - holdout: 200 frozen random start STATES (eval_zmaxleft_v1) — evaluation is
+#     paired per-start delta-z (signed-rank), not success-region occupancy.
+#   - ppo: batch 16000 / minibatch 512 for real runs (250-step fragments at
+#     32x2 = half an episode; 512 smooths the higher advantage variance).
+#     Validation smokes override batch on the CLI.
+# Checkpoints are NOT interchangeable with any earlier config (5-verb head).
+
+env:
+  backend: simulator
+  # no cv_cache: the NFS disk cache taxed cold fetches 4-30x (2026-08-28);
+  # the env's in-RAM chunk LRU covers repeats
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet
+  projection_scale_range: [3500, 14000]
+  orientation: euler
+  headless: true
+  renderer: gpu
+  # left_pane is set by obs.use_left_pane (default true: BOTH panes) whenever
+  # obs.mode is dino -- env_build overrides this key there, so it only applies
+  # to raw/pos observation modes.
+  left_pane: false
+  right_pane: true
+  image_size: [84, 84]
+  max_episode_steps: 500
+
+obs:
+  mode: pos
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+model:
+  pos_hidden_dim: 64
+  trunk_hiddens: [256, 256]
+  normalize_entropy: true
+
+action:
+  verbs: 5                # right_click / rotate / zoom / double_click / xs_zoom
+  # crossSectionScale per bin: ~2.03 at the calibrated start state, so 0.25 is
+  # a ~12% field-of-view change per step and +/-1.0 over four bins.
+  xs_zoom_step: 0.25
+  grid_rows: 32
+  grid_cols: 64
+  # The DATA PANELS in click coordinates, measured off the DOM:
+  # mouse_xy is relative to .neuroglancer-layer-group-viewer, in which
+  # the panels start at y=23 and are 853 px tall.
+  click_bounds: [0, 23, 1800, 876]     # x0, y0, x1, y1 — BOTH panes
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  mode: z_free
+  shaping_coef: 0.001            # best-so-far z potential (per-episode max)
+  select_novelty_bonus: 0.1      # one-time per NEW distinct segment selected
+  select_novelty_end_steps: 1500000   # linear anneal to 0 (scaffold, not objective)
+  step_penalty: 0.0              # no-op at fixed episode length; kept for
+                                 # a future stagnation-truncation variant
+
+ppo:
+  train_batch_size: 16000
+  sgd_minibatch_size: 512
+  num_sgd_iter: 4
+  entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01

@@ -111,13 +111,32 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         spawn_curriculum=ec.get("spawn_curriculum"),
         exclude_root_ids=exclude,
     )
-    rcfg = ZRewardConfig(
-        z_tolerance=rc["z_tolerance"],
-        success=rc["success"],
-        z_shaping_coef=rc["z_shaping_coef"],
-        step_penalty=rc["step_penalty"],
-        z_tolerance_frac=rc.get("z_tolerance_frac"),
-    )
+    # reward.mode selects the task's reward/termination pair:
+    #   (absent)  z-navigate — reach the start segment's known z-max (terminal).
+    #   "z_free"  zmax-left free climb — best-so-far z + annealed selection-
+    #             novelty scaffold, NO task terminal (TimeLimit-only).
+    if rc.get("mode") == "z_free":
+        from .rewards import ZFreeRewardConfig, make_no_termination_factory, \
+            make_zfree_reward_factory
+
+        zfree = ZFreeRewardConfig(
+            shaping_coef=rc.get("shaping_coef", 0.001),
+            select_novelty_bonus=rc.get("select_novelty_bonus", 0.1),
+            select_novelty_end_steps=rc.get("select_novelty_end_steps", 1_500_000),
+            step_penalty=rc.get("step_penalty", 0.0),
+        )
+        reward_factory = make_zfree_reward_factory(zfree)
+        termination_factory = make_no_termination_factory()
+    else:
+        rcfg = ZRewardConfig(
+            z_tolerance=rc["z_tolerance"],
+            success=rc["success"],
+            z_shaping_coef=rc["z_shaping_coef"],
+            step_penalty=rc["step_penalty"],
+            z_tolerance_frac=rc.get("z_tolerance_frac"),
+        )
+        reward_factory = make_z_reward_factory(rcfg)
+        termination_factory = make_z_termination_factory(rcfg)
 
     image_size = ec.get("image_size")
     backend = BACKENDS.get(str(ec.get("backend", "chrome")))
@@ -189,8 +208,8 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         backend=renderer,
         orientation=ec.get("orientation", "euler"),
         reset_state_provider=provider,
-        reward_factory=make_z_reward_factory(rcfg),
-        termination_factory=make_z_termination_factory(rcfg),
+        reward_factory=reward_factory,
+        termination_factory=termination_factory,
         **env_kwargs,
     )
     env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
@@ -204,6 +223,13 @@ def _wrap_obs_and_limits(env, cfg: dict[str, Any], first_episode_limit: int | No
 
     ec, oc = cfg["env"], cfg.get("obs", {})
     obs_mode = oc.get("mode", "raw")
+
+    # zmax-left diagnostics: BELOW the obs-mode wrappers so it sees the raw
+    # ngllib obs (position + segments) and the verb-indexed action vector.
+    if cfg.get("reward", {}).get("mode") == "z_free":
+        from .wrappers.zmaxleft_diag import ZmaxLeftDiagWrapper
+
+        env = ZmaxLeftDiagWrapper(env)
 
     # Observation mode (agent_plan.md §10/Round 8). Applied under the resilient
     # wrapper so glitch-truncation returns an already-transformed obs.
