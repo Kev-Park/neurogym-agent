@@ -96,7 +96,8 @@ def build_argparser() -> argparse.ArgumentParser:
     # Non-coordinator launchers without a relaunch loop should pass
     # --no-degraded-exit or accept the early end (the run was wasting
     # walltime anyway; --resume continues it).
-    ap.add_argument("--pane-mode", choices=["atomic", "progressive", "concurrent", "random"],
+    ap.add_argument("--pane-mode",
+                    choices=["atomic", "progressive", "concurrent", "random", "fresh"],
                     default=None,
                     help="Simulator 2D-pane fill policy (env.pane_mode); atomic is the "
                          "standard, progressive measured -11pp. Chrome ignores it.")
