@@ -21,8 +21,8 @@
 #     (rewards/z_free.py), not just the spawn curriculum.
 #   - USE_MPS=1 (default): per-job nvidia-cuda-mps daemon — the deployable
 #     SOTA throughput lever on main (+~50% for per-process DINO, zero code).
-#   - --learner-gpu: at batch 16000 the CPU-in-driver update would be a real
-#     tax; the GPU learner measured 2-3 s/iter at this scale.
+#   - learner stays CPU-in-driver (v9 production): a GPU learner context was
+#     part of the smoke-980716 VRAM OOM at 32 procs on one card.
 #
 # Usage: sbatch native/r_train_zmaxleft.slurm [run-name] [target-iters]
 #   smoke:  USE_MPS=0 BATCH=4000 ITERS=6 WANDB_MODE=disabled \
@@ -41,7 +41,11 @@ export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 export NGL_NATIVE_FETCH_WORKERS=${FETCH_WORKERS:-2}
 export NGL_NATIVE_MESH_LRU_MB=128
 export NGL_NATIVE_CHUNK_LRU_MB=${CHUNK_LRU_MB:-256}
-export NGL_NATIVE_VAO_LRU_MB=${VAO_LRU_MB:-256}
+# 96 (3 slots/process), NOT 256: zmax-left episodes ACCUMULATE selections, so
+# per-process mesh-slot VRAM grows past the single-neuron profile — smoke
+# 980716 OOMed the 24GB card at 32 procs with 256 + a GPU learner context.
+export NGL_NATIVE_VAO_LRU_MB=${VAO_LRU_MB:-96}
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 PANE_MODE=${PANE_MODE:-atomic}
 RUNNERS=${RUNNERS:-32}
 ENVS_PER_RUNNER=${ENVS_PER_RUNNER:-2}
@@ -65,7 +69,6 @@ uv run --no-sync python -m ngllib_agent.train \
   --num-env-runners "$RUNNERS" \
   --num-envs-per-env-runner "$ENVS_PER_RUNNER" \
   --num-gpus-per-env-runner 0.02 \
-  --learner-gpu \
   --vector threads \
   --iters "$ITERS" \
   --train-batch-size "$BATCH" \
