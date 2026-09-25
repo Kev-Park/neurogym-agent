@@ -134,6 +134,11 @@ def main() -> int:
     ap.add_argument("--torch-seed", type=int, default=0)
     ap.add_argument("--repeats", type=int, default=1,
                     help="Rollouts per state (identical start; Tier-2 pairing).")
+    ap.add_argument("--obs", choices=["raw", "pos", "dino"], default="dino",
+                    help="obs mode the policy was trained with. Default dino: "
+                         "train.py force-defaults dino, but build_env alone "
+                         "honors the config's obs.mode (pos), which broke the "
+                         "module's image_features space (job 985674).")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--offset", type=int, default=0)
     args = ap.parse_args()
@@ -143,6 +148,7 @@ def main() -> int:
 
     from ngllib_agent.env_build import build_env, load_config
     cfg = load_config(args.config)
+    cfg.setdefault("obs", {})["mode"] = args.obs
     cfg.setdefault("env", {})["max_episode_steps"] = args.max_steps
     env = build_env(cfg)
 
