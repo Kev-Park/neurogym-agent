@@ -123,6 +123,7 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
             shaping_coef=rc.get("shaping_coef", 0.001),
             select_novelty_bonus=rc.get("select_novelty_bonus", 0.1),
             select_novelty_end_steps=rc.get("select_novelty_end_steps", 1_500_000),
+            select_novelty_cap=rc.get("select_novelty_cap", 10),
             step_penalty=rc.get("step_penalty", 0.0),
         )
         reward_factory = make_zfree_reward_factory(zfree)

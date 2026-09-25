@@ -66,6 +66,9 @@ reward:
   shaping_coef: 0.001            # best-so-far z potential (per-episode max)
   select_novelty_bonus: 0.1      # one-time per NEW distinct segment selected
   select_novelty_end_steps: 1500000   # linear anneal to 0 (scaffold, not objective)
+  select_novelty_cap: 10         # only the first 10 new segments/episode pay
+                                 # (v1b: uncapped payout reinforced select-spam,
+                                 # 175-200 segs/ep, whose meshes OOMed runners)
   step_penalty: 0.0              # no-op at fixed episode length; kept for
                                  # a future stagnation-truncation variant
 

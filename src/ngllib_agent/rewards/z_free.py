@@ -46,6 +46,12 @@ class ZFreeRewardConfig:
     # Global env steps by which the novelty bonus reaches zero. None = never
     # anneal (ablation arms only — the approved production setting anneals).
     select_novelty_end_steps: float | None = 1_500_000
+    # Only the FIRST cap new segments per episode pay (v1b lesson, job 982378:
+    # uncapped 0.1/segment made select-count the objective — 175-200 new
+    # segments/episode, whose mesh volume OOM-killed runners. The cap bounds
+    # the scaffold's mass below the climbing signal without constraining HOW
+    # or WHERE hops happen). None = uncapped (ablation only).
+    select_novelty_cap: int | None = 10
     step_penalty: float = 0.0
 
 
@@ -107,17 +113,25 @@ def make_zfree_reward_factory(
             if state["z_best"] is None:
                 state["z_best"] = _z(prev_obs)
                 state["seen"] = set(_visible(prev_obs))
+                state["n_init"] = len(state["seen"])
             r = cfg.step_penalty
             # best-so-far potential
             z = _z(obs)
             if z > state["z_best"]:
                 r += cfg.shaping_coef * (z - state["z_best"])
                 state["z_best"] = z
-            # annealed selection-novelty scaffold (deduped for the episode)
+            # annealed selection-novelty scaffold (deduped for the episode,
+            # payout capped at the first `select_novelty_cap` new segments)
             new = _visible(obs) - state["seen"]
             if new:
+                n0 = len(state["seen"])
                 state["seen"] |= new
-                r += cfg.select_novelty_bonus * novelty_scale() * len(new)
+                paid = len(new)
+                if cfg.select_novelty_cap is not None:
+                    already = max(0, n0 - state["n_init"])
+                    paid = max(0, min(paid, cfg.select_novelty_cap - already))
+                if paid:
+                    r += cfg.select_novelty_bonus * novelty_scale() * paid
             return float(r)
 
         return reward_fn
