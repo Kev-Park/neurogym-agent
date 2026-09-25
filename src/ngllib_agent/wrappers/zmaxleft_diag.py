@@ -42,9 +42,39 @@ class ZmaxLeftDiagWrapper:
                     "verbs": np.zeros(8, dtype=int),
                 }
 
+            def _summary(self) -> dict[str, Any]:
+                t = self._t
+                return {
+                    "dz": t["z_best"] - t["z0"],
+                    "new_segs": t["new_segs"],
+                    "hop_climb": int(t["segs_at_best"] > t["n0"]),
+                    "steps_at_best": t["steps_at_best"],
+                    "showall_steps": t["showall_steps"],
+                    "len": t["steps"],
+                    "verbs": t["verbs"][:6].tolist(),
+                }
+
+            def _emit(self) -> dict[str, Any]:
+                _Impl._ep_seq += 1
+                d = self._summary()
+                print(f"[zmaxleft-ep] n={_Impl._ep_seq} dz={d['dz']:.1f} "
+                      f"new_segs={d['new_segs']} hop_climb={d['hop_climb']} "
+                      f"best@{d['steps_at_best']} showall={d['showall_steps']} "
+                      f"len={d['len']} verbs={d['verbs']}", flush=True)
+                return d
+
             def reset(self, **kwargs):
+                # TimeLimit truncates ABOVE this wrapper, so the episode-end
+                # flag never reaches step() here in TimeLimit-only tasks; a
+                # reset always follows an episode end at every level, so the
+                # finished episode is emitted HERE (and mirrored into the reset
+                # info as zmaxleft_prev for eval harnesses).
+                prev = self._emit() if self._t.get("steps", 0) > 0 else None
                 obs, info = self.env.reset(**kwargs)
                 self._reset_track(obs)
+                if prev is not None:
+                    info = dict(info)
+                    info["zmaxleft_prev"] = prev
                 return obs, info
 
             def step(self, action):
@@ -67,22 +97,11 @@ class ZmaxLeftDiagWrapper:
                     t["steps_at_best"] = t["steps"]
                     t["segs_at_best"] = len(t["seen"])
                 if terminated or truncated:
-                    _Impl._ep_seq += 1
-                    d = {
-                        "dz": t["z_best"] - t["z0"],
-                        "new_segs": t["new_segs"],
-                        "hop_climb": int(t["segs_at_best"] > t["n0"]),
-                        "steps_at_best": t["steps_at_best"],
-                        "showall_steps": t["showall_steps"],
-                        "len": t["steps"],
-                        "verbs": t["verbs"][:6].tolist(),
-                    }
+                    # only fires when an episode end reaches THIS level (task
+                    # terminals / resilient truncations below TimeLimit)
                     info = dict(info)
-                    info["zmaxleft"] = d
-                    print(f"[zmaxleft-ep] n={_Impl._ep_seq} dz={d['dz']:.1f} "
-                          f"new_segs={d['new_segs']} hop_climb={d['hop_climb']} "
-                          f"best@{d['steps_at_best']} showall={d['showall_steps']} "
-                          f"len={d['len']} verbs={d['verbs']}", flush=True)
+                    info["zmaxleft"] = self._emit()
+                    self._reset_track({})  # guard against double-emit on reset
                 return obs, reward, terminated, truncated, info
 
         return _Impl(env)
