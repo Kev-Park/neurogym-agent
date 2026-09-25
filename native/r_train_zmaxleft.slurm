@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=44
 #SBATCH --mem=200G
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
-#SBATCH --time=08:00:00
+#SBATCH --time=12:00:00
 #SBATCH --requeue
 #SBATCH --open-mode=append
 #SBATCH --output=slurm_outputs/slurm-%x-%j.out
