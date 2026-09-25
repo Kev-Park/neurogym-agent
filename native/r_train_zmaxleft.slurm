@@ -44,10 +44,13 @@ export NGL_NATIVE_CHUNK_LRU_MB=${CHUNK_LRU_MB:-256}
 # 96 (3 slots/process), NOT 256: zmax-left episodes ACCUMULATE selections, so
 # per-process mesh-slot VRAM grows past the single-neuron profile — smoke
 # 980716 OOMed the 24GB card at 32 procs with 256 + a GPU learner context.
-export NGL_NATIVE_VAO_LRU_MB=${VAO_LRU_MB:-96}
+export NGL_NATIVE_VAO_LRU_MB=${VAO_LRU_MB:-128}
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 PANE_MODE=${PANE_MODE:-atomic}
-RUNNERS=${RUNNERS:-32}
+# 24, NOT 32 (2026-09-25, job 981147): the select-storm grows each renderer
+# process to ~0.7-1.0 GB VRAM, and 32 procs filled the 24 GB card (CUDA OOM on
+# restarts) while host RSS tripped Ray's memory monitor. 24x2 fits with margin.
+RUNNERS=${RUNNERS:-24}
 ENVS_PER_RUNNER=${ENVS_PER_RUNNER:-2}
 BATCH=${BATCH:-16000}
 WANDB_MODE=${WANDB_MODE:-online}
