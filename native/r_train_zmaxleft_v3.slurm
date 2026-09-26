@@ -35,7 +35,10 @@ CKPT=/scratch/kp0374/checkpoints/${RUN}
 mkdir -p "$CKPT"
 
 export PYTHONUNBUFFERED=1
-export RAY_NUM_CPUS=44
+# RAY_CPUS lets a downsized submit (--cpus-per-task=32 --mem=240G
+# --export=ALL,RAY_CPUS=32,RUNNERS=16) fit co-tenanted nodes; memory and env
+# count co-scale (~7.5G/env at the 24x2 profile, v2 MaxRSS ~360G at 48 envs).
+export RAY_NUM_CPUS=${RAY_CPUS:-44}
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 export NGL_NATIVE_FETCH_WORKERS=${FETCH_WORKERS:-2}
 export NGL_NATIVE_MESH_LRU_MB=128
