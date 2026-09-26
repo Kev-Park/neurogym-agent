@@ -66,7 +66,7 @@ uv run --no-sync python -m ngllib_agent.train \
   --run-name "$RUN" --pane-mode "$PANE_MODE" \
   --num-env-runners "$RUNNERS" \
   --num-envs-per-env-runner "$ENVS_PER_RUNNER" \
-  --num-gpus-per-env-runner 0.02 \
+  --num-gpus-per-env-runner "${GPU_FRAC:-0.02}" \
   --vector threads \
   --sample-timeout-s "${SAMPLE_TIMEOUT:-600}" \
   --iters "$ITERS" \
