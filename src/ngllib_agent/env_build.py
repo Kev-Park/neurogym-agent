@@ -117,7 +117,7 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     #             novelty scaffold, NO task terminal (TimeLimit-only).
     if rc.get("mode") == "z_free":
         from .rewards import ZFreeRewardConfig, make_no_termination_factory, \
-            make_zfree_reward_factory
+            make_v3_termination_factory, make_zfree_reward_factory
 
         zfree = ZFreeRewardConfig(
             shaping_coef=rc.get("shaping_coef", 0.001),
@@ -127,7 +127,16 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
             step_penalty=rc.get("step_penalty", 0.0),
         )
         reward_factory = make_zfree_reward_factory(zfree)
-        termination_factory = make_no_termination_factory()
+        # v3 earliness pressure (TRAINING configs only — eval uses the v2
+        # config so episodes stay TimeLimit-only; see z_free.py):
+        if rc.get("budget_max") or rc.get("stall_limit"):
+            termination_factory = make_v3_termination_factory(
+                budget_min=rc.get("budget_min", 100),
+                budget_max=rc.get("budget_max", 500),
+                stall_limit=rc.get("stall_limit", 125),
+            )
+        else:
+            termination_factory = make_no_termination_factory()
     else:
         rcfg = ZRewardConfig(
             z_tolerance=rc["z_tolerance"],

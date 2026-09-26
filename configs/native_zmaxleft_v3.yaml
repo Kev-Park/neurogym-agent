@@ -1,0 +1,79 @@
+# zmax-left v3: EFFICIENT free climb — v2 objective + earliness pressure.
+#
+# From native_zmaxleft.yaml. v3 deltas (2026-09-26), minimal-bias efficiency:
+#   - reward.budget_min/max: per-episode TERMINATION at a budget ~ U[100,500]
+#     (unobserved). Under an uncertain horizon the return-maximizing policy
+#     front-loads z gains — earliness derived from the objective, no shaped
+#     signal about HOW to be fast. Termination (not truncation) is load-bearing:
+#     RLlib bootstraps V on truncation, which would null the pressure.
+#   - reward.stall_limit: terminate after 125 steps with no new episode z-best
+#     (guard against dithering; defines "progress" = z gain, nothing else).
+#   - Training pairs with speculative candidate-mesh prefetch in the renderer
+#     (NGL_NATIVE_MESH_PREFETCH, set by the v3 slurm script): hop payoffs stop
+#     being fetch-latency-delayed, so climb-vs-hop competes on merit.
+#   - max_episode_steps stays 500 as the outer TimeLimit; the sampled budget
+#     terminates first. gamma/entropy/novelty anneal unchanged (don't lower
+#     gamma for speed — hop payoffs arrive ~tens of steps after the click).
+#
+# EVAL PROTOCOL: evaluate with native_zmaxleft.yaml (v2, no termination keys)
+# so eval episodes stay TimeLimit-only and dz@budget stays paired-comparable.
+# Checkpoints ARE architecture-compatible with v2 (same 5-verb head).
+
+env:
+  backend: simulator
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet
+  projection_scale_range: [3500, 14000]
+  orientation: euler
+  headless: true
+  renderer: gpu
+  left_pane: false
+  right_pane: true
+  image_size: [84, 84]
+  max_episode_steps: 500
+
+obs:
+  mode: pos
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+model:
+  pos_hidden_dim: 64
+  trunk_hiddens: [256, 256]
+  normalize_entropy: true
+
+action:
+  verbs: 5                # right_click / rotate / zoom / double_click / xs_zoom
+  xs_zoom_step: 0.25
+  grid_rows: 32
+  grid_cols: 64
+  click_bounds: [0, 23, 1800, 876]     # x0, y0, x1, y1 — BOTH panes
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  mode: z_free
+  shaping_coef: 0.001
+  select_novelty_bonus: 0.1
+  select_novelty_end_steps: 1500000
+  select_novelty_cap: 10
+  step_penalty: 0.0
+  # v3 earliness pressure (see header):
+  budget_min: 100
+  budget_max: 500
+  stall_limit: 125
+
+ppo:
+  train_batch_size: 16000
+  sgd_minibatch_size: 512
+  num_sgd_iter: 4
+  entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01

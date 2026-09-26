@@ -3,6 +3,7 @@ from __future__ import annotations
 from .z_free import (
     ZFreeRewardConfig,
     make_no_termination_factory,
+    make_v3_termination_factory,
     make_zfree_reward_factory,
 )
 from .z_navigate import (
@@ -17,6 +18,7 @@ __all__ = [
     "ZRewardConfig",
     "effective_z_tolerance",
     "make_no_termination_factory",
+    "make_v3_termination_factory",
     "make_z_reward_factory",
     "make_z_termination_factory",
     "make_zfree_reward_factory",

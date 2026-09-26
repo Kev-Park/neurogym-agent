@@ -149,3 +149,48 @@ def make_no_termination_factory() -> "TerminationFactory":
         return terminated_fn
 
     return factory
+
+
+def make_v3_termination_factory(
+    budget_min: int = 100,
+    budget_max: int = 500,
+    stall_limit: int | None = 125,
+    seed: int | None = None,
+) -> "TerminationFactory":
+    """v3 earliness pressure: TERMINATE (not truncate) each episode at a
+    per-episode budget ~ U[budget_min, budget_max], or after `stall_limit`
+    steps without a new episode z-best.
+
+    Termination is load-bearing: RLlib bootstraps V(s) on truncation, which
+    makes a random horizon pressure-free — only a true terminal (future value
+    zeroed) prices dithering. The budget is unobserved by design (minimal
+    bias): under an uncertain horizon the return-maximizing policy front-loads
+    z gains. The uniform hazard is mildly non-Markovian (value depends on
+    elapsed time the obs doesn't carry); PPO averages over it.
+
+    EVAL PROTOCOL: evaluate with the v2 config (no v3 keys) so eval episodes
+    stay TimeLimit-only and dz@budget remains paired-comparable across arms.
+    """
+    rng = np.random.default_rng(seed)
+
+    def factory(task_info: dict[str, Any]) -> Callable[..., bool]:
+        budget = int(rng.integers(budget_min, budget_max + 1))
+        state = {"steps": 0, "z_best": None, "stall": 0}
+
+        def terminated_fn(obs, action, prev_obs) -> bool:
+            if state["z_best"] is None:
+                state["z_best"] = _z(prev_obs)
+            state["steps"] += 1
+            z = _z(obs)
+            if z > state["z_best"]:
+                state["z_best"] = z
+                state["stall"] = 0
+            else:
+                state["stall"] += 1
+            if state["steps"] >= budget:
+                return True
+            return stall_limit is not None and state["stall"] >= stall_limit
+
+        return terminated_fn
+
+    return factory

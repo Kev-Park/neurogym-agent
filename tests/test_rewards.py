@@ -63,3 +63,34 @@ def test_frac_tolerance_termination():
     # frac unset -> legacy absolute band, z_min not required
     legacy = ZRewardConfig(z_tolerance=10.0)
     assert effective_z_tolerance(legacy, {"z_max": 1000.0}) == 10.0
+
+
+def test_v3_budget_termination_samples_within_range():
+    from ngllib_agent.rewards import make_v3_termination_factory
+
+    factory = make_v3_termination_factory(budget_min=5, budget_max=8,
+                                          stall_limit=None, seed=0)
+    for _ in range(20):
+        term = factory({})
+        steps = 0
+        # keep improving z so only the budget can fire
+        while not term(_obs(steps + 1.0), None, _obs(float(steps))):
+            steps += 1
+            assert steps < 9
+        assert 5 <= steps + 1 <= 8
+
+
+def test_v3_stall_termination_resets_on_new_best():
+    from ngllib_agent.rewards import make_v3_termination_factory
+
+    factory = make_v3_termination_factory(budget_min=1000, budget_max=1000,
+                                          stall_limit=3, seed=0)
+    term = factory({})
+    # two stalled steps, then a new best resets the counter
+    assert term(_obs(0.0), None, _obs(0.0)) is False
+    assert term(_obs(-1.0), None, _obs(0.0)) is False
+    assert term(_obs(5.0), None, _obs(0.0)) is False
+    # three consecutive non-improving steps fire the stall terminal
+    assert term(_obs(5.0), None, _obs(0.0)) is False
+    assert term(_obs(4.0), None, _obs(0.0)) is False
+    assert term(_obs(3.0), None, _obs(0.0)) is True
