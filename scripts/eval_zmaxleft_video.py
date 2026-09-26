@@ -146,6 +146,8 @@ def main() -> int:
                          "lowest-/2 median-/2 highest-headroom starts.")
     ap.add_argument("--fps", type=int, default=10)
     ap.add_argument("--torch-seed", type=int, default=0)
+    ap.add_argument("--greedy", action="store_true",
+                    help="argmax actions instead of the stochastic eval protocol")
     args = ap.parse_args()
 
     import gymnasium as gym
@@ -188,7 +190,7 @@ def main() -> int:
     env = make_tapped_env()
     torch.manual_seed(args.torch_seed)
     policy = StatePklPolicy(args.state_pkl, env, cfg.get("model", {}),
-                            stochastic=True)
+                            stochastic=not args.greedy)
     spec = action_spec_from_config(cfg["action"])
 
     def _on_alarm(signum, frame):  # noqa: ARG001
