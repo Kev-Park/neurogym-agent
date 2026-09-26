@@ -73,6 +73,7 @@ uv run --no-sync python -m ngllib_agent.train \
   --num-envs-per-env-runner "$ENVS_PER_RUNNER" \
   --num-gpus-per-env-runner 0.02 \
   --vector threads \
+  --sample-timeout-s "${SAMPLE_TIMEOUT:-600}" \
   --iters "$ITERS" \
   --train-batch-size "$BATCH" \
   --checkpoint-dir "$CKPT" --checkpoint-every 10 \
