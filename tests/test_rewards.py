@@ -94,3 +94,28 @@ def test_v3_stall_termination_resets_on_new_best():
     assert term(_obs(5.0), None, _obs(0.0)) is False
     assert term(_obs(4.0), None, _obs(0.0)) is False
     assert term(_obs(3.0), None, _obs(0.0)) is True
+
+
+def test_v4_delta_and_select_cost():
+    from ngllib_agent.rewards import ZFreeRewardConfig, make_zfree_reward_factory
+
+    cfg = ZFreeRewardConfig(shaping_coef=0.001, select_novelty_bonus=0.0,
+                            delta_coef=0.0003, select_cost=0.003)
+    rew = make_zfree_reward_factory(cfg)({})
+
+    def _o(z, segs=()):
+        return {"position": np.array([0.0, 0.0, float(z)], dtype=np.float32),
+                "segments": tuple(segs)}
+
+    # ascent: best-so-far + delta both pay
+    r = rew(_o(100.0), None, _o(0.0), False)
+    assert abs(r - (0.001 * 100 + 0.0003 * 100)) < 1e-9
+    # descent from the peak: only the delta term (negative), no potential
+    r = rew(_o(60.0), None, _o(100.0), False)
+    assert abs(r - (0.0003 * -40)) < 1e-9
+    # two NEW segments selected: charged select_cost each (bonus disabled)
+    r = rew(_o(60.0, ("a", "b")), None, _o(60.0), False)
+    assert abs(r - (-0.003 * 2)) < 1e-9
+    # reselect of an already-seen segment: free
+    r = rew(_o(60.0, ("a",)), None, _o(60.0, ()), False)
+    assert abs(r) < 1e-9

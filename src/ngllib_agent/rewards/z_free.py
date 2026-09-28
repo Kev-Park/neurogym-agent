@@ -53,6 +53,20 @@ class ZFreeRewardConfig:
     # or WHERE hops happen). None = uncapped (ablation only).
     select_novelty_cap: int | None = 10
     step_penalty: float = 0.0
+    # v4 refinement terms (both 0 = v2/v3 behavior):
+    # Symmetric plain-delta shaping alongside the best-so-far potential. It
+    # telescopes to delta_coef*(z_final - z_start), so it is potential-based
+    # (cannot change the optimal endpoint); under gamma<1 + budget termination
+    # a dip pays now and recovers discounted-later, making descent costly in
+    # proportion to depth WITHOUT the path bias of an asymmetric fine (the
+    # lower stepping-stone route stays viable).
+    delta_coef: float = 0.0
+    # Charged once per DISTINCT new segment per episode (same dedup as the
+    # novelty bonus): prices the real cost of a first mesh load. Reselect
+    # after deselect reuses the cached mesh and is free. Sized well below a
+    # good hop's value (~0.3-1.0) so ~40 shotgun selections cost ~0.1 while a
+    # deliberate policy's 5-10 stay negligible.
+    select_cost: float = 0.0
 
 
 def _z(obs: dict[str, Any]) -> float:
@@ -120,6 +134,9 @@ def make_zfree_reward_factory(
             if z > state["z_best"]:
                 r += cfg.shaping_coef * (z - state["z_best"])
                 state["z_best"] = z
+            # v4: symmetric plain-delta shaping (mild descent aversion)
+            if cfg.delta_coef:
+                r += cfg.delta_coef * (z - _z(prev_obs))
             # annealed selection-novelty scaffold (deduped for the episode,
             # payout capped at the first `select_novelty_cap` new segments)
             new = _visible(obs) - state["seen"]
@@ -132,6 +149,10 @@ def make_zfree_reward_factory(
                     paid = max(0, min(paid, cfg.select_novelty_cap - already))
                 if paid:
                     r += cfg.select_novelty_bonus * novelty_scale() * paid
+                # v4: first-load cost for EVERY new distinct segment (uncapped;
+                # the anneal-era bonus nets it positive early, so the bootstrap
+                # is intact and the cost bites once the scaffold fades).
+                r -= cfg.select_cost * len(new)
             return float(r)
 
         return reward_fn
