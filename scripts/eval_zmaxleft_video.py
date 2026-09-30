@@ -243,14 +243,37 @@ def main() -> int:
         frames.clear(); zs.clear(); nsegs.clear()
         labels: list[str] = []
         clicks: list = []
+        # Click accounting ("spray and pray" audit): a 3D-pane right-click is a
+        # HIT iff the position changed (move-to on background is a NG no-op);
+        # a double-click is a HIT iff the visible-segment count changed.
+        hits = {"rc3d": 0, "rc3d_hit": 0, "rc2d": 0, "dbl": 0, "dbl_hit": 0}
         signal.alarm(1200)
         try:
             obs, _ = env.reset(options={"state": state, "task_info": info})
             for _ in range(args.max_steps):
                 a = policy.act(obs)
-                labels.append(action_label(np.asarray(a).ravel(), spec))
-                clicks.append(click_rect(np.asarray(a).ravel(), spec))
+                av = np.asarray(a).ravel()
+                labels.append(action_label(av, spec))
+                clicks.append(click_rect(av, spec))
+                pos_prev = np.asarray(obs["pos_state"][:3]).copy()
+                nseg_prev = nsegs[-1] if nsegs else 0
                 obs, r, term, trunc, _ = env.step(a)
+                verb = int(av[0])
+                if verb in (0, 3):
+                    col = int(av[1]) % spec.grid_cols
+                    # both-pane grids put the 2D pane in the left half; a
+                    # 3D-only grid (pane_x0 >= 900 CSS) has no 2D cells.
+                    is_2d = spec.pane_x0 < 900.0 and col < spec.grid_cols // 2
+                    if verb == 0 and is_2d:
+                        hits["rc2d"] += 1
+                    elif verb == 0:
+                        hits["rc3d"] += 1
+                        if not np.allclose(np.asarray(obs["pos_state"][:3]), pos_prev):
+                            hits["rc3d_hit"] += 1
+                    else:
+                        hits["dbl"] += 1
+                        if nsegs and nsegs[-1] != nseg_prev:
+                            hits["dbl_hit"] += 1
                 if term or trunc:
                     break
         except EpisodeTimeout:
@@ -273,9 +296,14 @@ def main() -> int:
         imageio.mimwrite(os.path.join(args.out_dir, name), ann, fps=args.fps)
         manifest.append({"idx": idx, "file": name, "dz": round(dz, 1),
                          "headroom": round(headroom, 1),
-                         "final_segs": nsegs[-1], "steps": len(zs) - 1})
+                         "final_segs": nsegs[-1], "steps": len(zs) - 1,
+                         **hits})
+        rc_rate = hits["rc3d_hit"] / hits["rc3d"] if hits["rc3d"] else float("nan")
+        dbl_rate = hits["dbl_hit"] / hits["dbl"] if hits["dbl"] else float("nan")
         print(f"[zl-video] idx={idx} dz={dz:+.0f} headroom={headroom:.0f} "
-              f"-> {name}", flush=True)
+              f"rc3d={hits['rc3d']} hit={hits['rc3d_hit']} ({100 * rc_rate:.0f}%) "
+              f"rc2d={hits['rc2d']} dbl={hits['dbl']} dsel={hits['dbl_hit']} "
+              f"({100 * dbl_rate:.0f}%) -> {name}", flush=True)
 
     with open(os.path.join(args.out_dir, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=1)
