@@ -56,6 +56,12 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="Run the (driver-local) learner's update on the GPU "
                          "instead of CPU — halves the synchronous PPO cycle "
                          "when sampling is fast (native renderer).")
+    ap.add_argument("--object-store-gb", type=float, default=None,
+                    help="Ray object store size for this training's ray.init(). "
+                         "Ray's default reserves 30%% of NODE RAM (~113G on a "
+                         "376G node) PER instance; several trainings on one node "
+                         "(mgpu / sweeps) can OOM on that alone. Sample batches "
+                         "here are ~100MB, so a few GB is plenty. None = Ray default.")
     ap.add_argument("--num-env-runners", type=int, default=2)
     ap.add_argument("--num-cpus-per-env-runner", type=float, default=1.0,
                     help="Ray CPU reservation per runner; with few GPUs per "
@@ -183,7 +189,9 @@ def main(argv=None) -> int:
 
     register_env("ngl-znav", make_env_creator(cfg, vector_mode=args.vector))
 
-    ray.init(include_dashboard=False, log_to_driver=True, ignore_reinit_error=True)
+    ray.init(include_dashboard=False, log_to_driver=True, ignore_reinit_error=True,
+             **({"object_store_memory": int(args.object_store_gb * 2**30)}
+                if args.object_store_gb else {}))
 
     vectorize_mode = (
         "sync" if args.num_envs_per_env_runner <= 1 else "vector_entry_point"

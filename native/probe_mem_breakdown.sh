@@ -11,6 +11,8 @@ set -u
 ME=$(id -un)
 echo "== node $(hostname)  user $ME  $(date -u +%FT%TZ) =="
 free -g | sed -n '1,2p'
+echo "== /dev/shm (Ray object stores live here; tmpfs pages are charged to the cgroup) =="
+df -h /dev/shm | tail -1
 
 echo "== job cgroup memory (what the OOM killer enforces) =="
 CG=$(awk -F: '{print $3}' /proc/self/cgroup | head -1)
