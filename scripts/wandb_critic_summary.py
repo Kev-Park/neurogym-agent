@@ -50,7 +50,8 @@ def main() -> int:
         if not runs:
             print(f"== {name}: NOT FOUND in {path}")
             continue
-        run = runs[0]
+        # crashed relaunches share the display name; take the longest run
+        run = max(runs, key=lambda r: r.summary.get("_step") or 0)
         rows = [r for r in run.scan_history(keys=["_step", *KEYS]) if r.get("_step") is not None]
         rows.sort(key=lambda r: r["_step"])
         if not rows:
