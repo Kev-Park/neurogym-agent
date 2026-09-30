@@ -1,0 +1,85 @@
+# zmax-left v6: THROUGHPUT SOTA — v5 recipe + CUDA graphs (2026-09-30).
+#
+# v6 delta is THROUGHPUT-ONLY (identical RL dynamics to v5, so checkpoints are
+# interchangeable and it warm-starts from v5 ckpt_490):
+#   obs.dino.cuda_graph: true — captures the frozen ViT-S/14 preprocess+forward
+#   into a replayed CUDA graph, killing per-layer launch dispatch. VERIFIED
+#   BITWISE-IDENTICAL to eager (parity 0.00e+00, job 997385/997416), so it is a
+#   drop-in with zero science risk; a per-signature eager fallback means a capture
+#   failure never crashes a run. Isolated encode() speedup 1.28-1.42x; a
+#   controlled long-window training A/B (job 997552) showed graph >= nograph
+#   (74.2 -> 98.1 sps, though noisy + only 4/12 runners captured under MPS).
+#
+# DEPLOYMENT SOTA (launcher-level, the BIGGER win — see native/): the co-pane
+# workload is HOST-RAM-bound at ~48 envs/node (~7.5G/env), so a single GPU can't
+# be scaled by adding runners. Spreading the RAM-capped 48 envs across 2 GPUs
+# (2 trainings x 12 runners x M=2, MPS) gave +30% node sps (180 -> 234, job
+# 997429) by relieving per-GPU render+DINO contention. Run v6 with the 2-GPU
+# spread, not 1x24. Dead/losing levers (job 997510): fp16 (slower at batch 2,
+# dispatch-bound + drifts), torch.compile (minutes to warm), bigger LRU, more
+# fetch workers, input_size 168 (all no-win or gated).
+#
+# Everything below is inherited from v5 (priced exploration loading); see
+# native_zmaxleft_v5.yaml for the v3/v4/v5 reward-recipe history. EVAL with
+# native_zmaxleft.yaml (v2, TimeLimit-only) as before.
+
+env:
+  backend: simulator
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet
+  projection_scale_range: [3500, 14000]
+  orientation: euler
+  headless: true
+  renderer: gpu
+  image_size: [84, 84]
+  max_episode_steps: 500
+
+obs:
+  mode: dino
+  use_left_pane: true
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+    cuda_graph: true      # v6: bitwise-safe dispatch collapse (see header)
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+model:
+  pos_hidden_dim: 64
+  trunk_hiddens: [256, 256]
+  normalize_entropy: true
+
+action:
+  verbs: 5                # right_click / rotate / zoom / double_click / xs_zoom
+  xs_zoom_step: 0.25
+  grid_rows: 32
+  grid_cols: 64
+  click_bounds: [0, 23, 1800, 876]     # x0, y0, x1, y1 — BOTH panes
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  mode: z_free
+  shaping_coef: 0.001
+  select_novelty_bonus: 0.1
+  select_novelty_end_steps: 1500000
+  select_novelty_cap: 10
+  delta_coef: 0.0003
+  select_cost: 0.0015
+  explore_penalty_coef: 0.0002
+  step_penalty: 0.0
+  budget_min: 100
+  budget_max: 500
+  stall_limit: 125
+
+ppo:
+  train_batch_size: 16000
+  sgd_minibatch_size: 512
+  num_sgd_iter: 4
+  entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01
