@@ -40,10 +40,14 @@ class ZmaxLeftDiagWrapper:
                     "seen": segs, "n0": len(segs), "new_segs": 0,
                     "segs_at_best": len(segs), "showall_steps": 0,
                     "verbs": np.zeros(8, dtype=int),
+                    # v5 exploration-reward mirror: known mesh z-max per seen
+                    # segment, and max_u sampled at each load event.
+                    "zmax": {}, "maxu_at_load": [],
                 }
 
             def _summary(self) -> dict[str, Any]:
                 t = self._t
+                mu = t["maxu_at_load"]
                 return {
                     "dz": t["z_best"] - t["z0"],
                     "new_segs": t["new_segs"],
@@ -52,6 +56,10 @@ class ZmaxLeftDiagWrapper:
                     "showall_steps": t["showall_steps"],
                     "len": t["steps"],
                     "verbs": t["verbs"][:6].tolist(),
+                    # mean best-unexploited-candidate size at load events: ~0
+                    # means loads happen only once the hand is exhausted (the
+                    # v5 target behavior); large means shopping while holding.
+                    "mean_maxu": round(float(np.mean(mu)), 1) if mu else 0.0,
                 }
 
             def _emit(self) -> dict[str, Any]:
@@ -60,7 +68,8 @@ class ZmaxLeftDiagWrapper:
                 print(f"[zmaxleft-ep] n={_Impl._ep_seq} dz={d['dz']:.1f} "
                       f"new_segs={d['new_segs']} hop_climb={d['hop_climb']} "
                       f"best@{d['steps_at_best']} showall={d['showall_steps']} "
-                      f"len={d['len']} verbs={d['verbs']}", flush=True)
+                      f"len={d['len']} maxu={d['mean_maxu']} "
+                      f"verbs={d['verbs']}", flush=True)
                 return d
 
             def reset(self, **kwargs):
@@ -87,8 +96,17 @@ class ZmaxLeftDiagWrapper:
                 segs = set(obs.get("segments", ()))
                 new = segs - t["seen"]
                 if new:
+                    # max_u at load time (mirrors z_free's pricing: best
+                    # unexploited candidate already in hand, pre-addition).
+                    u = max((zm - t["z_best"] for s, zm in t["zmax"].items()
+                             if s in t["seen"]), default=0.0)
+                    t["maxu_at_load"].append(max(0.0, u))
                     t["seen"] |= new
                     t["new_segs"] += len(new)
+                for sid, zm in zip(obs.get("segments", ()),
+                                   obs.get("segment_zmax", ())):
+                    if float(zm) > 0.0:
+                        t["zmax"][str(sid)] = float(zm)
                 if not segs:
                     t["showall_steps"] += 1
                 z = float(np.asarray(obs["position"])[2])

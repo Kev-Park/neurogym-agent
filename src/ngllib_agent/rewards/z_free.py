@@ -67,6 +67,16 @@ class ZFreeRewardConfig:
     # good hop's value (~0.3-1.0) so ~40 shotgun selections cost ~0.1 while a
     # deliberate policy's 5-10 stay negligible.
     select_cost: float = 0.0
+    # v5 exploration-conditioned load pricing: each new load additionally
+    # costs explore_penalty_coef * max_u, where max_u = max over the episode's
+    # SEEN segments (with landed meshes) of max(0, mesh_zmax - z_best) — the
+    # best UNEXPLOITED candidate already in hand. Loading while holding an
+    # unclimbed tall candidate is expensive; once everything in hand is
+    # topped-out or below the episode best, only select_cost (the flat
+    # externality floor that keeps dud-spam negative-EV) remains. Continuous,
+    # threshold-free, derived from the task variable itself. Seen-set (not
+    # visible-set) so deselecting an unexplored candidate cannot dodge it.
+    explore_penalty_coef: float = 0.0
 
 
 def _z(obs: dict[str, Any]) -> float:
@@ -111,7 +121,18 @@ def make_zfree_reward_factory(
     def factory(task_info: dict[str, Any]) -> Callable[..., float]:
         # Per-episode closure state, initialized lazily from the FIRST call's
         # prev_obs (= the reset observation).
-        state = {"z_best": None, "seen": None}
+        state = {"z_best": None, "seen": None, "zmax": {}}
+
+        def note_zmax(obs) -> None:
+            for sid, zm in zip(obs.get("segments", ()),
+                               obs.get("segment_zmax", ())):
+                if float(zm) > 0.0:
+                    state["zmax"][str(sid)] = float(zm)
+
+        def max_unexplored() -> float:
+            zb = state["z_best"]
+            return max(0.0, max((state["zmax"][s] - zb for s in state["seen"]
+                                 if s in state["zmax"]), default=0.0))
 
         def novelty_scale() -> float:
             end = cfg.select_novelty_end_steps
@@ -141,6 +162,12 @@ def make_zfree_reward_factory(
             # payout capped at the first `select_novelty_cap` new segments)
             new = _visible(obs) - state["seen"]
             if new:
+                # v5: price each new load against the best unexploited
+                # candidate ALREADY in hand (before this step's additions;
+                # their own meshes cannot have landed yet anyway).
+                load_cost = cfg.select_cost
+                if cfg.explore_penalty_coef:
+                    load_cost += cfg.explore_penalty_coef * max_unexplored()
                 n0 = len(state["seen"])
                 state["seen"] |= new
                 paid = len(new)
@@ -149,10 +176,8 @@ def make_zfree_reward_factory(
                     paid = max(0, min(paid, cfg.select_novelty_cap - already))
                 if paid:
                     r += cfg.select_novelty_bonus * novelty_scale() * paid
-                # v4: first-load cost for EVERY new distinct segment (uncapped;
-                # the anneal-era bonus nets it positive early, so the bootstrap
-                # is intact and the cost bites once the scaffold fades).
-                r -= cfg.select_cost * len(new)
+                r -= load_cost * len(new)
+            note_zmax(obs)
             return float(r)
 
         return reward_fn

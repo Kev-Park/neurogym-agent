@@ -127,6 +127,7 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
             step_penalty=rc.get("step_penalty", 0.0),
             delta_coef=rc.get("delta_coef", 0.0),
             select_cost=rc.get("select_cost", 0.0),
+            explore_penalty_coef=rc.get("explore_penalty_coef", 0.0),
         )
         reward_factory = make_zfree_reward_factory(zfree)
         # v3 earliness pressure (TRAINING configs only — eval uses the v2

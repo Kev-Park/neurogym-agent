@@ -119,3 +119,40 @@ def test_v4_delta_and_select_cost():
     # reselect of an already-seen segment: free
     r = rew(_o(60.0, ("a",)), None, _o(60.0, ()), False)
     assert abs(r) < 1e-9
+
+
+def test_v5_exploration_conditioned_load_cost():
+    from ngllib_agent.rewards import ZFreeRewardConfig, make_zfree_reward_factory
+
+    cfg = ZFreeRewardConfig(shaping_coef=0.0, select_novelty_bonus=0.0,
+                            select_cost=0.001, explore_penalty_coef=0.0002)
+    rew = make_zfree_reward_factory(cfg)({})
+
+    def _o(z, segs=(), zmax=()):
+        return {"position": np.array([0.0, 0.0, float(z)], dtype=np.float32),
+                "segments": tuple(segs), "segment_zmax": tuple(zmax)}
+
+    # Load segment "a" from an empty hand: flat floor only (nothing unexplored)
+    r = rew(_o(0.0, ("a",), (-1.0,)), None, _o(0.0), False)
+    assert abs(r - (-0.001)) < 1e-9
+    # a's mesh lands: zmax 1000, z_best still 0 -> max_u = 1000. Loading "b"
+    # now pays floor + 0.0002*1000 = 0.201.
+    r = rew(_o(0.0, ("a",), (1000.0,)), None, _o(0.0, ("a",)), False)
+    assert abs(r) < 1e-9  # mesh landing itself is free
+    r = rew(_o(0.0, ("a", "b"), (1000.0, -1.0)), None, _o(0.0, ("a",)), False)
+    assert abs(r - (-(0.001 + 0.0002 * 1000))) < 1e-9
+    # Climb past a's ceiling (b's mesh lands short at 500): hand exhausted,
+    # loading "c" is back to the flat floor.
+    r = rew(_o(1200.0, ("a", "b"), (1000.0, 500.0)), None,
+            _o(0.0, ("a", "b")), False)
+    assert abs(r) < 1e-9
+    r = rew(_o(1200.0, ("a", "b", "c"), (1000.0, 500.0, -1.0)), None,
+            _o(1200.0, ("a", "b")), False)
+    assert abs(r - (-0.001)) < 1e-9
+    # Deselecting the unexplored candidate must NOT dodge the penalty:
+    rew2 = make_zfree_reward_factory(cfg)({})
+    rew2(_o(0.0, ("a",), (-1.0,)), None, _o(0.0), False)
+    rew2(_o(0.0, ("a",), (2000.0,)), None, _o(0.0, ("a",)), False)
+    r = rew2(_o(0.0, (), ()), None, _o(0.0, ("a",)), False)   # deselect a
+    r = rew2(_o(0.0, ("d",), (-1.0,)), None, _o(0.0, ()), False)
+    assert abs(r - (-(0.001 + 0.0002 * 2000))) < 1e-9
