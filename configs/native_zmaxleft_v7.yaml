@@ -1,0 +1,87 @@
+# zmax-left v7: PATCH-TOKEN (spatial) policy on the v6 throughput layout (2026-10-01).
+#
+# Every policy before v7 saw one pooled DINOv2 CLS vector per pane. The click
+# hit-rate audit (2026-09-30, 6 holdout eps each) showed why that caps out:
+# 3D right-clicks that actually moved the camera were 11% (v9-test), 25% (v4),
+# 13% (v5b) -- about the geometry coverage fraction, i.e. the cell head could
+# not aim because nothing in its input was spatially indexed. v7 adds
+# obs.dino.patch_dim: the 16x16 grid of DINO patch tokens per pane, projected
+# 384->64 by a fixed seeded orthogonal matrix (obs.patch_features), and the
+# RLModule's trunk (verb / rotate / zoom / value) + a per-location click head
+# are conditioned on it (policies/hierarchical.py "Spatial variant").
+# CLS is still fed to the trunk (model.use_cls).
+#
+# Reward = v5b terms (the proven exploration-priced band: select_cost 0.0015,
+# explore_penalty_coef 0.00005; 0.0002 collapsed selection on warm-start).
+# Trained FROM SCRATCH (new head shape) with the standard entropy schedule.
+# Layout = v6 (CUDA graphs, 24 runners x M=2 over 4 GPUs, MPS) + LEARNER_GPU=1
+# (the conv trunk is too slow to update on the CPU learner). Compare against
+# v5b (same reward, CLS-only) with the click hit-rate audit + paired eval.
+# EVAL with native_zmaxleft.yaml (v2, TimeLimit-only) as before, plus
+# obs.dino.patch_dim: 64 (eval configs must reproduce the obs space).
+
+env:
+  backend: simulator
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet
+  projection_scale_range: [3500, 14000]
+  orientation: euler
+  headless: true
+  renderer: gpu
+  image_size: [84, 84]
+  max_episode_steps: 500
+
+obs:
+  mode: dino
+  use_left_pane: true
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+    cuda_graph: true
+    patch_dim: 64         # v7: projected patch-token grid per pane (0 = CLS only)
+    patch_seed: 0
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+model:
+  pos_hidden_dim: 64
+  trunk_hiddens: [256, 256]
+  normalize_entropy: true
+  spatial_channels: 64
+  use_cls: true
+  cell_entropy_scale: 1.0   # knob kept at 1 so v7 vs v5b isolates the input change
+
+action:
+  verbs: 5                # right_click / rotate / zoom / double_click / xs_zoom
+  xs_zoom_step: 0.25
+  grid_rows: 32
+  grid_cols: 64
+  click_bounds: [0, 23, 1800, 876]     # x0, y0, x1, y1 — BOTH panes
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  mode: z_free
+  shaping_coef: 0.001
+  select_novelty_bonus: 0.1
+  select_novelty_end_steps: 1500000
+  select_novelty_cap: 10
+  delta_coef: 0.0003
+  select_cost: 0.0015
+  explore_penalty_coef: 0.00005
+  step_penalty: 0.0
+  budget_min: 100
+  budget_max: 500
+  stall_limit: 125
+
+ppo:
+  train_batch_size: 16000
+  sgd_minibatch_size: 512
+  num_sgd_iter: 4
+  entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01

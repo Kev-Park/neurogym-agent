@@ -110,6 +110,41 @@ def test_dino_wrapper_right_pane_only():
     assert enc.calls[-1] == [(32, 64, 3)]   # whole (already-cropped) image
     assert w.observation_space.contains(obs)
 
+class _StubPatchEncoder(_StubEncoder):
+    patch_dim = 4
+    patch_grid = 3
+
+    def encode_tokens(self, images):
+        cls = self.encode(images)
+        pt = np.stack([np.full((self.patch_grid, self.patch_grid, self.patch_dim),
+                               im.mean(), np.float32) for im in images])
+        return cls, pt
+
+
+def test_dino_wrapper_patch_features():
+    enc = _StubPatchEncoder()
+    w = DinoObservationWrapper(_StubEnv(), enc)
+    obs, _ = w.reset()
+    assert set(obs) == {"image_features", "pos_state", "patch_features"}
+    assert obs["patch_features"].shape == (2, 3, 3, 4)
+    assert np.allclose(obs["patch_features"][0], 10.0)    # EM pane first
+    assert np.allclose(obs["patch_features"][1], 200.0)   # then 3D
+    assert w.observation_space.contains(obs)
+    w1 = DinoObservationWrapper(_StubEnv(left_pane=False), enc)
+    assert w1.observation_space["patch_features"].shape == (1, 3, 3, 4)
+
+
+def test_orthogonal_projection_is_deterministic():
+    torch = pytest.importorskip("torch")
+    from ngllib_agent.obs.dino_encoder import orthogonal_projection
+
+    a = orthogonal_projection(384, 64, seed=7)
+    b = orthogonal_projection(384, 64, seed=7)
+    assert a.shape == (384, 64) and torch.equal(a, b)
+    assert torch.allclose(a.T @ a, torch.eye(64), atol=1e-5)
+    assert not torch.equal(a, orthogonal_projection(384, 64, seed=8))
+
+
 def test_dino_wrapper_rejects_quaternion():
     enc = _StubEncoder()
     with pytest.raises(ValueError):

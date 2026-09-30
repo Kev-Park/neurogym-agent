@@ -267,6 +267,11 @@ def _wrap_obs_and_limits(env, cfg: dict[str, Any], first_episode_limit: int | No
             use_compile=bool(dc.get("compile", False)),
             use_fp16=bool(dc.get("fp16", False)),
             use_noop=bool(dc.get("noop", False)),
+            # patch_dim > 0 adds the projected 16x16 patch-token grid per pane
+            # (obs.patch_features); the RLModule then conditions its trunk and
+            # click head on it instead of the pooled CLS token alone.
+            patch_dim=int(dc.get("patch_dim", 0)),
+            patch_seed=int(dc.get("patch_seed", 0)),
         )
         env = DinoObservationWrapper(env, encoder, pos_state_scale=scale)
     elif obs_mode == "pos":

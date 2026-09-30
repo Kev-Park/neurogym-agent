@@ -28,6 +28,11 @@
 #     cap (~10 handles x 256 MB per fetch worker + runner); 360G holds ONE
 #     training. Do NOT co-tenant a second training on the node at this LRU.
 #
+# LEARNER_GPU=1 puts the PPO update on the GPU (driver-local learner, shares
+# GPU0 under MPS). Needed by the spatial (patch-token) policies: their conv
+# trunk makes a CPU update ~30-50 s/iter, on the GPU ~2 s. Off by default so
+# the v6 measurements above stay reproducible.
+#
 # Usage: sbatch native/r_train_zmaxleft_v6.slurm [run-name] [target-iters]
 #   smoke:  USE_MPS=0 BATCH=4000 ITERS=6 WANDB_MODE=disabled \
 #           sbatch native/r_train_zmaxleft_v6.slurm zmaxleft-v6-smoke0 6
@@ -78,6 +83,7 @@ uv run --no-sync python -m ngllib_agent.train \
   --train-batch-size "$BATCH" \
   --checkpoint-dir "$CKPT" --checkpoint-every 10 \
   --wandb-project neurogym-agent --wandb-mode "$WANDB_MODE" \
+  ${LEARNER_GPU:+--learner-gpu} \
   --resume
 
 if [ "$USE_MPS" = "1" ]; then

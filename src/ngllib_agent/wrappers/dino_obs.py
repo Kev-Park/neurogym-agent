@@ -10,6 +10,14 @@ env-side DINO into a feature vector; scalar viewer state is flattened into
 Both take an injectable `encoder` (anything with `.encode(list[img]) -> (B, D)`
 and `.feature_dim`) so tests run with a stub — the real `DinoEncoder` is only
 constructed inside an env-runner via the config hook in `env_build.py`.
+
+Patch tokens (2026-10-01): an encoder with `.patch_dim > 0` and
+`.encode_tokens(list[img]) -> (cls (B, D), patches (B, G, G, patch_dim))` adds
+`patch_features: Box(P, G, G, patch_dim)` to the obs, panes in the same
+[EM, 3D] order as `image_features`. The CLS-only policy saw one pooled vector
+per pane and could not localize anything (click hit rates ~11-25% = the
+geometry coverage fraction); the spatial grid is what a click/verb decision
+is actually conditioned on.
 """
 
 from __future__ import annotations
@@ -74,34 +82,48 @@ class DinoObservationWrapper:
             if pos_state_scale is not None
             else DEFAULT_POS_STATE_SCALE
         )
-        feat_dim = (2 if use_left else 1) * int(encoder.feature_dim)
+        n_panes = 2 if use_left else 1
+        feat_dim = n_panes * int(encoder.feature_dim)
+        patch_dim = int(getattr(encoder, "patch_dim", 0) or 0)
+        patch_grid = int(getattr(encoder, "patch_grid", 0) or 0)
 
         class _Impl(gym.ObservationWrapper):
             def __init__(self, env):
                 super().__init__(env)
                 self._encoder = encoder
                 self._scale = scale
-                self.observation_space = spaces.Dict(
-                    {
-                        "image_features": spaces.Box(
-                            -np.inf, np.inf, shape=(feat_dim,), dtype=np.float32
-                        ),
-                        "pos_state": spaces.Box(
-                            -np.inf, np.inf, shape=(8,), dtype=np.float32
-                        ),
-                    }
-                )
+                space = {
+                    "image_features": spaces.Box(
+                        -np.inf, np.inf, shape=(feat_dim,), dtype=np.float32
+                    ),
+                    "pos_state": spaces.Box(
+                        -np.inf, np.inf, shape=(8,), dtype=np.float32
+                    ),
+                }
+                if patch_dim:
+                    space["patch_features"] = spaces.Box(
+                        -np.inf, np.inf,
+                        shape=(n_panes, patch_grid, patch_grid, patch_dim),
+                        dtype=np.float32,
+                    )
+                self.observation_space = spaces.Dict(space)
 
             def observation(self, obs):
                 if use_left:
                     panes = list(split_panes(obs["image"]))  # [EM, 3D]
                 else:
                     panes = [obs["image"]]                   # 3D pane only
-                feats = self._encoder.encode(panes)
-                return {
+                if patch_dim:
+                    feats, patches = self._encoder.encode_tokens(panes)
+                else:
+                    feats, patches = self._encoder.encode(panes), None
+                out = {
                     "image_features": feats.reshape(-1).astype(np.float32),
                     "pos_state": pos_state_from_obs(obs, self._scale),
                 }
+                if patch_dim:
+                    out["patch_features"] = np.ascontiguousarray(patches, dtype=np.float32)
+                return out
 
         return _Impl(env)
 

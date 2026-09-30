@@ -88,6 +88,84 @@ def test_dist_cls_bound_to_nvec():
     assert dist.sample().shape == (2, 6)
 
 
+PANES, GRID, PDIM = 2, 4, 6
+NVEC_2PANE = [5, 8 * 16, 9, 9, 9, 9]   # click grid 8x16 = 2 panes side by side
+SPATIAL_OBS_SPACE = spaces.Dict(
+    {
+        "image_features": spaces.Box(-np.inf, np.inf, (IMG_DIM,), np.float32),
+        "pos_state": spaces.Box(-np.inf, np.inf, (POS_DIM,), np.float32),
+        "patch_features": spaces.Box(-np.inf, np.inf, (PANES, GRID, GRID, PDIM), np.float32),
+    }
+)
+
+
+def _spatial_module(nvec=NVEC_2PANE, **cfg):
+    return HierarchicalPPOModule(
+        observation_space=SPATIAL_OBS_SPACE,
+        action_space=spaces.MultiDiscrete(nvec),
+        model_config={"pos_hidden_dim": 16, "trunk_hiddens": [32],
+                      "spatial_channels": 8, **cfg},
+    )
+
+
+def _spatial_batch(b=3):
+    from ray.rllib.core.columns import Columns
+
+    return {
+        Columns.OBS: {
+            "image_features": torch.randn(b, IMG_DIM),
+            "pos_state": torch.randn(b, POS_DIM),
+            "patch_features": torch.randn(b, PANES, GRID, GRID, PDIM),
+        }
+    }
+
+
+def test_spatial_forward_shapes_and_values():
+    from ray.rllib.core.columns import Columns
+
+    m = _spatial_module()
+    assert m._click_grid == (8, 16)
+    out = m.forward_train(_spatial_batch())
+    assert out[Columns.ACTION_DIST_INPUTS].shape == (3, sum(NVEC_2PANE))
+    assert m.compute_values(_spatial_batch()).shape == (3,)
+    dist = m.get_inference_action_dist_cls().from_logits(out[Columns.ACTION_DIST_INPUTS])
+    assert dist.sample().shape == (3, 6)
+
+
+def test_spatial_cell_logits_are_local():
+    """A perturbation in one pane's patch grid must move that pane's cell
+    logits more than the other pane's (the head is spatial, not pooled)."""
+    from ray.rllib.core.columns import Columns
+
+    torch.manual_seed(0)
+    m = _spatial_module(use_cls=False)
+    base = _spatial_batch(1)
+    pert = {Columns.OBS: {k: v.clone() for k, v in base[Columns.OBS].items()}}
+    pert[Columns.OBS]["patch_features"][0, 1] += 5.0          # 3D pane only
+    n_verb = NVEC_2PANE[0]
+    d = (m.forward_inference(pert)[Columns.ACTION_DIST_INPUTS]
+         - m.forward_inference(base)[Columns.ACTION_DIST_INPUTS])[0, n_verb:n_verb + 8 * 16]
+    d = d.abs().reshape(8, 16)
+    assert d[:, 8:].mean() > d[:, :8].mean()
+
+
+def test_spatial_click_grid_must_match_cells():
+    with pytest.raises(ValueError):
+        _spatial_module(nvec=[5, 100, 9, 9, 9, 9])
+    m = _spatial_module(nvec=[5, 4 * 25, 9, 9, 9, 9], click_grid=[4, 25])
+    assert m._click_grid == (4, 25)
+
+
+def test_cell_entropy_scale():
+    from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
+
+    logits = torch.randn(4, sum(NVEC))
+    h1 = HierarchicalMultiCategorical.for_nvec(NVEC, normalize_entropy=True).from_logits(logits).entropy()
+    h0 = HierarchicalMultiCategorical.for_nvec(
+        NVEC, normalize_entropy=True, cell_entropy_scale=0.0).from_logits(logits).entropy()
+    assert torch.all(h0 < h1)
+
+
 class _FakeZNavEnv(gym.Env):
     """Same spaces as the DINO-wrapped env; reward loosely favors action_type=2."""
 
@@ -112,7 +190,22 @@ class _FakeZNavEnv(gym.Env):
         return self._obs(), reward, False, self._t >= 20, {}
 
 
-def test_ppo_one_iter_end_to_end():
+class _FakeSpatialEnv(_FakeZNavEnv):
+    def __init__(self, config=None):
+        super().__init__(config)
+        self.observation_space = SPATIAL_OBS_SPACE
+        self.action_space = spaces.MultiDiscrete(NVEC_2PANE)
+
+    def _obs(self):
+        return {
+            "image_features": np.random.randn(IMG_DIM).astype(np.float32),
+            "pos_state": np.random.randn(POS_DIM).astype(np.float32),
+            "patch_features": np.random.randn(PANES, GRID, GRID, PDIM).astype(np.float32),
+        }
+
+
+@pytest.mark.parametrize("env_cls", [_FakeZNavEnv, _FakeSpatialEnv])
+def test_ppo_one_iter_end_to_end(env_cls):
     """Full PPO train iteration through the custom module + gated distribution."""
     from ray.rllib.algorithms.ppo import PPOConfig
     from ray.rllib.core.rl_module.rl_module import RLModuleSpec
@@ -121,7 +214,7 @@ def test_ppo_one_iter_end_to_end():
     try:
         config = (
             PPOConfig()
-            .environment(_FakeZNavEnv)
+            .environment(env_cls)
             .framework("torch")
             .env_runners(num_env_runners=0, rollout_fragment_length="auto")
             .learners(num_learners=0)
@@ -129,7 +222,8 @@ def test_ppo_one_iter_end_to_end():
             .rl_module(
                 rl_module_spec=RLModuleSpec(
                     module_class=HierarchicalPPOModule,
-                    model_config={"pos_hidden_dim": 16, "trunk_hiddens": [32]},
+                    model_config={"pos_hidden_dim": 16, "trunk_hiddens": [32],
+                                  "spatial_channels": 8},
                 )
             )
         )
