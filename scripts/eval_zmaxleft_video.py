@@ -62,9 +62,27 @@ def action_label(a, spec) -> str:
 
 
 GRAPH_H = 80  # z-trajectory strip appended below the panes
+CAPTURE_SCALE = 0.5  # frame px per CSS px (900x450 capture of the 1800x900 window)
+CLICK_FILL = {0: (80, 220, 255), 3: (255, 190, 60)}  # right_click cyan, dblclick orange
 
 
-def annotate(frames, zs, nsegs, labels, z0, seg_z_max):
+def click_rect(a, spec):
+    """Frame-pixel rect (x0, y0, x1, y1) of the grid cell a click verb hit,
+    or None for non-click verbs. Same cell geometry as action.cell_to_pixel,
+    scaled from CSS to the captured frame."""
+    v = int(a[0])
+    if v not in CLICK_FILL:
+        return None
+    cell = int(a[1])
+    row, col = cell // spec.grid_cols, cell % spec.grid_cols
+    cw = (spec.pane_x1 - spec.pane_x0) / spec.grid_cols
+    ch = (spec.pane_y1 - spec.pane_y0) / spec.grid_rows
+    x0 = (spec.pane_x0 + col * cw) * CAPTURE_SCALE
+    y0 = (spec.pane_y0 + row * ch) * CAPTURE_SCALE
+    return v, (x0, y0, x0 + cw * CAPTURE_SCALE, y0 + ch * CAPTURE_SCALE)
+
+
+def annotate(frames, zs, nsegs, labels, z0, seg_z_max, clicks=()):
     from PIL import Image, ImageDraw, ImageFont
 
     try:
@@ -111,6 +129,16 @@ def annotate(frames, zs, nsegs, labels, z0, seg_z_max):
     n = len(frames)
     for i, (frame, z) in enumerate(zip(frames, zs)):
         pane = Image.fromarray(frame)
+        # Translucent highlight on the grid cell the action that produced this
+        # frame clicked (frame i follows action i-1), color-coded by verb.
+        hit = clicks[i - 1] if i > 0 and i - 1 < len(clicks) else None
+        if hit is not None:
+            v, (x0, y0, x1, y1) = hit
+            overlay = Image.new("RGBA", pane.size, (0, 0, 0, 0))
+            ImageDraw.Draw(overlay).rectangle(
+                [x0, y0, x1, y1], fill=(*CLICK_FILL[v], 90),
+                outline=(*CLICK_FILL[v], 230), width=2)
+            pane = Image.alpha_composite(pane.convert("RGBA"), overlay).convert("RGB")
         img = Image.new("RGB", (pane.width, pane.height + GRAPH_H))
         img.paste(pane, (0, 0))
         img.paste(graph_strip(pane.width, i), (0, pane.height))
@@ -214,12 +242,14 @@ def main() -> int:
         state, info = state_from_row(row)
         frames.clear(); zs.clear(); nsegs.clear()
         labels: list[str] = []
+        clicks: list = []
         signal.alarm(1200)
         try:
             obs, _ = env.reset(options={"state": state, "task_info": info})
             for _ in range(args.max_steps):
                 a = policy.act(obs)
                 labels.append(action_label(np.asarray(a).ravel(), spec))
+                clicks.append(click_rect(np.asarray(a).ravel(), spec))
                 obs, r, term, trunc, _ = env.step(a)
                 if term or trunc:
                     break
@@ -237,7 +267,8 @@ def main() -> int:
         z0 = zs[0]
         dz = float(np.max(zs) - z0)
         headroom = float(row["seg_z_max"]) - float(row["z"])
-        ann = annotate(frames, zs, nsegs, labels, z0, float(row["seg_z_max"]))
+        ann = annotate(frames, zs, nsegs, labels, z0, float(row["seg_z_max"]),
+                       clicks)
         name = f"zl_idx{idx:03d}_head{headroom:.0f}_dz{dz:+.0f}.mp4"
         imageio.mimwrite(os.path.join(args.out_dir, name), ann, fps=args.fps)
         manifest.append({"idx": idx, "file": name, "dz": round(dz, 1),
