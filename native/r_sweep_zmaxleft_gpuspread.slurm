@@ -61,6 +61,9 @@ CFG_N=(24 24 12 6 8)
 run_config() {
   local c=$1 G=${2} N=${3}
   echo "[sweep] === config c$c: G=$G GPUs x N=$N runners/GPU (total $((G*N)) runners, M=2) ==="
+  # --iters is an ABSOLUTE target (train.py:397); warm-start resumes at iter
+  # ~490, so a small --iters exits after 1 iter. We pass a huge --iters so the
+  # WINDOW (not the iter count) bounds each config and yields many steady iters.
   local pids="" i
   for ((i=0; i<G; i++)); do
     mkdir -p "$TMP/c${c}_g${i}"
@@ -72,7 +75,7 @@ run_config() {
         --num-env-runners "$N" --num-envs-per-env-runner 2 \
         --num-gpus-per-env-runner 0.01 --num-cpus-per-env-runner 0.5 \
         --no-spawn-curriculum --no-degraded-exit --stagger-first-episode \
-        --iters 100 --train-batch-size "$BATCH" \
+        --iters 999999 --train-batch-size "$BATCH" \
         --checkpoint-dir "$TMP/c${c}_g${i}" --checkpoint-every 999999 --resume \
         --wandb-mode disabled > "slurm_outputs/sweep-c${c}-g${i}-$J.out" 2>&1 &
     pids="$pids $!"
