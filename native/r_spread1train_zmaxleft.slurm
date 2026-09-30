@@ -5,8 +5,8 @@
 #SBATCH --qos=normal
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:3090:2
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=360G
+#SBATCH --cpus-per-task=28
+#SBATCH --mem=240G
 #SBATCH --time=00:40:00
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
 #SBATCH --output=slurm_outputs/slurm-%x-%j.out
@@ -25,6 +25,7 @@ J=$SLURM_JOB_ID
 PKL=${1:-/scratch/kp0374/checkpoints/zmaxleft-v5/ckpt_000490.pkl}
 BATCH=${BATCH:-16000}
 WINDOW=${WINDOW:-700}
+NR=${RUNNERS:-16}     # runners; 16x2=32 envs ~240G (RAM-safe + schedulable)
 TMP=/tmp/zlspread1t_$J
 
 export PYTHONUNBUFFERED=1 RAY_ENABLE_UV_RUN_RUNTIME_ENV=0 RAY_memory_monitor_refresh_ms=0
@@ -46,7 +47,7 @@ run_arm() {
     uv run --no-sync python -m ngllib_agent.train \
       --config configs/native_zmaxleft_v6.yaml --run-name "spread1t-$name-$J" \
       --obs dino --vector threads \
-      --num-env-runners 24 --num-envs-per-env-runner 2 \
+      --num-env-runners "$NR" --num-envs-per-env-runner 2 \
       --num-gpus-per-env-runner "$gpufrac" --num-cpus-per-env-runner 1.0 \
       --no-spawn-curriculum --no-degraded-exit --stagger-first-episode \
       --iters 999999 --train-batch-size "$BATCH" \
