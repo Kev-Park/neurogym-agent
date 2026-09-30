@@ -77,8 +77,15 @@ run_arm() {
   sleep 10
 }
 
-run_arm nograph ""
-run_arm graph   "--set obs.dino.cuda_graph=true"
+# Arms as "name|extra-args;name|extra-args" (ARMS env). Default = the graph A/B.
+# e.g. ARMS="graph|--set obs.dino.cuda_graph=true;noop|--set obs.dino.noop=true"
+# runs the DINO-noop R_cap arm: sps with the ViT removed => how much of the
+# per-GPU ceiling is DINO compute vs render/GL-context time-slicing.
+ARMS=${ARMS:-"nograph|;graph|--set obs.dino.cuda_graph=true"}
+IFS=';' read -ra ARM_LIST <<< "$ARMS"
+for a in "${ARM_LIST[@]}"; do
+  run_arm "${a%%|*}" "${a#*|}"
+done
 
 echo "[graphab] === SUMMARY ==="
 grep -hE '^\[graphab\] RESULT ' slurm_outputs/slurm-zl-graphab-$J.out 2>/dev/null || true
