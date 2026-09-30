@@ -1,0 +1,119 @@
+# zmax-left v5b: retuned exploration pricing after the v5 collapse
+# (2026-09-30: lambda=0.0002 warm-started from v4 suppressed selection to
+# 0.32 segs/ep, hop episodes 99.5%->20%, median dz 1401->475 — a suppression
+# trap: the repricing shock pushed the select verb down globally before the
+# policy could find the free-loading regime, and entropy 0.01 gave no way
+# back). v5b: lambda /4 and entropy held at 0.03 for the refinement window
+# so hopping survives repricing. Warm-start from v4 ckpt_450 again.
+#
+# original v5 header:
+# zmax-left v5: EXPLORATION-PRICED loading — v4 recipe + potential-conditioned
+# load cost (2026-09-29, approved design discussion).
+#
+# v5 delta: reward.explore_penalty_coef prices each new load against the best
+# UNEXPLOITED candidate already in hand (max_u = max over seen segments of
+# mesh_zmax - z_best, clamped at 0; mesh_zmax comes from loaded geometry via
+# obs.segment_zmax). select_cost drops to a smaller flat floor that keeps
+# dud-spam negative-EV. Continuous and threshold-free: loading is expensive
+# while holding an unclimbed tall candidate, moderate over a part-climbed one,
+# and exactly free once everything in hand is topped-out — total loads stay
+# unlimited as long as loads are consumed. Warm-start from v4 ckpt_450
+# (450->600). Success = mean_maxu at load ~0 + shrinking load count, dz not
+# worse than v4 (paired). Below: inherited v4 header + config.
+
+# zmax-left v4: DELIBERATE free climb — v3 recipe + behavior-refinement terms.
+#
+# v4 deltas (2026-09-28, approved): reward.delta_coef (symmetric plain-delta
+# shaping — potential-based descent aversion) and reward.select_cost (first-
+# load cost per distinct new segment; exploration is robustly learned, so we
+# now price the shotgun's real mesh-load cost). Warm-started from v3 ckpt_300
+# (iters 300->450); success = new_segs/ep down substantially at non-worse
+# paired dz. Everything below is inherited v3.
+#
+# From native_zmaxleft.yaml. v3 deltas (2026-09-26), minimal-bias efficiency:
+#   - reward.budget_min/max: per-episode TERMINATION at a budget ~ U[100,500]
+#     (unobserved). Under an uncertain horizon the return-maximizing policy
+#     front-loads z gains — earliness derived from the objective, no shaped
+#     signal about HOW to be fast. Termination (not truncation) is load-bearing:
+#     RLlib bootstraps V on truncation, which would null the pressure.
+#   - reward.stall_limit: terminate after 125 steps with no new episode z-best
+#     (guard against dithering; defines "progress" = z gain, nothing else).
+#   - Training pairs with speculative candidate-mesh prefetch in the renderer
+#     (NGL_NATIVE_MESH_PREFETCH, set by the v3 slurm script): hop payoffs stop
+#     being fetch-latency-delayed, so climb-vs-hop competes on merit.
+#   - max_episode_steps stays 500 as the outer TimeLimit; the sampled budget
+#     terminates first. gamma/entropy/novelty anneal unchanged (don't lower
+#     gamma for speed — hop payoffs arrive ~tens of steps after the click).
+#
+# EVAL PROTOCOL: evaluate with native_zmaxleft.yaml (v2, no termination keys)
+# so eval episodes stay TimeLimit-only and dz@budget stays paired-comparable.
+# Checkpoints ARE architecture-compatible with v2 (same 5-verb head).
+
+env:
+  backend: simulator
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet
+  projection_scale_range: [3500, 14000]
+  orientation: euler
+  headless: true
+  renderer: gpu
+  image_size: [84, 84]
+  max_episode_steps: 500
+
+obs:
+  # The training/eval CLIs (--obs, default dino) override this key, so
+  # it documents the run rather than configuring it. dino => BOTH
+  # panes render (use_left_pane below); pane keys under env: are
+  # ignored in dino mode.
+  mode: dino
+  # Two-pane composite (2D EM left + 3D right). Right-pane-only lost
+  # ~19pp (2026-08-31 ablation); zmax-left additionally needs the left
+  # pane for hop-candidate visibility and selection clicks.
+  use_left_pane: true
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+model:
+  pos_hidden_dim: 64
+  trunk_hiddens: [256, 256]
+  normalize_entropy: true
+
+action:
+  verbs: 5                # right_click / rotate / zoom / double_click / xs_zoom
+  xs_zoom_step: 0.25
+  grid_rows: 32
+  grid_cols: 64
+  click_bounds: [0, 23, 1800, 876]     # x0, y0, x1, y1 — BOTH panes
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  mode: z_free
+  shaping_coef: 0.001
+  select_novelty_bonus: 0.1
+  select_novelty_end_steps: 1500000
+  select_novelty_cap: 10
+  delta_coef: 0.0003    # v4: symmetric plain-delta shaping (mild descent aversion)
+  select_cost: 0.0015   # v5: flat externality floor (anti dud-spam)
+  explore_penalty_coef: 0.00005  # v5b: /4 after v5 suppression collapse
+  step_penalty: 0.0
+  # v3 earliness pressure (see header):
+  budget_min: 100
+  budget_max: 500
+  stall_limit: 125
+
+ppo:
+  train_batch_size: 16000
+  sgd_minibatch_size: 512
+  num_sgd_iter: 4
+  entropy_coeff: [[0, 0.03]]   # v5b: held at 0.03 so repricing can't
+                               # silently kill the select verb
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01
