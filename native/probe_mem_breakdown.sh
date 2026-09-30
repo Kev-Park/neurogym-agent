@@ -14,7 +14,7 @@ free -g | sed -n '1,2p'
 
 echo "== job cgroup memory (what the OOM killer enforces) =="
 CG=$(awk -F: '{print $3}' /proc/self/cgroup | head -1)
-for f in /sys/fs/cgroup${CG}/memory.current /sys/fs/cgroup${CG}/memory.max \
+for f in /sys/fs/cgroup${CG}/memory.current /sys/fs/cgroup${CG}/memory.peak /sys/fs/cgroup${CG}/memory.max \
          /sys/fs/cgroup/memory${CG}/memory.usage_in_bytes /sys/fs/cgroup/memory${CG}/memory.limit_in_bytes; do
   [ -r "$f" ] && awk -v f="$f" '{printf "%s = %.1f GB\n", f, $1/1073741824}' "$f"
 done
