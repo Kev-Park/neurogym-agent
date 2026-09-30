@@ -240,3 +240,27 @@ speedup; the per-env-context default is fine at low density.
 - Parity: `sbatch scripts/rb_parity.slurm`
 - Sweep: `bash scripts/rb_sweep.sh` (GRID/ARMS env vars), or `scripts/rb_bench.slurm`
   with CONFIG/RUNNERS/ENVS. All under a per-job CUDA MPS daemon.
+
+## Co-pane (both-pane, zmax-left) regime — see `Seung Lab/sps_scaling_laws.md` §11
+
+Everything in this file is the right-pane single-mesh workload. The both-pane workload
+(zmax-left, `native_zmaxleft_v5/v6.yaml`) was worked through 2026-09-29 → 10-01 on the
+`zmax-left` branches (neurogym-agent ≥ `3e4070e`, neurogym ≥ `2b5e97c`); the full
+write-up — config, laws, levers, gotchas — is §11 of the root scaling-laws doc. Two findings
+cut across into THIS branch's results:
+
+1. **GL-context placement bug (fixed on neurogym `zmax-left` only).** `render3d.py` opened
+   its EGL context with no `device_index`; EGL ignores `CUDA_VISIBLE_DEVICES`, so every
+   runner's GL context sat on physical GPU0 while only DINO spread across GPUs (8-GPU proof:
+   GPU0 9.8 GB vs 1.7 GB elsewhere). The "Multi-GPU per NODE" section above launched G
+   trainings with `CUDA_VISIBLE_DEVICES=i` each — under that bug all their GL contexts share
+   physical GPU0, so those aggregates (and the 4th-GPU CUDA-init failure) deserve a re-measure
+   with the fix merged. Check: after warm-up, `nvidia-smi --query-gpu=index,memory.used` must
+   be ~equal across the job's GPUs.
+2. **"The ceiling is synchronous PPO, not GL contexts" is right-pane-specific.** In the
+   co-pane regime removing DINO entirely lifted a 24-runner GPU only +13 %, and placing one
+   training's 24 runners across 4 GPUs (with the fix) took it from 218 → 269 sps median
+   (~285 fast) — the pacer there is the 24 time-sliced GL contexts + readback.
+
+Best co-pane config: `native/r_train_zmaxleft_v6.slurm` on neurogym-agent `zmax-left`
+(v6 = v5 + CUDA graphs; 24 runners × M=2 over 4 GPUs, 6/GPU; ~270 sps median vs ~170 on 1 GPU).
