@@ -259,6 +259,14 @@ def _wrap_obs_and_limits(env, cfg: dict[str, Any], first_episode_limit: int | No
             model_name=dc.get("model_name", "dinov2_vits14"),
             input_size=dc.get("input_size", 224),
             device=dc.get("device"),
+            # Throughput levers (all default off -> bitwise-identical eager path):
+            #   cuda_graph = bitwise-safe dispatch collapse (adoptable);
+            #   compile/fp16 = numerics-drifting (DYNAMICS-GATED, needs a transfer
+            #   check before adoption); noop = R_cap probe (zero features).
+            use_cuda_graph=bool(dc.get("cuda_graph", False)),
+            use_compile=bool(dc.get("compile", False)),
+            use_fp16=bool(dc.get("fp16", False)),
+            use_noop=bool(dc.get("noop", False)),
         )
         env = DinoObservationWrapper(env, encoder, pos_state_scale=scale)
     elif obs_mode == "pos":
