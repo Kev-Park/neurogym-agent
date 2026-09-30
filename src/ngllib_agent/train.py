@@ -36,6 +36,11 @@ os.environ.setdefault("RAY_ADDRESS", "local")
 def build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="ngllib_agent.train")
     ap.add_argument("--config", default="configs/ppo_zmax_navigate.yaml")
+    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                    help="Dotted config override applied after load, e.g. "
+                         "obs.dino.cuda_graph=true or ppo.lr=1e-4. Value is parsed "
+                         "as YAML (true/1.5/text). Repeatable. For throughput "
+                         "sweeps without a config-file-per-lever.")
     ap.add_argument("--run-name", default=f"znav-{int(time.time())}")
     ap.add_argument("--iters", type=int, default=250)
     ap.add_argument("--obs", choices=["pos", "dino"], default="dino")
@@ -149,6 +154,18 @@ def main(argv=None) -> int:
     from .env_build import load_config, make_env_creator
 
     cfg = load_config(args.config)
+    # --set dotted overrides (applied before any cfg-derived setup below).
+    if args.set:
+        import yaml as _yaml
+        for override in args.set:
+            key, sep, val = override.partition("=")
+            if not sep:
+                raise SystemExit(f"--set expects KEY=VALUE, got {override!r}")
+            node = cfg
+            parts = key.strip().split(".")
+            for p in parts[:-1]:
+                node = node.setdefault(p, {})
+            node[parts[-1]] = _yaml.safe_load(val)
     cfg.setdefault("obs", {})["mode"] = args.obs
     if args.recovery_mode:
         cfg.setdefault("env", {})["recovery_mode"] = args.recovery_mode
