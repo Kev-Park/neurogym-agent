@@ -4,11 +4,14 @@
 #SBATCH --account=pni
 #SBATCH --qos=normal
 #SBATCH --nodes=1
-#SBATCH --exclusive
 #SBATCH --gres=gpu:3090:8
 #SBATCH --cpus-per-task=48
 #SBATCH --mem=360G
 #SBATCH --time=01:10:00
+# Defaults = the full 24-runner / 8-GPU run (needs an EMPTY node). On a busy
+# fleet fit what is free instead, e.g. 16 runners on 4 GPUs (32 env ~240G):
+#   RUNNERS=16 sbatch --gres=gpu:3090:4 --mem=260G --cpus-per-task=32 <this>
+# Arms are derived from RUNNERS and the allocated GPU count (below).
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
 #SBATCH --output=slurm_outputs/slurm-%x-%j.out
 #
@@ -75,15 +78,21 @@ run_arm() {
 }
 
 # Placement: Ray PACKS fractional GPU requests onto one device until it is full
-# (floor(1/frac) runners per GPU), so an even spread needs frac = 1/(runners per
-# GPU) exactly — e.g. 0.08 would put 12 runners on GPU0 and only the rest on
-# GPU1. Fractions below are 1/k for k = NR/G runners per GPU (24 runners):
-#   1 GPU: 24/GPU   2 GPU: 12/GPU   4 GPU: 6/GPU   8 GPU: 3/GPU
-# Baseline first so a walltime cut still leaves the key comparison.
-run_arm 1gpu "0"               0.041
-run_arm 2gpu "0,1"             0.083
-run_arm 4gpu "0,1,2,3"         0.166
-run_arm 8gpu "0,1,2,3,4,5,6,7" 0.333
+# (floor(1/frac) runners per GPU), so an even spread needs frac just under
+# 1/k for k = NR/G runners per GPU — e.g. 0.08 would put 12 runners on GPU0 and
+# only the rest on GPU1. Arms: the same NR runners on 1/2/4/8 GPUs, skipping a
+# split that isn't an integer or needs more GPUs than this job was allocated.
+# Baseline (1 GPU) first so a walltime cut still leaves the key comparison.
+NGPU=$(nvidia-smi -L | wc -l)
+for G in 1 2 4 8; do
+  if [ "$G" -gt "$NGPU" ]; then echo "[spread1t] skip ${G}gpu: only $NGPU GPUs allocated"; continue; fi
+  if [ $((NR % G)) -ne 0 ]; then echo "[spread1t] skip ${G}gpu: $NR runners not divisible by $G"; continue; fi
+  k=$((NR / G))
+  frac=$(awk -v k="$k" 'BEGIN{printf "%.4f", 1.0/k - 0.0005}')   # floor(1/frac)==k, k*frac<1
+  gpus=$(seq -s, 0 $((G - 1)))
+  echo "[spread1t] arm ${G}gpu: $k runners/GPU, frac=$frac"
+  run_arm "${G}gpu" "$gpus" "$frac"
+done
 
 echo "[spread1t] === SUMMARY ==="
 grep -hE '^\[spread1t\] RESULT ' slurm_outputs/slurm-zl-spread1t-$J.out 2>/dev/null || true
