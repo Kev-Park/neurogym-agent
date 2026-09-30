@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:3090:8
 #SBATCH --cpus-per-task=64
 #SBATCH --mem=360G
-#SBATCH --time=01:00:00
+#SBATCH --time=01:15:00
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
 #SBATCH --output=slurm_outputs/slurm-%x-%j.out
 #
@@ -26,8 +26,12 @@ cd "${SLURM_SUBMIT_DIR:-$(pwd)}"
 mkdir -p slurm_outputs
 J=$SLURM_JOB_ID
 PKL=${1:-/scratch/kp0374/checkpoints/zmaxleft-v5/ckpt_000490.pkl}
-BATCH=${2:-5000}
-WINDOW=${WINDOW:-330}          # seconds/config: ~1 cold iter + >=5 steady iters
+BATCH=${2:-4000}
+# Cold start is heavy for this workload (24 DINO loads + cold mesh/chunk caches +
+# runner stagger => ~100s before the 1st iter, which itself is cold-cache slow).
+# WINDOW must clear cold start AND leave >=6 steady iters; parsing drops the
+# first 2 iters. VRAM-thrashing high-density configs simply report low steady sps.
+WINDOW=${WINDOW:-540}
 TMP=/tmp/zlsweep_$J
 
 export PYTHONUNBUFFERED=1
@@ -50,9 +54,9 @@ nvidia-cuda-mps-control -d && echo "[sweep] MPS up on $(hostname) job=$J cores=$
 
 # (G GPUs, N runners/GPU). Key comparisons first (survive an early timeout):
 #   c0 (1,24) baseline = live v5    c1..c3 (48 runners spread over 2/4/8 GPUs)
-#   c4 (2,12) 24 runners over 2 GPUs (pure spread)   c5 (8,8) 64-runner max
-CFG_G=(1 2 4 8 2 8)
-CFG_N=(24 24 12 6 12 8)
+#   c4 (8,8) 64-runner max spread
+CFG_G=(1 2 4 8 8)
+CFG_N=(24 24 12 6 8)
 
 run_config() {
   local c=$1 G=${2} N=${3}
@@ -75,16 +79,17 @@ run_config() {
   done
   echo "[sweep] c$c: $G trainings launched, window ${WINDOW}s"
   sleep "$WINDOW"
-  # steady per-GPU sps = mean of the LAST 3 iter lines; node sps = sum over GPUs.
+  # steady per-GPU sps = mean of iters AFTER the first 2 (drop cold-cache iters);
+  # node sps = sum over GPUs. Also report the cold 1st-iter sps for context.
   local total=0 got=0
   for ((i=0; i<G; i++)); do
     local f="slurm_outputs/sweep-c${c}-g${i}-$J.out"
-    local s
-    s=$(grep -hoE 'sps=[0-9.]+' "$f" 2>/dev/null | tail -3 | sed 's/sps=//' \
-        | awk '{n++; sum+=$1} END{if(n>0) printf "%.1f", sum/n; else print "0"}')
-    local iters
+    local s cold iters
+    s=$(grep -hoE 'sps=[0-9.]+' "$f" 2>/dev/null | sed 's/sps=//' \
+        | awk 'NR>2{n++; sum+=$1} END{if(n>0) printf "%.1f", sum/n; else print "0"}')
+    cold=$(grep -hoE 'sps=[0-9.]+' "$f" 2>/dev/null | head -1 | sed 's/sps=//')
     iters=$(grep -cE '^iter ' "$f" 2>/dev/null || echo 0)
-    echo "[sweep] c$c gpu$i: steady_sps=$s (iters_done=$iters)"
+    echo "[sweep] c$c gpu$i: steady_sps=$s cold1=${cold:-NA} (iters_done=$iters)"
     total=$(awk -v t="$total" -v s="$s" 'BEGIN{printf "%.1f", t+s}')
     [ "$(awk -v s="$s" 'BEGIN{print (s>0)}')" = 1 ] && got=$((got+1))
   done
@@ -98,7 +103,7 @@ run_config() {
   sleep 10
 }
 
-for c in 0 1 2 3 4 5; do
+for c in 0 1 2 3 4; do
   run_config "$c" "${CFG_G[$c]}" "${CFG_N[$c]}"
 done
 
