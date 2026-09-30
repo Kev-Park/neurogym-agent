@@ -52,11 +52,16 @@ export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-mps-log-$J
 mkdir -p "$CUDA_MPS_PIPE_DIRECTORY" "$CUDA_MPS_LOG_DIRECTORY"
 nvidia-cuda-mps-control -d && echo "[sweep] MPS up on $(hostname) job=$J cores=$(nproc) gpus=$(nvidia-smi -L | wc -l) batch=$BATCH pkl=$PKL"
 
-# (G GPUs, N runners/GPU). Key comparisons first (survive an early timeout):
-#   c0 (1,24) baseline = live v5    c1..c3 (48 runners spread over 2/4/8 GPUs)
-#   c4 (8,8) 64-runner max spread
-CFG_G=(1 2 4 8 8)
-CFG_N=(24 24 12 6 8)
+# CORRECTED (2026-09-30): the co-pane workload is HOST-RAM-bound at ~48 envs/node
+# (~7.5G/env x 376G). The first sweep OOM-killed every config with >48 envs. So
+# hold TOTAL ENVS = 48 (=24 runners x M=2, ~360G, the node ceiling) CONSTANT and
+# split those SAME 48 envs across G GPUs: total processes (24 GILs) and RAM are
+# fixed; only per-GPU render+DINO contention varies. That isolates the spread
+# effect the user asked about. (More envs/node needs less RAM/env, a separate
+# lever; more throughput beyond ~48 envs needs multiple NODES.)
+#   c0 (1,24) = live v5 baseline   c1 (2,12)   c2 (4,6)   c3 (8,3)   all 48 envs
+CFG_G=(1 2 4 8)
+CFG_N=(24 12 6 3)
 
 run_config() {
   local c=$1 G=${2} N=${3}
@@ -106,7 +111,7 @@ run_config() {
   sleep 10
 }
 
-for c in 0 1 2 3 4; do
+for c in 0 1 2 3; do
   run_config "$c" "${CFG_G[$c]}" "${CFG_N[$c]}"
 done
 

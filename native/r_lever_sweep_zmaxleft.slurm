@@ -5,8 +5,8 @@
 #SBATCH --qos=normal
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:3090:1
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=200G
+#SBATCH --cpus-per-task=28
+#SBATCH --mem=300G
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
 #SBATCH --time=02:30:00
 #SBATCH --output=slurm_outputs/slurm-%x-%j.out
@@ -18,7 +18,11 @@
 #     batch, mesh/chunk/VAO LRU, fetch workers.
 #   DYNAMICS-GATED (numerics/obs change, need a transfer check): fp16, compile,
 #     input_size, graph+fp16.
-# N (runners/GPU) defaults 24; set RUNNERS to the spread sweep's best per-GPU N.
+# RAM WALL (2026-09-30): the co-pane workload costs ~7.5G/env host RAM, so at
+# M=2 a 300G job holds ~40 envs (~20 runners). Default N=16 (32 envs, ~240G) is
+# RAM-safe and schedulable on a shared node; lever RANKING is density-robust.
+# Raise --mem toward 370G (near-exclusive) if you need N=24 for a production-
+# density measurement. Set RUNNERS to override.
 #
 # Usage: RUNNERS=<N> sbatch native/r_lever_sweep_zmaxleft.slurm [state-pkl] [batch]
 set -u
@@ -27,7 +31,7 @@ mkdir -p slurm_outputs
 J=$SLURM_JOB_ID
 PKL=${1:-/scratch/kp0374/checkpoints/zmaxleft-v5/ckpt_000490.pkl}
 BATCH=${2:-4000}
-N=${RUNNERS:-24}
+N=${RUNNERS:-16}
 WINDOW=${WINDOW:-360}
 TMP=/tmp/zllever_$J
 
