@@ -88,6 +88,10 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         # cross-section's appearance varies with depth and the task is
         # z-navigation. Keep both panes unless re-testing that ablation.
         _use_left = bool(oc.get("use_left_pane", True))
+        if "left_pane" in ec and bool(ec["left_pane"]) != _use_left:
+            logging.getLogger(__name__).warning(
+                "env.left_pane=%s is IGNORED in dino mode; panes follow "
+                "obs.use_left_pane=%s", ec["left_pane"], _use_left)
         ec = {**ec, "left_pane": _use_left, "right_pane": True,
               "image_size": None,
               "capture_scale": ec.get("capture_scale", 0.5)}

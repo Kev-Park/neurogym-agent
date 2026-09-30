@@ -34,13 +34,19 @@ env:
   orientation: euler
   headless: true
   renderer: gpu
-  left_pane: false
-  right_pane: true
   image_size: [84, 84]
   max_episode_steps: 500
 
 obs:
-  mode: pos
+  # The training/eval CLIs (--obs, default dino) override this key, so
+  # it documents the run rather than configuring it. dino => BOTH
+  # panes render (use_left_pane below); pane keys under env: are
+  # ignored in dino mode.
+  mode: dino
+  # Two-pane composite (2D EM left + 3D right). Right-pane-only lost
+  # ~19pp (2026-08-31 ablation); zmax-left additionally needs the left
+  # pane for hop-candidate visibility and selection clicks.
+  use_left_pane: true
   dino:
     model_name: dinov2_vits14
     input_size: 224
