@@ -59,7 +59,7 @@ run_arm() {
       --wandb-mode disabled > "$f" 2>&1 &
   local pid=$! t0=$SECONDS n=0
   while [ $((SECONDS - t0)) -lt "$WARM_MAX_S" ]; do
-    n=$(grep -cE '^iter ' "$f" 2>/dev/null || echo 0)
+    n=$(grep -cE '^iter ' "$f" 2>/dev/null); n=${n:-0}   # grep -c prints 0 itself; `|| echo 0` doubled it
     [ "$n" -ge "$WARM_ITERS" ] && break
     sleep 5
   done

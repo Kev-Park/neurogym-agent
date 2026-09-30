@@ -65,8 +65,8 @@ run_arm() {
     local f="slurm_outputs/graphab-$name-g$i-$J.out" s iters caps
     s=$(grep -hoE 'sps=[0-9.]+' "$f" 2>/dev/null | sed 's/sps=//' \
         | awk 'NR>3{n++; sum+=$1} END{if(n>0) printf "%.1f", sum/n; else print "0"}')
-    iters=$(grep -cE '^iter ' "$f" 2>/dev/null || echo 0)
-    caps=$(grep -c 'captured CUDA graph' "$f" 2>/dev/null || echo 0)
+    iters=$(grep -cE '^iter ' "$f" 2>/dev/null); iters=${iters:-0}
+    caps=$(grep -c 'captured CUDA graph' "$f" 2>/dev/null); caps=${caps:-0}
     echo "[graphab] $name gpu$i steady_sps=$s iters=$iters graph_captures=$caps"
     total=$(awk -v t="$total" -v s="$s" 'BEGIN{printf "%.1f", t+s}')
   done

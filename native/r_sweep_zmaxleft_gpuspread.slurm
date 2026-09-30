@@ -96,7 +96,7 @@ run_config() {
     s=$(grep -hoE 'sps=[0-9.]+' "$f" 2>/dev/null | sed 's/sps=//' \
         | awk 'NR>2{n++; sum+=$1} END{if(n>0) printf "%.1f", sum/n; else print "0"}')
     cold=$(grep -hoE 'sps=[0-9.]+' "$f" 2>/dev/null | head -1 | sed 's/sps=//')
-    iters=$(grep -cE '^iter ' "$f" 2>/dev/null || echo 0)
+    iters=$(grep -cE '^iter ' "$f" 2>/dev/null); iters=${iters:-0}
     echo "[sweep] c$c gpu$i: steady_sps=$s cold1=${cold:-NA} (iters_done=$iters)"
     total=$(awk -v t="$total" -v s="$s" 'BEGIN{printf "%.1f", t+s}')
     [ "$(awk -v s="$s" 'BEGIN{print (s>0)}')" = 1 ] && got=$((got+1))

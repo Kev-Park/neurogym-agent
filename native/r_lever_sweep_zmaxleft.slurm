@@ -71,8 +71,8 @@ run_lever() {
   s=$(grep -hoE 'sps=[0-9.]+' "$f" 2>/dev/null | sed 's/sps=//' \
       | awk 'NR>2{n++; sum+=$1} END{if(n>0) printf "%.1f", sum/n; else print "0"}')
   cold=$(grep -hoE 'sps=[0-9.]+' "$f" 2>/dev/null | head -1 | sed 's/sps=//')
-  iters=$(grep -cE '^iter ' "$f" 2>/dev/null || echo 0)
-  caps=$(grep -c 'captured CUDA graph' "$f" 2>/dev/null || echo 0)
+  iters=$(grep -cE '^iter ' "$f" 2>/dev/null); iters=${iters:-0}
+  caps=$(grep -c 'captured CUDA graph' "$f" 2>/dev/null); caps=${caps:-0}
   echo "[lever] RESULT $name steady_sps=$s cold1=${cold:-NA} iters=$iters graph_captures=$caps"
   kill $pid 2>/dev/null || true
   pkill -9 -f "lever-$name-$J" 2>/dev/null || true

@@ -68,8 +68,8 @@ run_arm() {
   local s iters caps
   s=$(grep -hoE 'sps=[0-9.]+' "$f" 2>/dev/null | sed 's/sps=//' \
       | awk 'NR>3{n++; sum+=$1} END{if(n>0) printf "%.1f", sum/n; else print "0"}')
-  iters=$(grep -cE '^iter ' "$f" 2>/dev/null || echo 0)
-  caps=$(grep -c 'captured CUDA graph' "$f" 2>/dev/null || echo 0)
+  iters=$(grep -cE '^iter ' "$f" 2>/dev/null); iters=${iters:-0}
+  caps=$(grep -c 'captured CUDA graph' "$f" 2>/dev/null); caps=${caps:-0}
   echo "[spread1t] RESULT arm=$name sps=$s iters=$iters graph_captures=$caps"
   kill $pid 2>/dev/null || true
   pkill -9 -f "spread1t-$name-$J" 2>/dev/null || true
