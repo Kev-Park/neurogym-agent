@@ -39,7 +39,7 @@ def main() -> int:
         p.requires_grad_(False)
     print(f"[dino-graph] {torch.cuda.get_device_name(0)} torch={torch.__version__}", flush=True)
 
-    for B in (2, 4):
+    for B in (1, 2, 4):
         src = torch.randn(B, 3, 224, 224, device=dev)
         static_in = torch.randn(B, 3, 224, 224, device=dev)
 
@@ -48,7 +48,11 @@ def main() -> int:
             src.normal_()               # fresh data each call (defeats caching)
             return model(src)
 
-        eager_ms = _bench(eager, 50)
+        _bench(eager, 20)               # WARM this batch shape (cudnn autotune +
+                                        # lazy alloc) so the timed run is not
+                                        # cold — the first-benched shape otherwise
+                                        # eats all the one-time warmup.
+        eager_ms = _bench(eager, 100)
 
         # ---- capture a CUDA graph of the forward from a static input buffer ----
         graph_ms = None
@@ -71,7 +75,7 @@ def main() -> int:
                 g.replay()
                 return static_out
 
-            graph_ms = _bench(graphed, 50)
+            graph_ms = _bench(graphed, 100)
 
             # parity: graph replay must recompute on fresh input (not stale capture)
             static_in.copy_(src)
