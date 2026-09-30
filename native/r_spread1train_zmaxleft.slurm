@@ -65,6 +65,10 @@ run_arm() {
       --wandb-mode disabled > "$f" 2>&1 &
   local pid=$!
   sleep "$WINDOW"
+  # Placement check: with GL contexts following the assigned GPU, memory.used
+  # should be ~equal across the arm's GPUs (before the fix GPU0 carried all GL).
+  nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader \
+    | sed "s/^/[spread1t] $name gpu-mem /"
   local s iters caps
   s=$(grep -hoE 'sps=[0-9.]+' "$f" 2>/dev/null | sed 's/sps=//' \
       | awk 'NR>3{n++; sum+=$1} END{if(n>0) printf "%.1f", sum/n; else print "0"}')
