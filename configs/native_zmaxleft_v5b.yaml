@@ -110,7 +110,7 @@ ppo:
   train_batch_size: 16000
   sgd_minibatch_size: 512
   num_sgd_iter: 4
-  entropy_coeff: [[0, 0.03]]   # v5b: held at 0.03 so repricing can't
+  entropy_coeff: [[0, 0.03], [100000000, 0.03]]   # v5b: held at 0.03 so repricing can't
                                # silently kill the select verb
   gamma: 0.99
   lambda: 0.95
