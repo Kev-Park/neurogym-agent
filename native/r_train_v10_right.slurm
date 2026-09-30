@@ -61,20 +61,31 @@ if [ "$USE_MPS" = "1" ]; then
   nvidia-cuda-mps-control -d && echo "[mps] daemon up" || echo "[mps] daemon FAILED (continuing without)"
 fi
 
-uv run --no-sync python -m ngllib_agent.train \
-  --config ${TRAIN_CONFIG:-configs/native_v10_right.yaml} \
-  --run-name "$RUN" --pane-mode "$PANE_MODE" \
-  --num-env-runners "$RUNNERS" \
-  --num-envs-per-env-runner "$ENVS_PER_RUNNER" \
-  --num-gpus-per-env-runner "$GPU_FRAC" \
-  --vector threads \
-  --sample-timeout-s "${SAMPLE_TIMEOUT:-600}" \
-  --iters "$ITERS" \
-  --train-batch-size "$BATCH" \
-  --checkpoint-dir "$CKPT" --checkpoint-every 10 \
-  --wandb-project neurogym-agent --wandb-mode "$WANDB_MODE" \
-  --learner-gpu \
-  --resume
+# train.py exits 43 on sustained degradation (it checkpoints first; the cure
+# is a fresh process resuming from that checkpoint -- job 998204 ended this
+# way at iter 143 after tile-fetch stalls). Relaunch in place until it ends
+# any other way; train.py itself disables the exit after 3 in 2h.
+while :; do
+  set +e
+  uv run --no-sync python -m ngllib_agent.train \
+    --config ${TRAIN_CONFIG:-configs/native_v10_right.yaml} \
+    --run-name "$RUN" --pane-mode "$PANE_MODE" \
+    --num-env-runners "$RUNNERS" \
+    --num-envs-per-env-runner "$ENVS_PER_RUNNER" \
+    --num-gpus-per-env-runner "$GPU_FRAC" \
+    --vector threads \
+    --sample-timeout-s "${SAMPLE_TIMEOUT:-600}" \
+    --iters "$ITERS" \
+    --train-batch-size "$BATCH" \
+    --checkpoint-dir "$CKPT" --checkpoint-every 10 \
+    --wandb-project neurogym-agent --wandb-mode "$WANDB_MODE" \
+    --learner-gpu \
+    --resume
+  rc=$?
+  set -e
+  [ "$rc" -eq 43 ] || break
+  echo "[launcher] degraded exit (43) -> relaunching from checkpoint"
+done
 
 if [ "$USE_MPS" = "1" ]; then
   echo quit | nvidia-cuda-mps-control || true
