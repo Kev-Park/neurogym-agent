@@ -7,13 +7,13 @@
 set -u
 JID="$1"
 GLOB="${2:-slurm_outputs/procscale-${JID}.out}"
-cd /scratch/kp0374/neurogym-agent
+cd "${POLL_DIR:-/scratch/kp0374/neurogym-agent}"
 for i in $(seq 1 160); do
   st=$(squeue -j "$JID" -h -o '%T' 2>/dev/null)
   if [ -z "$st" ]; then
     echo "POLL $i: job ${JID} left queue"
     f=$(ls -1 ${GLOB} 2>/dev/null | head -1)
-    if [ -n "$f" ]; then echo "=== ${f} ==="; cat "$f"; else echo "NO-OUTPUT ${GLOB}"; fi
+    if [ -n "$f" ]; then echo "=== ${f} (last 60 lines) ==="; tail -n 60 "$f"; else echo "NO-OUTPUT ${GLOB}"; fi
     exit 0
   fi
   echo "POLL $i: state=${st}"
