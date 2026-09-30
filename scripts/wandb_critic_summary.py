@@ -29,12 +29,22 @@ def main() -> int:
     ap.add_argument("--project", default="neurogym-agent")
     ap.add_argument("--entity", default=None)
     ap.add_argument("--bins", type=int, default=10)
+    ap.add_argument("--list", action="store_true",
+                    help="treat RUNS as name substrings; list matching runs "
+                         "(name, id, state, last step) instead of summarizing")
     args = ap.parse_args()
 
     import wandb
 
     api = wandb.Api()
     path = f"{args.entity}/{args.project}" if args.entity else args.project
+    if args.list:
+        for run in api.runs(path):
+            if any(s in run.name for s in args.runs):
+                print(f"{run.name:<28} {run.id:<10} {run.state:<9} "
+                      f"step={run.summary.get('_step')} "
+                      f"iters={run.summary.get('training_iteration')}")
+        return 0
     for name in args.runs:
         runs = list(api.runs(path, filters={"display_name": name}))
         if not runs:
