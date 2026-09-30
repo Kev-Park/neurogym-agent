@@ -4,10 +4,9 @@
 #SBATCH --account=pni
 #SBATCH --qos=normal
 #SBATCH --nodes=1
-#SBATCH --exclusive
-#SBATCH --gres=gpu:3090:8
-#SBATCH --cpus-per-task=64
-#SBATCH --mem=370G
+#SBATCH --gres=gpu:3090:1
+#SBATCH --cpus-per-task=28
+#SBATCH --mem=220G
 #SBATCH --time=00:50:00
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5
 #SBATCH --output=slurm_outputs/slurm-%x-%j.out
@@ -23,9 +22,12 @@ cd "${SLURM_SUBMIT_DIR:-$(pwd)}"
 mkdir -p slurm_outputs
 J=$SLURM_JOB_ID
 PKL=${1:-/scratch/kp0374/checkpoints/zmaxleft-v5/ckpt_000490.pkl}
-G=${GPUS:-2}
+# Default = a schedulable 1-GPU x 12-runner (24 env) clean graph A/B: long window
+# so capture amortizes. The 2x12 node SOTA comes from the spread sweep (234 sps);
+# apply the graph factor measured here. batch 8000 => more iters/window.
+G=${GPUS:-1}
 NPG=${NPG:-12}
-BATCH=${BATCH:-16000}
+BATCH=${BATCH:-8000}
 WINDOW=${WINDOW:-700}
 TMP=/tmp/zlgraphab_$J
 
