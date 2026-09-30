@@ -55,7 +55,9 @@ sample() {  # phase csv t0 -> append one row
 }
 
 run_phase() {
-  local phase="$1" extra="$2" csv="slurm_outputs/meminst-$phase-$J.csv" t0=$SECONDS pids="" i
+  local phase="$1" extra="$2"
+  # separate `local`: bash expands the whole line before assigning (set -u trap)
+  local csv="slurm_outputs/meminst-$phase-$J.csv" t0=$SECONDS pids="" i
   echo "t_s,mem_current_gb,shm_used_gb,ray_procs" > "$csv"
   echo "[meminst] === phase $phase  extra=[$extra] ==="
   for ((i=0; i<G; i++)); do
