@@ -89,12 +89,11 @@ def test_dist_cls_bound_to_nvec():
 
 
 PANES, GRID, PDIM = 2, 4, 6
-NVEC_2PANE = [5, 8 * 16, 9, 9, 9, 9]   # click grid 8x16 = 2 panes side by side
+NVEC_2PANE = [5, GRID * (PANES * GRID), 9, 9, 9, 9]   # one cell per token, panes side by side
 SPATIAL_OBS_SPACE = spaces.Dict(
     {
-        "image_features": spaces.Box(-np.inf, np.inf, (IMG_DIM,), np.float32),
         "pos_state": spaces.Box(-np.inf, np.inf, (POS_DIM,), np.float32),
-        "patch_features": spaces.Box(-np.inf, np.inf, (PANES, GRID, GRID, PDIM), np.float32),
+        "patch_features": spaces.Box(-np.inf, np.inf, (PANES, GRID, GRID, PDIM), np.float16),
     }
 )
 
@@ -103,8 +102,8 @@ def _spatial_module(nvec=NVEC_2PANE, **cfg):
     return HierarchicalPPOModule(
         observation_space=SPATIAL_OBS_SPACE,
         action_space=spaces.MultiDiscrete(nvec),
-        model_config={"pos_hidden_dim": 16, "trunk_hiddens": [32],
-                      "spatial_channels": 8, **cfg},
+        model_config={"pos_hidden_dim": 16, "spatial_channels": 8, "spatial_blocks": 2,
+                      "flat_channels": 4, "hidden": 32, **cfg},
     )
 
 
@@ -113,9 +112,8 @@ def _spatial_batch(b=3):
 
     return {
         Columns.OBS: {
-            "image_features": torch.randn(b, IMG_DIM),
             "pos_state": torch.randn(b, POS_DIM),
-            "patch_features": torch.randn(b, PANES, GRID, GRID, PDIM),
+            "patch_features": torch.randn(b, PANES, GRID, GRID, PDIM).half(),
         }
     }
 
@@ -124,36 +122,58 @@ def test_spatial_forward_shapes_and_values():
     from ray.rllib.core.columns import Columns
 
     m = _spatial_module()
-    assert m._click_grid == (8, 16)
+    assert m._grid == (PANES, GRID, GRID)
     out = m.forward_train(_spatial_batch())
     assert out[Columns.ACTION_DIST_INPUTS].shape == (3, sum(NVEC_2PANE))
+    assert out[Columns.ACTION_DIST_INPUTS].dtype == torch.float32
     assert m.compute_values(_spatial_batch()).shape == (3,)
     dist = m.get_inference_action_dist_cls().from_logits(out[Columns.ACTION_DIST_INPUTS])
     assert dist.sample().shape == (3, 6)
 
 
 def test_spatial_cell_logits_are_local():
-    """A perturbation in one pane's patch grid must move that pane's cell
-    logits more than the other pane's (the head is spatial, not pooled)."""
+    """A perturbation in one pane's token grid must move that pane's cell
+    logits more than the other pane's (the click head is a map, not pooled)."""
     from ray.rllib.core.columns import Columns
 
     torch.manual_seed(0)
-    m = _spatial_module(use_cls=False)
+    m = _spatial_module()
     base = _spatial_batch(1)
     pert = {Columns.OBS: {k: v.clone() for k, v in base[Columns.OBS].items()}}
     pert[Columns.OBS]["patch_features"][0, 1] += 5.0          # 3D pane only
     n_verb = NVEC_2PANE[0]
     d = (m.forward_inference(pert)[Columns.ACTION_DIST_INPUTS]
-         - m.forward_inference(base)[Columns.ACTION_DIST_INPUTS])[0, n_verb:n_verb + 8 * 16]
-    d = d.abs().reshape(8, 16)
-    assert d[:, 8:].mean() > d[:, :8].mean()
+         - m.forward_inference(base)[Columns.ACTION_DIST_INPUTS])[0, n_verb:n_verb + NVEC_2PANE[1]]
+    d = d.abs().reshape(GRID, PANES * GRID)
+    assert d[:, GRID:].mean() > d[:, :GRID].mean()
 
 
-def test_spatial_click_grid_must_match_cells():
+def test_spatial_cell_layout_is_row_major_over_side_by_side_panes():
+    """cell index = row * (P*G) + pane * G + col, matching ActionSpec.cell_to_pixel
+    over click_bounds that span EM then 3D."""
+    from ray.rllib.core.columns import Columns
+
+    m = _spatial_module()
+    with torch.no_grad():
+        for p in m.parameters():
+            p.zero_()
+        # score = conv1x1([fmap; ctx]) with all-zero weights, so set the bias
+        # to 0 and make the score read a single fmap channel: weight[0,0]=1.
+        m._cell_score.weight[0, 0, 0, 0] = 1.0
+        # fmap = in_proj(x) + pane_embed + blocks(=0 with zero weights, GN affine 0)
+        m._in_proj.weight[0, 0, 0, 0] = 1.0            # fmap[0] = x[..., 0]
+    b = _spatial_batch(1)
+    x = torch.zeros(1, PANES, GRID, GRID, PDIM)
+    x[0, 1, 2, 3, 0] = 7.0                              # 3D pane, row 2, col 3
+    b[Columns.OBS]["patch_features"] = x.half()
+    logits = m.forward_inference(b)[Columns.ACTION_DIST_INPUTS][0]
+    cell = logits[NVEC_2PANE[0]:NVEC_2PANE[0] + NVEC_2PANE[1]]
+    assert int(cell.argmax()) == 2 * (PANES * GRID) + 1 * GRID + 3
+
+
+def test_spatial_click_grid_must_match_tokens():
     with pytest.raises(ValueError):
         _spatial_module(nvec=[5, 100, 9, 9, 9, 9])
-    m = _spatial_module(nvec=[5, 4 * 25, 9, 9, 9, 9], click_grid=[4, 25])
-    assert m._click_grid == (4, 25)
 
 
 def test_cell_entropy_scale():
@@ -198,9 +218,8 @@ class _FakeSpatialEnv(_FakeZNavEnv):
 
     def _obs(self):
         return {
-            "image_features": np.random.randn(IMG_DIM).astype(np.float32),
             "pos_state": np.random.randn(POS_DIM).astype(np.float32),
-            "patch_features": np.random.randn(PANES, GRID, GRID, PDIM).astype(np.float32),
+            "patch_features": np.random.randn(PANES, GRID, GRID, PDIM).astype(np.float16),
         }
 
 
@@ -223,7 +242,8 @@ def test_ppo_one_iter_end_to_end(env_cls):
                 rl_module_spec=RLModuleSpec(
                     module_class=HierarchicalPPOModule,
                     model_config={"pos_hidden_dim": 16, "trunk_hiddens": [32],
-                                  "spatial_channels": 8},
+                                  "spatial_channels": 8, "spatial_blocks": 1,
+                                  "flat_channels": 4, "hidden": 32},
                 )
             )
         )

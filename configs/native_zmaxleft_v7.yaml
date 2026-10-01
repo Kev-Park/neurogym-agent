@@ -1,24 +1,27 @@
-# zmax-left v7: PATCH-TOKEN (spatial) policy on the v6 throughput layout (2026-10-01).
+# zmax-left v7: CNN-on-frozen-DINO-tokens policy (reviewed design, 2026-10-01)
+# on the v6 throughput layout.
 #
-# Every policy before v7 saw one pooled DINOv2 CLS vector per pane. The click
-# hit-rate audit (2026-09-30, 6 holdout eps each) showed why that caps out:
-# 3D right-clicks that actually moved the camera were 11% (v9-test), 25% (v4),
-# 13% (v5b) -- about the geometry coverage fraction, i.e. the cell head could
-# not aim because nothing in its input was spatially indexed. v7 adds
-# obs.dino.patch_dim: the 16x16 grid of DINO patch tokens per pane, projected
-# 384->64 by a fixed seeded orthogonal matrix (obs.patch_features), and the
-# RLModule's trunk (verb / rotate / zoom / value) + a per-location click head
-# are conditioned on it (policies/hierarchical.py "Spatial variant").
-# CLS is still fed to the trunk (model.use_cls).
+# Why: every earlier policy saw one pooled DINOv2 CLS vector per pane; the
+# click hit-rate audit (2026-09-30) put 3D right-click hits at 11-25% = the
+# geometry coverage fraction, i.e. no policy in the lineage could aim or
+# decide WHETHER to click from what it saw.
 #
-# Reward = v5b terms (the proven exploration-priced band: select_cost 0.0015,
-# explore_penalty_coef 0.00005; 0.0002 collapsed selection on warm-start).
-# Trained FROM SCRATCH (new head shape) with the standard entropy schedule.
-# Layout = v6 (CUDA graphs, 24 runners x M=2 over 4 GPUs, MPS) + LEARNER_GPU=1
-# (the conv trunk is too slow to update on the CPU learner). Compare against
-# v5b (same reward, CLS-only) with the click hit-rate audit + paired eval.
-# EVAL with native_zmaxleft.yaml (v2, TimeLimit-only) as before, plus
-# obs.dino.patch_dim: 64 (eval configs must reproduce the obs space).
+# Observation (obs.dino.patch_tokens): the raw 16x16x384 DINOv2 patch-token
+# grid per pane, unmodified, fp16 on the wire. No CLS, no projection.
+# Policy (policies/hierarchical.py, spatial variant):
+#   per pane (shared weights + pane embedding): 1x1 conv 384->128, 3 residual
+#     3x3 blocks (GroupNorm) -> map 128x16x16
+#   shared vector g: 1x1 -> 16 ch, position-preserving flatten (16*2*256),
+#     Linear 512, ReLU; concat pos-MLP(64); Linear 512, ReLU
+#   verb / rotate / zoom / value: linear heads from g only
+#   click: per-token logit = 1x1 conv over [map ; broadcast Linear(g->128)],
+#     so the click grid is the token grid: 16 rows x 32 cols (EM | 3D).
+#   bf16 autocast for trunk+heads; DINO stays fp32 (CUDA graphs).
+# Reward = v5b terms (the proven exploration-priced band). From scratch.
+# Layout = v6 (24 runners x M=2 over 4 GPUs, MPS, CUDA graphs) + LEARNER_GPU=1.
+# Compare against v5b (same reward, CLS-only) with the click hit-rate audit +
+# paired eval. EVAL with native_zmaxleft_v7_eval.yaml (v2 TimeLimit-only
+# recipe with this obs/action space).
 
 env:
   backend: simulator
@@ -38,23 +41,24 @@ obs:
     model_name: dinov2_vits14
     input_size: 224
     cuda_graph: true
-    patch_dim: 64         # v7: projected patch-token grid per pane (0 = CLS only)
-    patch_seed: 0
+    patch_tokens: true    # v7: raw patch-token grid per pane instead of CLS
   pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
 
 model:
   pos_hidden_dim: 64
-  trunk_hiddens: [256, 256]
   normalize_entropy: true
-  spatial_channels: 64
-  use_cls: true
-  cell_entropy_scale: 1.0   # knob kept at 1 so v7 vs v5b isolates the input change
+  cell_entropy_scale: 1.0
+  spatial_channels: 128
+  spatial_blocks: 3
+  flat_channels: 16
+  hidden: 512
+  autocast_bf16: true
 
 action:
   verbs: 5                # right_click / rotate / zoom / double_click / xs_zoom
   xs_zoom_step: 0.25
-  grid_rows: 32
-  grid_cols: 64
+  grid_rows: 16           # = DINO token grid (one click cell per token)
+  grid_cols: 32           # EM pane cols 0-15, 3D pane cols 16-31
   click_bounds: [0, 23, 1800, 876]     # x0, y0, x1, y1 — BOTH panes
   rotation_bins_per_axis: 9
   rotation_step_rad: 0.08

@@ -12,12 +12,12 @@ and `.feature_dim`) so tests run with a stub — the real `DinoEncoder` is only
 constructed inside an env-runner via the config hook in `env_build.py`.
 
 Patch tokens (2026-10-01): an encoder with `.patch_dim > 0` and
-`.encode_tokens(list[img]) -> (cls (B, D), patches (B, G, G, patch_dim))` adds
-`patch_features: Box(P, G, G, patch_dim)` to the obs, panes in the same
-[EM, 3D] order as `image_features`. The CLS-only policy saw one pooled vector
-per pane and could not localize anything (click hit rates ~11-25% = the
-geometry coverage fraction); the spatial grid is what a click/verb decision
-is actually conditioned on.
+`.encode_tokens(list[img]) -> (cls (B, D), patches (B, G, G, patch_dim) fp16)`
+makes the obs `{patch_features: Box(P, G, G, patch_dim) float16, pos_state}`,
+panes in [EM, 3D] order. CLS is NOT shipped in that mode: the CLS-only policy
+saw one pooled vector per pane and could not localize anything (click hit
+rates ~11-25% = the geometry coverage fraction), and with the full token grid
+in the obs the policy computes its own global summary.
 """
 
 from __future__ import annotations
@@ -93,9 +93,6 @@ class DinoObservationWrapper:
                 self._encoder = encoder
                 self._scale = scale
                 space = {
-                    "image_features": spaces.Box(
-                        -np.inf, np.inf, shape=(feat_dim,), dtype=np.float32
-                    ),
                     "pos_state": spaces.Box(
                         -np.inf, np.inf, shape=(8,), dtype=np.float32
                     ),
@@ -104,7 +101,11 @@ class DinoObservationWrapper:
                     space["patch_features"] = spaces.Box(
                         -np.inf, np.inf,
                         shape=(n_panes, patch_grid, patch_grid, patch_dim),
-                        dtype=np.float32,
+                        dtype=np.float16,
+                    )
+                else:
+                    space["image_features"] = spaces.Box(
+                        -np.inf, np.inf, shape=(feat_dim,), dtype=np.float32
                     )
                 self.observation_space = spaces.Dict(space)
 
@@ -113,16 +114,13 @@ class DinoObservationWrapper:
                     panes = list(split_panes(obs["image"]))  # [EM, 3D]
                 else:
                     panes = [obs["image"]]                   # 3D pane only
+                out = {"pos_state": pos_state_from_obs(obs, self._scale)}
                 if patch_dim:
-                    feats, patches = self._encoder.encode_tokens(panes)
+                    _, patches = self._encoder.encode_tokens(panes)
+                    out["patch_features"] = np.ascontiguousarray(patches, dtype=np.float16)
                 else:
-                    feats, patches = self._encoder.encode(panes), None
-                out = {
-                    "image_features": feats.reshape(-1).astype(np.float32),
-                    "pos_state": pos_state_from_obs(obs, self._scale),
-                }
-                if patch_dim:
-                    out["patch_features"] = np.ascontiguousarray(patches, dtype=np.float32)
+                    feats = self._encoder.encode(panes)
+                    out["image_features"] = feats.reshape(-1).astype(np.float32)
                 return out
 
         return _Impl(env)

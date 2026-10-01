@@ -20,16 +20,23 @@ Observation: `Dict(image_features: Box(D,), pos_state: Box(8,))` — DINO featur
 are computed env-side (Round 8), so this module is a small MLP: the legacy
 `DinoFeaturesExtractor` pos-MLP is absorbed into `setup()`.
 
-Spatial variant (2026-10-01): when the obs also carries
-`patch_features: Box(P, G, G, C_in)` (projected DINO patch tokens, see
-`obs/dino_encoder.py`), the panes are laid side by side (width = P*G, the same
-layout as the click grid), run through two 3x3 convs, and
-  - per-pane mean+max pools (+ CLS, + pos) feed the trunk, so verb / rotate /
-    zoom / value are conditioned on WHERE things are, not just what is there;
-  - the click-cell logits are a per-location score map (1x1 conv over the
-    spatial map with the trunk embedding broadcast in) bilinearly resized to
-    the click grid, plus a per-cell bias.
-The CLS-only path keeps its parameter names so old checkpoints still load.
+Spatial variant (2026-10-01, reviewed design): when the obs carries
+`patch_features: Box(P, G, G, 384)` — the raw DINO patch-token grid per pane
+(fp16, no CLS; see `obs/dino_encoder.py`) — the module is a CNN on top of the
+frozen token grid (AlphaStar-shaped: conv trunk, non-spatial heads from one
+vector, the location head as a map conditioned on that vector):
+  encoder (per pane, shared weights + a learned pane embedding):
+      1x1 conv 384->C, then `spatial_blocks` residual blocks
+      [GN, ReLU, 3x3, GN, ReLU, 3x3] at C channels  ->  map (C, G, G)
+  shared vector g:
+      1x1 conv C->`flat_channels`, flatten over (P, G, G) (position-preserving),
+      Linear -> `hidden`, ReLU; concat pos-MLP; Linear -> `hidden`, ReLU
+  heads from g only: verb, rotate x3, zoom, value (linear)
+  click head: per-location logit = 1x1 conv over [map ; broadcast Linear(g->C)],
+      one logit per token -> the click grid MUST be G x (P*G) (panes side by
+      side, EM then 3D, row-major), no interpolation.
+Trunk+heads run under bf16 autocast on CUDA. The CLS-only path keeps its
+parameter names so old checkpoints still load.
 """
 
 from __future__ import annotations
@@ -170,26 +177,27 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
 
     model_config keys (all optional):
         pos_hidden_dim: int = 64      # legacy DinoFeaturesExtractor default
-        trunk_hiddens: list[int] = [256, 256]
+        trunk_hiddens: list[int] = [256, 256]   # CLS-only path
         normalize_entropy: bool = False
         cell_entropy_scale: float = 1.0
-      spatial (only read when obs has patch_features):
-        spatial_channels: int = 64    # conv width over the patch grid
-        use_cls: bool = True          # also feed CLS to the trunk
-        click_grid: [rows, cols]      # default: inferred from num_cells and
-                                      # the pane count (rows = sqrt(cells/P))
+      spatial (only read when obs has patch_features; see module docstring):
+        spatial_channels: int = 128   # C, conv width over the token grid
+        spatial_blocks: int = 3       # residual 3x3 blocks per pane
+        flat_channels: int = 16       # 1x1 reduction before the flatten
+        hidden: int = 512             # width of the shared vector g
+        autocast_bf16: bool = True    # bf16 autocast for trunk+heads on CUDA
     """
 
     @override(TorchRLModule)
     def setup(self):
-        img_dim = int(self.observation_space["image_features"].shape[0])
         pos_dim = int(self.observation_space["pos_state"].shape[0])
         nvec = [int(n) for n in self.action_space.nvec]
-        patch_space = getattr(self.observation_space, "spaces", {}).get("patch_features")
+        spaces = getattr(self.observation_space, "spaces", {})
+        patch_space = spaces.get("patch_features")
         self._spatial = patch_space is not None
+        self._autocast = bool(self.model_config.get("autocast_bf16", True))
 
         pos_hidden = int(self.model_config.get("pos_hidden_dim", 64))
-        trunk_hiddens = list(self.model_config.get("trunk_hiddens", [256, 256]))
 
         # Legacy DinoFeaturesExtractor: identity on image features, MLP on pos.
         self._pos_mlp = nn.Sequential(
@@ -200,37 +208,22 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
             nn.GELU(),
         )
 
-        in_dim = pos_hidden
         if self._spatial:
-            n_panes, g_rows, g_cols, c_in = (int(s) for s in patch_space.shape)
-            c = int(self.model_config.get("spatial_channels", 64))
-            self._use_cls = bool(self.model_config.get("use_cls", True))
-            self._grid = (n_panes, g_rows, g_cols)
-            self._conv = nn.Sequential(
-                nn.Conv2d(c_in, c, 3, padding=1), nn.ReLU(),
-                nn.Conv2d(c, c, 3, padding=1), nn.ReLU(),
-            )
-            in_dim += 2 * c * n_panes + (img_dim if self._use_cls else 0)
-            self._click_grid = self._resolve_click_grid(nvec[1], n_panes)
+            self._setup_spatial(patch_space, nvec, pos_hidden)
         else:
-            in_dim += img_dim
-
-        layers: list[nn.Module] = []
-        for h in trunk_hiddens:
-            layers += [nn.Linear(in_dim, h), nn.ReLU()]
-            in_dim = h
-        self._trunk = nn.Sequential(*layers)
-
-        if self._spatial:
-            n_verb, n_cell, r, _, _, n_zoom = nvec
-            self._pi_rest = nn.Linear(in_dim, n_verb + 3 * r + n_zoom)
-            self._embed_to_map = nn.Linear(in_dim, c)
-            self._cell_score = nn.Conv2d(2 * c, 1, 1)
-            self._cell_bias = nn.Parameter(torch.zeros(n_cell))
-        else:
+            img_dim = int(spaces["image_features"].shape[0])
+            trunk_hiddens = list(self.model_config.get("trunk_hiddens", [256, 256]))
+            layers: list[nn.Module] = []
+            in_dim = img_dim + pos_hidden
+            for h in trunk_hiddens:
+                layers += [nn.Linear(in_dim, h), nn.ReLU()]
+                in_dim = h
+            self._trunk = nn.Sequential(*layers)
             self._pi_head = nn.Linear(in_dim, int(np.sum(nvec)))
+            self._g_dim = in_dim
+
         if not self.inference_only:
-            self._vf_head = nn.Linear(in_dim, 1)
+            self._vf_head = nn.Linear(self._g_dim, 1)
 
         self.action_dist_cls = HierarchicalMultiCategorical.for_nvec(
             nvec,
@@ -238,68 +231,94 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
             cell_entropy_scale=float(self.model_config.get("cell_entropy_scale", 1.0)),
         )
 
-    def _resolve_click_grid(self, n_cell: int, n_panes: int) -> tuple[int, int]:
-        """(rows, cols) of the click grid the score map is resized to. The
-        panes sit side by side in the map, so the grid is expected to span the
-        same panes with cols = n_panes * rows; anything else must be given
-        explicitly as model_config.click_grid."""
-        cg = self.model_config.get("click_grid")
-        if cg is not None:
-            rows, cols = int(cg[0]), int(cg[1])
-        else:
-            rows = int(round((n_cell / n_panes) ** 0.5))
-            cols = n_panes * rows
-        if rows * cols != n_cell:
+    def _setup_spatial(self, patch_space, nvec: List[int], pos_hidden: int) -> None:
+        n_panes, g_rows, g_cols, c_in = (int(s) for s in patch_space.shape)
+        c = int(self.model_config.get("spatial_channels", 128))
+        n_blocks = int(self.model_config.get("spatial_blocks", 3))
+        flat_c = int(self.model_config.get("flat_channels", 16))
+        hidden = int(self.model_config.get("hidden", 512))
+        n_verb, n_cell, r, _, _, n_zoom = nvec
+        # One logit per token: the click grid is the token grid with the panes
+        # side by side (EM cols 0..G-1, 3D cols G..2G-1). The ActionSpec's
+        # cell_to_pixel maps row-major cells over click_bounds, which spans
+        # both panes in that order, so no interpolation or re-indexing.
+        if n_cell != g_rows * n_panes * g_cols:
             raise ValueError(
-                f"click grid {rows}x{cols} != {n_cell} cells; set model.click_grid")
-        return rows, cols
+                f"spatial policy needs a {g_rows}x{n_panes * g_cols} click grid "
+                f"(one cell per token); action space has {n_cell} cells")
+        self._grid = (n_panes, g_rows, g_cols)
+
+        self._in_proj = nn.Conv2d(c_in, c, 1)
+        self._pane_embed = nn.Parameter(torch.zeros(n_panes, c, 1, 1))
+        self._blocks = nn.ModuleList(_ResBlock(c) for _ in range(n_blocks))
+        self._flat_proj = nn.Conv2d(c, flat_c, 1)
+        self._g1 = nn.Linear(flat_c * n_panes * g_rows * g_cols, hidden)
+        self._g2 = nn.Linear(hidden + pos_hidden, hidden)
+        self._g_dim = hidden
+
+        self._pi_rest = nn.Linear(hidden, n_verb + 3 * r + n_zoom)
+        self._g_to_map = nn.Linear(hidden, c)
+        self._cell_score = nn.Conv2d(2 * c, 1, 1)
 
     def _features(self, batch: Dict[str, Any]) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """(trunk embedding, spatial map or None)."""
+        """(shared vector g, per-pane feature map (B*P, C, G, G) or None)."""
         obs = batch[Columns.OBS]
-        pos = self._pos_mlp(obs["pos_state"])
+        pos = self._pos_mlp(obs["pos_state"].float())
         if not self._spatial:
             return self._trunk(torch.cat([obs["image_features"], pos], dim=-1)), None
         n_panes, g_rows, g_cols = self._grid
-        x = obs["patch_features"]                              # (B, P, R, C, D)
+        x = obs["patch_features"]                                  # (B, P, G, G, D)
         b = x.shape[0]
-        # panes side by side along width: (B, D, R, P*C), width = p*C + col
-        x = x.permute(0, 4, 2, 1, 3).reshape(b, -1, g_rows, n_panes * g_cols)
-        smap = self._conv(x)                                   # (B, c, R, P*C)
-        per_pane = smap.reshape(b, smap.shape[1], g_rows, n_panes, g_cols)
-        pooled = torch.cat(
-            [per_pane.mean(dim=(2, 4)).flatten(1), per_pane.amax(dim=(2, 4)).flatten(1)],
-            dim=-1)                                            # (B, 2*c*P)
-        parts = [pooled, pos]
-        if self._use_cls:
-            parts.insert(1, obs["image_features"])
-        return self._trunk(torch.cat(parts, dim=-1)), smap
+        x = x.reshape(b * n_panes, g_rows, g_cols, -1).permute(0, 3, 1, 2)
+        x = self._in_proj(x.to(self._in_proj.weight.dtype))        # (B*P, C, G, G)
+        x = x + self._pane_embed.repeat(b, 1, 1, 1)
+        for blk in self._blocks:
+            x = blk(x)
+        fmap = x
+        flat = F.relu(self._flat_proj(fmap)).reshape(b, -1)        # (B, flat_c*P*G*G)
+        g = F.relu(self._g1(flat))
+        g = F.relu(self._g2(torch.cat([g, pos], dim=-1)))
+        return g, fmap
 
-    def _logits(self, embed: torch.Tensor, smap: Optional[torch.Tensor]) -> torch.Tensor:
+    def _logits(self, g: torch.Tensor, fmap: Optional[torch.Tensor]) -> torch.Tensor:
         if not self._spatial:
-            return self._pi_head(embed)
+            return self._pi_head(g)
+        n_panes, g_rows, g_cols = self._grid
         n_verb = self.action_dist_cls._input_lens[0]
-        rest = self._pi_rest(embed)
-        ctx = self._embed_to_map(embed)[:, :, None, None].expand(-1, -1, *smap.shape[2:])
-        score = self._cell_score(torch.cat([smap, ctx], dim=1))   # (B, 1, R, P*C)
-        score = F.interpolate(score, size=self._click_grid, mode="bilinear",
-                              align_corners=False)
-        cell = score.flatten(1) + self._cell_bias
+        b = g.shape[0]
+        rest = self._pi_rest(g)
+        ctx = self._g_to_map(g)                                    # (B, C)
+        ctx = ctx[:, None, :, None, None].expand(b, n_panes, -1, g_rows, g_cols)
+        ctx = ctx.reshape(b * n_panes, -1, g_rows, g_cols)
+        score = self._cell_score(torch.cat([fmap, ctx], dim=1))    # (B*P, 1, G, G)
+        # (B, P, G, G) -> (B, G, P*G): row-major over [row][pane][col]
+        cell = score.reshape(b, n_panes, g_rows, g_cols).permute(0, 2, 1, 3).reshape(b, -1)
         return torch.cat([rest[:, :n_verb], cell, rest[:, n_verb:]], dim=-1)
 
+    def _autocast_ctx(self, batch: Dict[str, Any]):
+        dev = batch[Columns.OBS]["pos_state"].device
+        if self._spatial and self._autocast and dev.type == "cuda":
+            return torch.autocast("cuda", dtype=torch.bfloat16)
+        return torch.autocast("cpu", enabled=False)
+
     def _embed(self, batch: Dict[str, Any]) -> torch.Tensor:
-        return self._features(batch)[0]
+        with self._autocast_ctx(batch):
+            return self._features(batch)[0].float()
 
     @override(TorchRLModule)
     def _forward(self, batch: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-        return {Columns.ACTION_DIST_INPUTS: self._logits(*self._features(batch))}
+        with self._autocast_ctx(batch):
+            logits = self._logits(*self._features(batch))
+        return {Columns.ACTION_DIST_INPUTS: logits.float()}
 
     @override(TorchRLModule)
     def _forward_train(self, batch: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-        embeddings, smap = self._features(batch)
+        with self._autocast_ctx(batch):
+            g, fmap = self._features(batch)
+            logits = self._logits(g, fmap)
         return {
-            Columns.ACTION_DIST_INPUTS: self._logits(embeddings, smap),
-            Columns.EMBEDDINGS: embeddings,
+            Columns.ACTION_DIST_INPUTS: logits.float(),
+            Columns.EMBEDDINGS: g.float(),
         }
 
     @override(ValueFunctionAPI)
@@ -308,4 +327,20 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
     ) -> torch.Tensor:
         if embeddings is None:
             embeddings = self._embed(batch)
-        return self._vf_head(embeddings).squeeze(-1)
+        return self._vf_head(embeddings.float()).squeeze(-1)
+
+
+class _ResBlock(nn.Module):
+    """Pre-activation residual block: [GN, ReLU, 3x3, GN, ReLU, 3x3] + skip."""
+
+    def __init__(self, c: int, groups: int = 8):
+        super().__init__()
+        self.n1 = nn.GroupNorm(groups, c)
+        self.c1 = nn.Conv2d(c, c, 3, padding=1)
+        self.n2 = nn.GroupNorm(groups, c)
+        self.c2 = nn.Conv2d(c, c, 3, padding=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.c1(F.relu(self.n1(x)))
+        h = self.c2(F.relu(self.n2(h)))
+        return x + h

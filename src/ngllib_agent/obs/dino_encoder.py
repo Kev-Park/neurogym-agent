@@ -13,14 +13,12 @@ this workload = 1.42x at the co-pane batch of 2 (job 997385, bitwise-identical).
 Gated by `obs.dino.cuda_graph`; eager is always correct, so a capture failure
 falls back permanently for that signature and never crashes a run.
 
-Patch tokens (2026-10-01, `patch_dim` > 0): `encode_tokens()` also returns the
-16x16 grid of DINO patch tokens, each projected 384 -> patch_dim by a FIXED
-seeded orthogonal matrix. The projection is frozen (not learned) because the
-observation has to be shipped runner -> learner through Ray; full 384-d tokens
-are ~400 KB/pane/step (~12 GB per 16k batch), 64-d is ~64 KB. An orthogonal
-random projection preserves token geometry (JL) well enough for the policy's
-conv head to separate neuron / background / membrane patches; every process
-builds the same matrix from the seed, so runners and learner agree.
+Patch tokens (2026-10-01, `patch_tokens=True`): `encode_tokens()` also returns
+the 16x16 grid of DINO final-layer patch tokens (`x_norm_patchtokens`, 384-d)
+UNMODIFIED — no projection, no pooling; the policy's conv trunk owns the first
+learned layer. They travel runner -> learner as fp16 (~400 KB/pane/step; the
+layer-normed tokens are well inside fp16 range), which is the only compression
+anywhere in the path.
 """
 
 from __future__ import annotations
@@ -31,15 +29,6 @@ import torch.nn.functional as F
 
 _IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
 _IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-
-
-def orthogonal_projection(in_dim: int, out_dim: int, seed: int) -> torch.Tensor:
-    """(in_dim, out_dim) matrix with orthonormal columns, deterministic in `seed`."""
-    if out_dim > in_dim:
-        raise ValueError(f"patch_dim {out_dim} exceeds token dim {in_dim}")
-    g = torch.Generator().manual_seed(int(seed))
-    q, _ = torch.linalg.qr(torch.randn(in_dim, out_dim, generator=g))
-    return q.contiguous()
 
 
 class DinoEncoder:
@@ -53,8 +42,7 @@ class DinoEncoder:
         use_compile: bool = False,
         use_noop: bool = False,
         use_fp16: bool = False,
-        patch_dim: int = 0,
-        patch_seed: int = 0,
+        patch_tokens: bool = False,
     ):
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         # R_cap probe: skip the ViT forward, return zero features. Renders + env
@@ -84,17 +72,16 @@ class DinoEncoder:
         self._graphs: dict = {}          # sig -> (graph, static_in_u8, static_out)
         self._graph_failed: set = set()  # sigs that failed capture -> stay eager
 
-        self.patch_dim = int(patch_dim)
+        self._patch_tokens = bool(patch_tokens)
         self.patch_grid = input_size // int(getattr(self.model, "patch_size", 14))
-        self._proj = None
         with torch.no_grad():
             dummy = torch.zeros(1, 3, input_size, input_size, device=self.device)
             if self._fp16:
                 dummy = dummy.half()
             self.feature_dim = int(self.model(dummy).shape[-1])
-            if self.patch_dim:
-                proj = orthogonal_projection(self.feature_dim, self.patch_dim, patch_seed)
-                self._proj = proj.to(self.device, torch.float16 if self._fp16 else torch.float32)
+            # patch_dim: token width in the obs (0 = CLS-only policies)
+            self.patch_dim = self.feature_dim if self._patch_tokens else 0
+            if self._patch_tokens:
                 n_tok = self._forward(dummy)[1].shape[1]
                 if n_tok != self.patch_grid ** 2:
                     raise ValueError(
@@ -107,13 +94,13 @@ class DinoEncoder:
             self.model = torch.compile(self.model)
 
     def _forward(self, batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """ViT forward -> (cls (B, F), projected patch tokens (B, N, patch_dim) or None).
-        The plain `model(batch)` path is kept for patch_dim == 0 so existing
-        CLS-only checkpoints stay bitwise-identical."""
-        if self._proj is None:
+        """ViT forward -> (cls (B, F), raw patch tokens (B, N, F) or None).
+        The plain `model(batch)` path is kept for CLS-only policies so their
+        checkpoints stay bitwise-identical."""
+        if not self._patch_tokens:
             return self.model(batch), None
         ret = self.model.forward_features(batch)
-        return ret["x_norm_clstoken"], ret["x_norm_patchtokens"] @ self._proj
+        return ret["x_norm_clstoken"], ret["x_norm_patchtokens"]
 
     @torch.no_grad()
     def encode(self, images: list[np.ndarray]) -> np.ndarray:
@@ -122,11 +109,11 @@ class DinoEncoder:
 
     @torch.no_grad()
     def encode_tokens(self, images: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray | None]:
-        """(cls (B, F), patches (B, G, G, patch_dim) or None when patch_dim == 0)."""
+        """(cls (B, F) fp32, patches (B, G, G, F) fp16 or None when patch_tokens is off)."""
         b = len(images)
         if self._noop:
             cls = np.zeros((b, self.feature_dim), dtype=np.float32)
-            pt = (np.zeros((b, self.patch_grid, self.patch_grid, self.patch_dim), np.float32)
+            pt = (np.zeros((b, self.patch_grid, self.patch_grid, self.patch_dim), np.float16)
                   if self.patch_dim else None)
             return cls, pt
         out = self._encode_graph(images) if self._use_graph else None
@@ -138,7 +125,9 @@ class DinoEncoder:
         cls = cls.detach().cpu().numpy().astype(np.float32)
         if pt is not None:
             g = self.patch_grid
-            pt = pt.detach().cpu().numpy().astype(np.float32).reshape(b, g, g, self.patch_dim)
+            # fp16 on the wire (runner -> learner through Ray); the policy
+            # casts up. Halves the dominant obs cost (~400 KB/pane/step).
+            pt = pt.detach().to(torch.float16).cpu().numpy().reshape(b, g, g, self.patch_dim)
         return cls, pt
 
     def _to_model_batch(self, dev_u8: torch.Tensor) -> torch.Tensor:
@@ -235,17 +224,15 @@ def get_dino_encoder(
     use_compile: bool = False,
     use_noop: bool = False,
     use_fp16: bool = False,
-    patch_dim: int = 0,
-    patch_seed: int = 0,
+    patch_tokens: bool = False,
 ) -> DinoEncoder:
     """Per-process singleton so all envs in an env-runner share one frozen model."""
     key = (repo, model_name, input_size, device, bool(use_cuda_graph),
-           bool(use_compile), bool(use_noop), bool(use_fp16), int(patch_dim), int(patch_seed))
+           bool(use_compile), bool(use_noop), bool(use_fp16), bool(patch_tokens))
     if key not in _ENCODER_CACHE:
         _ENCODER_CACHE[key] = DinoEncoder(
             repo=repo, model_name=model_name, input_size=input_size, device=device,
             use_cuda_graph=use_cuda_graph, use_compile=use_compile,
-            use_noop=use_noop, use_fp16=use_fp16,
-            patch_dim=patch_dim, patch_seed=patch_seed,
+            use_noop=use_noop, use_fp16=use_fp16, patch_tokens=patch_tokens,
         )
     return _ENCODER_CACHE[key]
