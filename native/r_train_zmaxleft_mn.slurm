@@ -88,7 +88,7 @@ done
 
 # Ray head on node 0, then every other node joins.
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
-  env CUDA_VISIBLE_DEVICES=1,2,3 \
+  /usr/bin/env CUDA_VISIBLE_DEVICES=1,2,3 \
   uv run --no-sync ray start --head --node-ip-address="$HEAD_IP" --port=6379 \
     --num-cpus=44 --num-gpus=3 --block &
 sleep 25
@@ -106,7 +106,7 @@ srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" uv run --no-sync ray status --add
 # (train.py disables the exit itself after 3 in 2h).
 while :; do
   srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
-    env CUDA_VISIBLE_DEVICES=0 \
+    /usr/bin/env CUDA_VISIBLE_DEVICES=0 \
     uv run --no-sync python -m ngllib_agent.train \
       --config "${TRAIN_CONFIG:-configs/native_zmaxleft_v7.yaml}" \
       --run-name "$RUN" --pane-mode "$PANE_MODE" \
