@@ -63,7 +63,13 @@ NODES=($(scontrol show hostnames "$SLURM_NODELIST"))
 NNODES=${#NODES[@]}
 HEAD=${NODES[0]}
 HEAD_IP=$(srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" hostname -I | awk '{print $1}')
-RUNNERS=$((RUNNERS_PER_NODE * NNODES))
+# The GPU learner moves the whole train batch to its device before the update:
+# with the token obs (16000 x 2 panes x 256 x 384 fp16) that is ~6 GB, which
+# OOM'd GPU0 when 6 runners' GL+DINO already sat on it (job 999395). So the
+# head node's Ray gets GPUs 1-3 only and GPU0 is the learner's alone; the head
+# runs 3 GPUs x 6 = 18 runners instead of 24.
+HEAD_RUNNERS=$((RUNNERS_PER_NODE * 3 / 4))
+RUNNERS=$((HEAD_RUNNERS + RUNNERS_PER_NODE * (NNODES - 1)))
 echo "[mn] nodes(${NNODES}): ${NODES[*]}  head=$HEAD ($HEAD_IP)  runners=$RUNNERS x M=$ENVS_PER_RUNNER batch=$BATCH"
 
 cleanup() {
@@ -82,8 +88,9 @@ done
 
 # Ray head on node 0, then every other node joins.
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
+  env CUDA_VISIBLE_DEVICES=1,2,3 \
   uv run --no-sync ray start --head --node-ip-address="$HEAD_IP" --port=6379 \
-    --num-cpus=44 --num-gpus=4 --block &
+    --num-cpus=44 --num-gpus=3 --block &
 sleep 25
 for n in "${NODES[@]:1}"; do
   srun --overlap --nodes=1 --ntasks=1 -w "$n" \
@@ -99,6 +106,7 @@ srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" uv run --no-sync ray status --add
 # (train.py disables the exit itself after 3 in 2h).
 while :; do
   srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
+    env CUDA_VISIBLE_DEVICES=0 \
     uv run --no-sync python -m ngllib_agent.train \
       --config "${TRAIN_CONFIG:-configs/native_zmaxleft_v7.yaml}" \
       --run-name "$RUN" --pane-mode "$PANE_MODE" \
