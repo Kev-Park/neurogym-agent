@@ -46,7 +46,12 @@ def main() -> int:
                       f"iters={run.summary.get('training_iteration')}")
         return 0
     for name in args.runs:
-        runs = list(api.runs(path, filters={"display_name": name}))
+        # "name@id" pins one run when several share a display name
+        name, _, rid = name.partition("@")
+        if rid:
+            runs = [api.run(f"{path}/{rid}")]
+        else:
+            runs = list(api.runs(path, filters={"display_name": name}))
         if not runs:
             print(f"== {name}: NOT FOUND in {path}")
             continue
