@@ -338,14 +338,20 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
         """RLlib's GAE connector calls compute_values on the WHOLE train batch
         (16000 x 2 panes x 256 tokens); in one pass the conv trunk's
         activations exceed a 24 GB card (job 999413). Chunking keeps the peak
-        at one chunk's activations; values are identical."""
+        at one chunk's activations; values are identical.
+
+        No autograd: the connector calls this with grad ENABLED, which kept
+        every chunk's graph alive (5.9 -> 23 GB, probe job 999433). These
+        values only feed GAE targets; PPO's value loss goes through
+        compute_values(embeddings=...) from forward_train, not this path."""
         obs = batch[Columns.OBS]
         n = obs["pos_state"].shape[0]
         step = int(self.model_config.get("value_chunk", 1024))
         out = []
-        for i in range(0, n, step):
-            sub = {Columns.OBS: {k: v[i:i + step] for k, v in obs.items()}}
-            out.append(self._vf_head(self._embed(sub).float()).squeeze(-1))
+        with torch.no_grad():
+            for i in range(0, n, step):
+                sub = {Columns.OBS: {k: v[i:i + step] for k, v in obs.items()}}
+                out.append(self._vf_head(self._embed(sub).float()).squeeze(-1))
         return torch.cat(out) if out else obs["pos_state"].new_zeros(0)
 
 
