@@ -171,6 +171,15 @@ def test_spatial_cell_layout_is_row_major_over_side_by_side_panes():
     assert int(cell.argmax()) == 2 * (PANES * GRID) + 1 * GRID + 3
 
 
+def test_spatial_values_chunked_match_unchunked():
+    m = _spatial_module(value_chunk=2)
+    b = _spatial_batch(5)
+    chunked = m.compute_values(b)
+    whole = m._vf_head(m._embed(b)).squeeze(-1)
+    assert chunked.shape == (5,)
+    assert torch.allclose(chunked, whole, atol=1e-5)
+
+
 def test_spatial_click_grid_must_match_tokens():
     with pytest.raises(ValueError):
         _spatial_module(nvec=[5, 100, 9, 9, 9, 9])

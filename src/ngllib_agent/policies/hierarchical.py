@@ -270,7 +270,10 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
         x = obs["patch_features"]                                  # (B, P, G, G, D)
         b = x.shape[0]
         x = x.reshape(b * n_panes, g_rows, g_cols, -1).permute(0, 3, 1, 2)
-        x = self._in_proj(x.to(self._in_proj.weight.dtype))        # (B*P, C, G, G)
+        # bf16 under autocast (half the fp32 footprint of the 384-ch input)
+        in_dtype = (torch.bfloat16 if torch.is_autocast_enabled("cuda") and x.is_cuda
+                    else self._in_proj.weight.dtype)
+        x = self._in_proj(x.to(in_dtype))                          # (B*P, C, G, G)
         x = x + self._pane_embed.repeat(b, 1, 1, 1)
         for blk in self._blocks:
             x = blk(x)
@@ -326,8 +329,24 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
         self, batch: Dict[str, Any], embeddings: Optional[Any] = None
     ) -> torch.Tensor:
         if embeddings is None:
+            if self._spatial:
+                return self._chunked_values(batch)
             embeddings = self._embed(batch)
         return self._vf_head(embeddings.float()).squeeze(-1)
+
+    def _chunked_values(self, batch: Dict[str, Any]) -> torch.Tensor:
+        """RLlib's GAE connector calls compute_values on the WHOLE train batch
+        (16000 x 2 panes x 256 tokens); in one pass the conv trunk's
+        activations exceed a 24 GB card (job 999413). Chunking keeps the peak
+        at one chunk's activations; values are identical."""
+        obs = batch[Columns.OBS]
+        n = obs["pos_state"].shape[0]
+        step = int(self.model_config.get("value_chunk", 1024))
+        out = []
+        for i in range(0, n, step):
+            sub = {Columns.OBS: {k: v[i:i + step] for k, v in obs.items()}}
+            out.append(self._vf_head(self._embed(sub).float()).squeeze(-1))
+        return torch.cat(out) if out else obs["pos_state"].new_zeros(0)
 
 
 class _ResBlock(nn.Module):
