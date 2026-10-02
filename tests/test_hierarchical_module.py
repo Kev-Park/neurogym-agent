@@ -185,6 +185,21 @@ def test_spatial_click_grid_must_match_tokens():
         _spatial_module(nvec=[5, 100, 9, 9, 9, 9])
 
 
+def test_cell_entropy_scale_is_live_on_the_train_dist_cls():
+    """train.py retunes the click-entropy multiplier by setting the attribute on
+    module.action_dist_cls; the PPO loss must see it via get_train_action_dist_cls."""
+    m = HierarchicalPPOModule(
+        observation_space=OBS_SPACE, action_space=ACT_SPACE,
+        model_config={"pos_hidden_dim": 32, "trunk_hiddens": [64],
+                      "normalize_entropy": True})
+    logits = torch.randn(3, sum(NVEC))
+    before = m.get_train_action_dist_cls().from_logits(logits).entropy()
+    m.action_dist_cls._cell_entropy_scale = 0.1
+    after = m.get_train_action_dist_cls().from_logits(logits).entropy()
+    assert m.get_train_action_dist_cls()._cell_entropy_scale == 0.1
+    assert torch.all(after < before)
+
+
 def test_cell_entropy_scale():
     from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
 

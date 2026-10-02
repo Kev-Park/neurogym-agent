@@ -312,6 +312,31 @@ def main(argv=None) -> int:
     )
     checkpointer = AsyncCheckpointer(ckpt_dir, every=args.checkpoint_every)
 
+    # model.cell_entropy_schedule: [[lifetime_env_steps, scale], ...], piecewise
+    # linear, multiplies ONLY the click-cell branch of the entropy bonus. The
+    # bonus is computed on the learner, which is driver-local (num_learners=0),
+    # so retuning the bound distribution class here is enough.
+    cell_sched = (cfg.get("model") or {}).get("cell_entropy_schedule")
+    lifetime_steps = int(prior_meta.get("total_steps") or 0)
+    if cell_sched:
+        try:
+            lifetime_steps = int(algo.metrics.peek(
+                ("env_runners", "num_env_steps_sampled_lifetime"), default=lifetime_steps))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _apply_cell_entropy(steps: int) -> float | None:
+        if not cell_sched:
+            return None
+        import numpy as np
+
+        xs = [float(p[0]) for p in cell_sched]
+        ys = [float(p[1]) for p in cell_sched]
+        scale = float(np.interp(steps, xs, ys))
+        algo.learner_group._learner.module["default_policy"].action_dist_cls \
+            ._cell_entropy_scale = scale
+        return scale
+
     # ---- train loop ----------------------------------------------------------
     _empty_iters = 0
     try:
@@ -319,6 +344,7 @@ def main(argv=None) -> int:
             # Iteration-boundary marker (absolute wall ts) for aligning storm
             # onsets against learner/iteration boundaries in the event logs.
             print(f"MARK iter_start ts={time.time():.3f}", flush=True)
+            cell_scale = _apply_cell_entropy(lifetime_steps)
             result = algo.train()
             it = int(result.get("training_iteration", 0))
             er = result.get("env_runners", {}) or {}
@@ -339,8 +365,10 @@ def main(argv=None) -> int:
                    if isinstance(v, (int, float))},
                 "perf/time_this_iter_s": t_iter,
                 "perf/steps_per_s": (n_steps / t_iter) if (t_iter and n_steps) else None,
+                "learner/cell_entropy_scale": cell_scale,
             }
             wandb.log({k: v for k, v in metrics.items() if v is not None}, step=it)
+            lifetime_steps = int(er.get("num_env_steps_sampled_lifetime") or lifetime_steps)
             # Progress heartbeat every iteration — the coordinator's
             # --target-iterations completion check and its progress-stall
             # timeout both read this (REFINEMENT R1/R10).
