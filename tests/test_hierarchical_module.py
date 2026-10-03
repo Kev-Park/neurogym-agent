@@ -200,6 +200,39 @@ def test_cell_entropy_scale_is_live_on_the_train_dist_cls():
     assert torch.all(after < before)
 
 
+def test_cell_entropy_stopgrad_cuts_only_the_verb_path():
+    """With stopgrad: same entropy VALUE; the cell term sends no gradient to
+    the verb logits, but the cell logits get exactly the same gradient."""
+    from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
+
+    n_verb, n_cell = NVEC[0], NVEC[1]
+    base = torch.randn(4, sum(NVEC))
+    out = {}
+    for sg in (False, True):
+        cls = HierarchicalMultiCategorical.for_nvec(
+            NVEC, normalize_entropy=True, cell_entropy_scale=0.1,
+            cell_entropy_stopgrad=sg)
+        z = base.clone().requires_grad_(True)
+        h = cls.from_logits(z).entropy()
+        h.sum().backward()
+        out[sg] = (h.detach(), z.grad.clone())
+    (h0, g0), (h1, g1) = out[False], out[True]
+    assert torch.allclose(h0, h1)
+    assert torch.allclose(g0[:, n_verb:n_verb + n_cell], g1[:, n_verb:n_verb + n_cell])
+    # verb gradient differs by exactly the removed term: the verb head still
+    # gets its own H(verb) and the rotate/zoom weights' gradients
+    assert not torch.allclose(g0[:, :n_verb], g1[:, :n_verb])
+    cls_sg = HierarchicalMultiCategorical.for_nvec(
+        NVEC, normalize_entropy=True, cell_entropy_scale=1.0, cell_entropy_stopgrad=True)
+    z = base.clone().requires_grad_(True)
+    d = cls_sg.from_logits(z)
+    p = d._type_probs()
+    term = d._cell_entropy_weight(p) * d._cats[1].entropy()
+    term.sum().backward()
+    assert torch.allclose(z.grad[:, :n_verb], torch.zeros_like(z.grad[:, :n_verb]))
+    assert z.grad[:, n_verb:n_verb + n_cell].abs().sum() > 0
+
+
 def test_cell_entropy_scale():
     from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
 

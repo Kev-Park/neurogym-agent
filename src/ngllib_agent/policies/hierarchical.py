@@ -68,10 +68,12 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
     _input_lens: List[int] = []
     _normalize_entropy: bool = False
     _cell_entropy_scale: float = 1.0
+    _cell_entropy_stopgrad: bool = False
 
     @classmethod
     def for_nvec(cls, nvec, normalize_entropy: bool = False,
-                 cell_entropy_scale: float = 1.0) -> type:
+                 cell_entropy_scale: float = 1.0,
+                 cell_entropy_stopgrad: bool = False) -> type:
         lens = [int(n) for n in nvec]
         # 3 verbs (right_click / rotate / zoom), 4 (+ double_click, 2026-09-10)
         # or 5 (+ xs_zoom, the 2D pane's zoom, 2026-09-24). The verb count sizes
@@ -87,6 +89,12 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
             # bonus pays for a FLAT cell head; with a spatial input the head
             # has a real gradient to sharpen on, so <1 lets it aim sooner.
             _cell_entropy_scale = float(cell_entropy_scale)
+            # Stop-gradient on the click-verb weight of the cell term: the
+            # term then only shapes WHERE to click (cell head), never WHETHER
+            # to click (verb head). Without it, lowering the cell scale also
+            # made click verbs cheaper to abandon than rotate/zoom -- v7b
+            # halved double-clicks (6.1% -> 3.2% of actions).
+            _cell_entropy_stopgrad = bool(cell_entropy_stopgrad)
 
         _Bound.__name__ = f"{cls.__name__}_{'_'.join(map(str, lens))}"
         return _Bound
@@ -105,6 +113,13 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
     def _cell_weight(self, p: torch.Tensor) -> torch.Tensor:
         """Probability mass on the verbs that use the cell head."""
         return p[..., 0] + (p[..., 3] if p.shape[-1] >= 4 else 0.0)
+
+    def _cell_entropy_weight(self, p: torch.Tensor) -> torch.Tensor:
+        """The cell term's weight in entropy(): same value as _cell_weight,
+        detached from the verb head when _cell_entropy_stopgrad is set. KL and
+        logp keep the attached weight -- only the entropy bonus is decoupled."""
+        w = self._cell_weight(p)
+        return w.detach() if self._cell_entropy_stopgrad else w
 
     def _zoom_weight(self, p: torch.Tensor) -> torch.Tensor:
         """Probability mass on the verbs that spend the zoom head.
@@ -149,13 +164,13 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
             n_verb, n_cell, r, _, _, n_zoom = self._input_lens
             return (
                 h[0] / math.log(n_verb)
-                + self._cell_entropy_scale * self._cell_weight(p) * h[1] / math.log(n_cell)
+                + self._cell_entropy_scale * self._cell_entropy_weight(p) * h[1] / math.log(n_cell)
                 + p[..., 1] * (h[2] + h[3] + h[4]) / (3.0 * math.log(r))
                 + self._zoom_weight(p) * h[5] / math.log(n_zoom)
             )
         return (
             h[0]
-            + self._cell_entropy_scale * self._cell_weight(p) * h[1]
+            + self._cell_entropy_scale * self._cell_entropy_weight(p) * h[1]
             + p[..., 1] * (h[2] + h[3] + h[4])
             + self._zoom_weight(p) * h[5]
         )
@@ -180,6 +195,7 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
         trunk_hiddens: list[int] = [256, 256]   # CLS-only path
         normalize_entropy: bool = False
         cell_entropy_scale: float = 1.0
+        cell_entropy_stopgrad: bool = False   # cell bonus never moves the verb head
       spatial (only read when obs has patch_features; see module docstring):
         spatial_channels: int = 128   # C, conv width over the token grid
         spatial_blocks: int = 3       # residual 3x3 blocks per pane
@@ -229,6 +245,7 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
             nvec,
             normalize_entropy=bool(self.model_config.get("normalize_entropy", False)),
             cell_entropy_scale=float(self.model_config.get("cell_entropy_scale", 1.0)),
+            cell_entropy_stopgrad=bool(self.model_config.get("cell_entropy_stopgrad", False)),
         )
 
     def _setup_spatial(self, patch_space, nvec: List[int], pos_hidden: int) -> None:
