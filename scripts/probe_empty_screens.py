@@ -61,6 +61,24 @@ def main() -> int:
     from ngllib_agent.env_build import action_spec_from_config, build_env, load_config
     from ngllib_agent.wrappers.action import cell_to_pixel
 
+    from ngllib.simulator.render3d import MeshRenderer
+
+    # The MeshRenderer is created lazily at the first reset, so the vertex
+    # capture is patched onto the class before anything is built.
+    verts: dict[str, np.ndarray] = {}
+    ever_loaded: set[str] = set()
+    orig_load = MeshRenderer.load_mesh
+
+    def load_mesh(self, root_id, vertices_nm, faces, normals=None, replace=False):
+        v = np.asarray(vertices_nm, dtype=np.float64)
+        if len(v) > MAX_VERTS:
+            v = v[np.random.default_rng(0).choice(len(v), MAX_VERTS, replace=False)]
+        verts[str(root_id)] = v
+        ever_loaded.add(str(root_id))
+        return orig_load(self, root_id, vertices_nm, faces, normals=normals, replace=replace)
+
+    MeshRenderer.load_mesh = load_mesh
+
     cfg = load_config(args.config)
     cfg.setdefault("obs", {})["mode"] = "dino"
     cfg.setdefault("env", {})["max_episode_steps"] = args.max_steps
@@ -82,25 +100,9 @@ def main() -> int:
 
     w.observation = tapped
     rr = env.unwrapped._renderer
-    mr = rr._renderer
-    print(f"[empty] mesh slot pool: {mr._n_slots} slots "
-          f"(NGL_NATIVE_VAO_LRU_MB={os.environ.get('NGL_NATIVE_VAO_LRU_MB', 'unset')})", flush=True)
-
-    verts: dict[str, np.ndarray] = {}
-    ever_loaded: set[str] = set()
-    orig_load = mr.load_mesh
-
-    def load_mesh(root_id, vertices_nm, faces, normals=None, replace=False):
-        v = np.asarray(vertices_nm, dtype=np.float64)
-        if len(v) > MAX_VERTS:
-            v = v[np.random.default_rng(0).choice(len(v), MAX_VERTS, replace=False)]
-        verts[str(root_id)] = v
-        ever_loaded.add(str(root_id))
-        return orig_load(root_id, vertices_nm, faces, normals=normals, replace=replace)
-
-    mr.load_mesh = load_mesh
 
     def pane_state():
+        mr = rr._renderer
         st = rr._state
         ids = S.visible_segments(st["segments"])
         pos_nm = np.asarray(st["position"], dtype=np.float64) * rr._voxel_nm
@@ -146,10 +148,14 @@ def main() -> int:
     picks = [rows[i] for i in rng.choice(len(rows), size=min(args.n, len(rows)), replace=False)]
 
     steps, clicks = [], []
-    for row in picks:
+    for i, row in enumerate(picks):
         state, info = state_from_row(row)
-        frames.clear(); verts.clear(); ever_loaded.clear()
+        frames.clear()
         obs, _ = env.reset(options={"state": state, "task_info": info})
+        if i == 0:
+            print(f"[empty] mesh slot pool: {rr._renderer._n_slots} slots "
+                  f"(NGL_NATIVE_VAO_LRU_MB={os.environ.get('NGL_NATIVE_VAO_LRU_MB', 'unset')})",
+                  flush=True)
         for _ in range(args.max_steps):
             ps = pane_state()
             ps["idx"] = int(row["idx"])
