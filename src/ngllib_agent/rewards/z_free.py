@@ -77,6 +77,34 @@ class ZFreeRewardConfig:
     # threshold-free, derived from the task variable itself. Seen-set (not
     # visible-set) so deselecting an unexplored candidate cannot dodge it.
     explore_penalty_coef: float = 0.0
+    # v7d no-op click cost: charged when a click does nothing --
+    #   3D-pane right-click whose pick hit background (camera did not move),
+    #   double-click anywhere that left the visible set unchanged.
+    # 2D-pane right-clicks always move (orthographic slice) and are never
+    # charged. Probes showed ~50% of v7's 3D right-clicks and ~48% of its
+    # double-clicks were no-ops, almost all next to a VISIBLE mesh, so the
+    # policy can see the target; misses were simply free. Sized ~half a z unit
+    # of shaping (0.0005) so a miss is worse than a hit but a hop (~0.1-1)
+    # stays far more valuable.
+    noop_click_cost: float = 0.0
+
+
+# ngllib Dict action codes (ngllib_agent.wrappers.action) and the CSS x where
+# the 3D pane starts in click coordinates.
+_RIGHT_CLICK, _DOUBLE_CLICK = 1, 2
+_CSS_PANE_X = 900.0
+
+
+def is_noop_click(obs: dict[str, Any], action, prev_obs: dict[str, Any]) -> bool:
+    """True iff `action` was a click that changed nothing (see noop_click_cost)."""
+    if action is None:
+        return False
+    kind = int(action["action_type"])
+    if kind == _DOUBLE_CLICK:
+        return _visible(obs) == _visible(prev_obs)
+    if kind == _RIGHT_CLICK and float(np.asarray(action["mouse_xy"])[0]) >= _CSS_PANE_X:
+        return bool(np.allclose(np.asarray(obs["position"]), np.asarray(prev_obs["position"])))
+    return False
 
 
 def _z(obs: dict[str, Any]) -> float:
@@ -177,6 +205,8 @@ def make_zfree_reward_factory(
                 if paid:
                     r += cfg.select_novelty_bonus * novelty_scale() * paid
                 r -= load_cost * len(new)
+            if cfg.noop_click_cost and is_noop_click(obs, action, prev_obs):
+                r -= cfg.noop_click_cost
             note_zmax(obs)
             return float(r)
 

@@ -121,6 +121,36 @@ def test_v4_delta_and_select_cost():
     assert abs(r) < 1e-9
 
 
+def test_noop_click_cost():
+    from ngllib_agent.rewards import ZFreeRewardConfig, make_zfree_reward_factory
+
+    cfg = ZFreeRewardConfig(shaping_coef=0.0, select_novelty_bonus=0.0,
+                            noop_click_cost=0.0005)
+    rew = make_zfree_reward_factory(cfg)({})
+
+    def _o(pos, segs=("a",)):
+        return {"position": np.array(pos, dtype=np.float32), "segments": tuple(segs)}
+
+    def _a(kind, x, y=400.0):
+        return {"action_type": kind, "mouse_xy": np.array([x, y], dtype=np.float32)}
+
+    RC, DBL, EDIT = 1, 2, 3
+    p = [10.0, 10.0, 5.0]
+    # 3D right-click that did not move the camera: charged
+    assert abs(rew(_o(p), _a(RC, 1300.0), _o(p), False) + 0.0005) < 1e-12
+    # 3D right-click that moved: free
+    assert rew(_o([11.0, 10.0, 5.0]), _a(RC, 1300.0), _o(p), False) == 0.0
+    # 2D-pane right-click: never charged, even with no move
+    assert rew(_o(p), _a(RC, 400.0), _o(p), False) == 0.0
+    # double-click that changed nothing: charged (either pane)
+    assert abs(rew(_o(p), _a(DBL, 400.0), _o(p), False) + 0.0005) < 1e-12
+    assert abs(rew(_o(p), _a(DBL, 1300.0), _o(p), False) + 0.0005) < 1e-12
+    # double-click that deselected: free
+    assert rew(_o(p, ()), _a(DBL, 1300.0), _o(p), False) == 0.0
+    # non-click verb: free
+    assert rew(_o(p), {"action_type": EDIT, "mouse_xy": np.zeros(2)}, _o(p), False) == 0.0
+
+
 def test_v5_exploration_conditioned_load_cost():
     from ngllib_agent.rewards import ZFreeRewardConfig, make_zfree_reward_factory
 
