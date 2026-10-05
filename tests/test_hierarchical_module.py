@@ -312,3 +312,64 @@ def test_ppo_one_iter_end_to_end(env_cls):
         algo.stop()
     finally:
         ray.shutdown()
+
+
+NVEC_SPLIT = [5, GRID * (PANES * GRID), GRID * (PANES * GRID), 9, 9, 9, 9]
+
+
+def test_split_dist_gates_each_click_head_by_its_own_verb():
+    from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
+
+    cls = HierarchicalMultiCategorical.for_nvec(NVEC_SPLIT, normalize_entropy=True,
+                                                cell_entropy_scale=0.1)
+    z = torch.randn(3, sum(NVEC_SPLIT))
+    d = cls.from_logits(z)
+    n = NVEC_SPLIT[1]
+    lp_rc = d._cats[1].logp(torch.tensor([7, 7, 7]))
+    lp_dbl = d._cats[2].logp(torch.tensor([9, 9, 9]))
+    lp_v = d._cats[0].logp(torch.tensor([0, 3, 1]))
+    # verb 0 uses only the right-click head, verb 3 only the double-click head
+    act = torch.tensor([[0, 7, 9, 4, 4, 4, 4], [3, 7, 9, 4, 4, 4, 4], [1, 7, 9, 4, 4, 4, 4]])
+    lp = d.logp(act)
+    assert torch.allclose(lp[0], lp_v[0] + lp_rc[0])
+    assert torch.allclose(lp[1], lp_v[1] + lp_dbl[1])
+    # the right-click scale reaches only the right-click head's entropy
+    z2 = z.clone().requires_grad_(True)
+    cls.from_logits(z2).entropy().sum().backward()
+    g = z2.grad
+    cls1 = HierarchicalMultiCategorical.for_nvec(NVEC_SPLIT, normalize_entropy=True,
+                                                 cell_entropy_scale=1.0)
+    z3 = z.clone().requires_grad_(True)
+    cls1.from_logits(z3).entropy().sum().backward()
+    g1 = z3.grad
+    rc_sl, dbl_sl = slice(5, 5 + n), slice(5 + n, 5 + 2 * n)
+    assert not torch.allclose(g[:, rc_sl], g1[:, rc_sl])
+    assert torch.allclose(g[:, dbl_sl], g1[:, dbl_sl])
+
+
+def test_split_spatial_module_two_heads():
+    from ray.rllib.core.columns import Columns
+
+    m = _spatial_module(nvec=NVEC_SPLIT)
+    assert m._n_click_heads == 2 and m._cell_score.out_channels == 2
+    out = m.forward_train(_spatial_batch())
+    assert out[Columns.ACTION_DIST_INPUTS].shape == (3, sum(NVEC_SPLIT))
+    # identical scorer channels -> identical right/double-click logits
+    with torch.no_grad():
+        m._cell_score.weight[1] = m._cell_score.weight[0]
+        m._cell_score.bias[1] = m._cell_score.bias[0]
+    lg = m.forward_inference(_spatial_batch(2))[Columns.ACTION_DIST_INPUTS]
+    n = NVEC_SPLIT[1]
+    assert torch.allclose(lg[:, 5:5 + n], lg[:, 5 + n:5 + 2 * n])
+    dist = m.get_inference_action_dist_cls().from_logits(lg)
+    assert dist.sample().shape == (2, 7)
+
+
+class _FakeSplitEnv(_FakeSpatialEnv):
+    def __init__(self, config=None):
+        super().__init__(config)
+        self.action_space = spaces.MultiDiscrete(NVEC_SPLIT)
+
+
+def test_ppo_one_iter_split_heads():
+    test_ppo_one_iter_end_to_end(_FakeSplitEnv)

@@ -48,17 +48,17 @@ def action_label(a, spec) -> str:
     for clicks (grid_cols spans BOTH panes; col < grid_cols/2 = 2D pane)."""
     v = int(a[0])
     if v in (0, 3):
-        cell = int(a[1])
+        cell = spec.click_cell(a)
         row, col = cell // spec.grid_cols, cell % spec.grid_cols
         pane = "2D" if col < spec.grid_cols // 2 else "3D"
         name = "right_click" if v == 0 else "DBLCLICK"
         return f"{name} {pane} r{row},c{col}"
     if v == 1:
         c = spec.rotation_bins_per_axis // 2
-        return f"rotate x{int(a[2]) - c:+d} y{int(a[3]) - c:+d} z{int(a[4]) - c:+d}"
+        return f"rotate x{int(a[-4]) - c:+d} y{int(a[-3]) - c:+d} z{int(a[-2]) - c:+d}"
     if v == 2:
-        return f"zoom3D {(int(a[5]) - spec.zoom_bins // 2) * spec.zoom_step:+.0f}"
-    return f"xs_zoom bin {int(a[5]) - spec.zoom_bins // 2:+d}"
+        return f"zoom3D {(int(a[-1]) - spec.zoom_bins // 2) * spec.zoom_step:+.0f}"
+    return f"xs_zoom bin {int(a[-1]) - spec.zoom_bins // 2:+d}"
 
 
 GRAPH_H = 80  # z-trajectory strip appended below the panes
@@ -73,7 +73,7 @@ def click_rect(a, spec):
     v = int(a[0])
     if v not in CLICK_FILL:
         return None
-    cell = int(a[1])
+    cell = spec.click_cell(a)
     row, col = cell // spec.grid_cols, cell % spec.grid_cols
     cw = (spec.pane_x1 - spec.pane_x0) / spec.grid_cols
     ch = (spec.pane_y1 - spec.pane_y0) / spec.grid_rows
@@ -260,7 +260,7 @@ def main() -> int:
                 obs, r, term, trunc, _ = env.step(a)
                 verb = int(av[0])
                 if verb in (0, 3):
-                    col = int(av[1]) % spec.grid_cols
+                    col = spec.click_cell(av) % spec.grid_cols
                     # both-pane grids put the 2D pane in the left half; a
                     # 3D-only grid (pane_x0 >= 900 CSS) has no 2D cells.
                     is_2d = spec.pane_x0 < 900.0 and col < spec.grid_cols // 2

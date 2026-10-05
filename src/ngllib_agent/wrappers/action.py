@@ -57,6 +57,13 @@ class ActionSpec:
     # 3D zoom's are hundreds. 0.25 per bin gives +/-1.0 over four bins from
     # centre -- roughly a halving/doubling of the 2D field of view.
     xs_zoom_step: float = 0.25
+    # Separate click-cell distributions for right_click and double_click
+    # (2026-10-05, v7f). Each spans the SAME full grid over both panes -- the
+    # split is by verb, not by pane, since both verbs act on both panes. With
+    # one shared cell head, sharpening it toward right-click targets pulled
+    # mass off double-click targets and the policy hopped less (head-entropy
+    # probe: 91 -> 18 effective cells went with P(dblclick) 5.1% -> 1.9%).
+    split_click_heads: bool = False
 
     @property
     def num_cells(self) -> int:
@@ -65,11 +72,21 @@ class ActionSpec:
     def __post_init__(self) -> None:
         if self.verbs not in (3, 4, 5):
             raise ValueError(f"verbs must be 3, 4 or 5; got {self.verbs}")
+        if self.split_click_heads and self.verbs < 4:
+            raise ValueError("split_click_heads needs the double_click verb (verbs >= 4)")
 
     def nvec(self) -> list[int]:
-        # [action_type, click_cell, rot_x, rot_y, rot_z, zoom]
+        # [action_type, click_cell, rot_x, rot_y, rot_z, zoom], or with split
+        # heads [action_type, right_click_cell, double_click_cell, rot..., zoom]
         r = self.rotation_bins_per_axis
-        return [self.verbs, self.num_cells, r, r, r, self.zoom_bins]
+        cells = [self.num_cells, self.num_cells] if self.split_click_heads else [self.num_cells]
+        return [self.verbs, *cells, r, r, r, self.zoom_bins]
+
+    def click_cell(self, md_action) -> int:
+        """The grid cell the sampled verb uses (right_click -> index 1;
+        double_click -> index 2 with split heads, else the shared index 1)."""
+        a = [int(v) for v in md_action]
+        return a[2] if (self.split_click_heads and a[0] == 3) else a[1]
 
 
 def _bin_to_signed(bin_index: int, bins_per_axis: int, step: float) -> float:
@@ -93,7 +110,10 @@ def decode(md_action, spec: ActionSpec, orient_dim: int = 3) -> dict[str, Any]:
 
     Verbs are mutually exclusive; unused fields stay at their neutral zero.
     """
-    a_type, cell, dx, dy, dz, dzoom = (int(v) for v in md_action)
+    vals = [int(v) for v in md_action]
+    a_type = vals[0]
+    cell = spec.click_cell(vals)
+    dx, dy, dz, dzoom = vals[-4:]
     act: dict[str, Any] = {
         "action_type": 0,
         "mouse_xy": np.zeros(2, dtype=np.float32),

@@ -1,0 +1,92 @@
+# zmax-left v7f (ARM C): split click heads + no-op click cost, annealing ONLY the
+# right-click head's entropy. Warm start from zmaxleft-v7/ckpt_000450 widened by
+# native/convert_split_click_ckpt.py (v7's click scorer copied into both heads),
+# to iteration 800 like v7b-v7e.
+#
+# Why: the head-entropy probe (2026-10-05) showed that sharpening the SHARED
+# click head -- by lower entropy, the no-op cost, or both -- went with less
+# double-clicking (effective cells 91 -> 39 -> 28 -> 18, P(dblclick) 5.1% ->
+# 3.5% -> 2.5% -> ~1.9%). One distribution serves right-click (3D mesh targets)
+# and double-click (2D hop targets); separating them should let right-click
+# aim sharpen without starving hops. Not surefire: both verbs act in both panes.
+# Everything else = v7d (arm A): raw DINO tokens, CNN trunk, v5b reward terms +
+# reward.noop_click_cost 0.0005. EVAL with native_zmaxleft_v7f_eval.yaml.
+
+env:
+  backend: simulator
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet
+  projection_scale_range: [3500, 14000]
+  orientation: euler
+  headless: true
+  renderer: gpu
+  image_size: [84, 84]
+  max_episode_steps: 500
+
+obs:
+  mode: dino
+  use_left_pane: true
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+    cuda_graph: true
+    patch_tokens: true    # v7: raw patch-token grid per pane instead of CLS
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+model:
+  pos_hidden_dim: 64
+  normalize_entropy: true
+  cell_entropy_scale: 1.0
+  # ARM C: with split heads, cell_entropy_scale / cell_entropy_schedule act on
+  # the RIGHT-CLICK head only. Same ramp as v7b (1.0 -> 0.1 over 7.2M -> 8.8M
+  # lifetime steps, then held), so C vs v7b tests whether separating the
+  # heads keeps hopping under v7b's strongest sharpening.
+  cell_entropy_schedule: [[7200000, 1.0], [8800000, 0.1], [1000000000, 0.1]]
+  dbl_entropy_scale: 1.0   # double-click head: NOT annealed
+  spatial_channels: 128
+  spatial_blocks: 3
+  flat_channels: 16
+  hidden: 512
+  autocast_bf16: true
+
+action:
+  verbs: 5                # right_click / rotate / zoom / double_click / xs_zoom
+  xs_zoom_step: 0.25
+  grid_rows: 16           # = DINO token grid (one click cell per token)
+  grid_cols: 32           # EM pane cols 0-15, 3D pane cols 16-31
+  # ARM C: separate right-click and double-click cell distributions, each
+  # over the full 16x32 grid of BOTH panes (split by verb, not pane).
+  split_click_heads: true
+  click_bounds: [0, 23, 1800, 876]     # x0, y0, x1, y1 — BOTH panes
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  mode: z_free
+  shaping_coef: 0.001
+  select_novelty_bonus: 0.1
+  select_novelty_end_steps: 1500000
+  select_novelty_cap: 10
+  delta_coef: 0.0003
+  select_cost: 0.0015
+  explore_penalty_coef: 0.00005
+  # NO-OP CLICK COST (2026-10-04): 3D right-click that does not move the
+  # camera, or double-click that leaves the selection unchanged.
+  noop_click_cost: 0.0005
+  step_penalty: 0.0
+  budget_min: 100
+  budget_max: 500
+  stall_limit: 125
+
+ppo:
+  train_batch_size: 16000
+  sgd_minibatch_size: 512
+  num_sgd_iter: 4
+  entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01

@@ -60,7 +60,9 @@ from ray.rllib.utils.annotations import override
 class HierarchicalMultiCategorical(TorchMultiCategorical):
     """TorchMultiCategorical with verb-gated logp/entropy/kl.
 
-    Component order must be `[type(3|4), cell, rot_x, rot_y, rot_z, zoom]`.
+    Component order must be `[type(3|4|5), cell, rot_x, rot_y, rot_z, zoom]`,
+    or with split click heads (7 components)
+    `[type(4|5), right_click_cell, double_click_cell, rot_x, rot_y, rot_z, zoom]`.
     Use `for_nvec(nvec)` to bind the logit split sizes (RLlib instantiates
     distribution classes via `from_logits(logits)` with no extra args).
     """
@@ -68,19 +70,26 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
     _input_lens: List[int] = []
     _normalize_entropy: bool = False
     _cell_entropy_scale: float = 1.0
+    _dbl_entropy_scale: float = 1.0
     _cell_entropy_stopgrad: bool = False
+    _split: bool = False
 
     @classmethod
     def for_nvec(cls, nvec, normalize_entropy: bool = False,
                  cell_entropy_scale: float = 1.0,
-                 cell_entropy_stopgrad: bool = False) -> type:
+                 cell_entropy_stopgrad: bool = False,
+                 dbl_entropy_scale: float = 1.0) -> type:
         lens = [int(n) for n in nvec]
         # 3 verbs (right_click / rotate / zoom), 4 (+ double_click, 2026-09-10)
         # or 5 (+ xs_zoom, the 2D pane's zoom, 2026-09-24). The verb count sizes
         # the head, so it comes from the ActionSpec the config declares -- a
         # 3-verb checkpoint loads only into a 3-verb module.
-        if len(lens) != 6 or lens[0] not in (3, 4, 5):
-            raise ValueError(f"expected nvec [3|4|5, cells, R, R, R, Z]; got {lens}")
+        split = len(lens) == 7
+        if not ((len(lens) == 6 and lens[0] in (3, 4, 5))
+                or (split and lens[0] in (4, 5))):
+            raise ValueError(
+                f"expected nvec [3|4|5, cells, R, R, R, Z] or "
+                f"[4|5, cells_rc, cells_dbl, R, R, R, Z]; got {lens}")
 
         class _Bound(cls):
             _input_lens = lens
@@ -95,6 +104,12 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
             # made click verbs cheaper to abandon than rotate/zoom -- v7b
             # halved double-clicks (6.1% -> 3.2% of actions).
             _cell_entropy_stopgrad = bool(cell_entropy_stopgrad)
+            # Split heads: _cell_entropy_scale (and train.py's schedule) acts
+            # on the RIGHT-CLICK cell head only; the double-click head has its
+            # own multiplier, so hop-target exploration can be kept while
+            # right-click aim is sharpened.
+            _split = split
+            _dbl_entropy_scale = float(dbl_entropy_scale)
 
         _Bound.__name__ = f"{cls.__name__}_{'_'.join(map(str, lens))}"
         return _Bound
@@ -109,6 +124,19 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
 
     def _type_probs(self) -> torch.Tensor:
         return torch.softmax(self._cats[0].logits, dim=-1)
+
+    def _idx(self) -> tuple[int, int, tuple[int, int, int], int]:
+        """Component indices: (right_click cell, double_click cell, rotation
+        bins, zoom bin). Without split heads both clicks share index 1."""
+        if self._split:
+            return 1, 2, (3, 4, 5), 6
+        return 1, 1, (2, 3, 4), 5
+
+    def _w(self, p: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
+        return w.detach() if self._cell_entropy_stopgrad else w
+
+    def _dbl_p(self, p: torch.Tensor):
+        return p[..., 3] if p.shape[-1] >= 4 else 0.0
 
     def _cell_weight(self, p: torch.Tensor) -> torch.Tensor:
         """Probability mass on the verbs that use the cell head."""
@@ -135,20 +163,26 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
         parts = torch.unbind(value, dim=-1)
         typ = parts[0].long()
         lp = [cat.logp(act) for cat, act in zip(self._cats, parts)]
-        # Verbs 0 (right_click) and 3 (double_click) both spend the cell head;
+        rc, dbl, rot, zm = self._idx()
+        # Verb 0 (right_click) spends the right-click cell head and verb 3
+        # (double_click) the double-click head (the same head when not split);
         # verbs 2 (3D zoom) and 4 (2D zoom) both spend the zoom head.
-        is_click = ((typ == 0) | (typ == 3)).float()
+        is_rc = (typ == 0).float()
+        is_dbl = (typ == 3).float()
         is_rotate = (typ == 1).float()
         is_zoom = ((typ == 2) | (typ == 4)).float()
         return (
             lp[0]
-            + is_click * lp[1]
-            + is_rotate * (lp[2] + lp[3] + lp[4])
-            + is_zoom * lp[5]
+            + is_rc * lp[rc]
+            + is_dbl * lp[dbl]
+            + is_rotate * (lp[rot[0]] + lp[rot[1]] + lp[rot[2]])
+            + is_zoom * lp[zm]
         )
 
     @override(TorchMultiCategorical)
     def entropy(self) -> torch.Tensor:
+        if self._split:
+            return self._entropy_split()
         h = [cat.entropy() for cat in self._cats]
         p = self._type_probs()
         if self._normalize_entropy:
@@ -175,15 +209,40 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
             + self._zoom_weight(p) * h[5]
         )
 
+    def _entropy_split(self) -> torch.Tensor:
+        """Split heads: each click head's entropy is gated by its OWN verb and
+        scaled by its own multiplier (right-click: _cell_entropy_scale, which
+        train.py's cell_entropy_schedule drives; double-click:
+        _dbl_entropy_scale)."""
+        import math
+
+        h = [cat.entropy() for cat in self._cats]
+        p = self._type_probs()
+        n_verb, n_rc, n_dbl, r, _, _, n_zoom = self._input_lens
+        norm = self._normalize_entropy
+        ln = (lambda n: math.log(n)) if norm else (lambda n: 1.0)
+        return (
+            h[0] / ln(n_verb)
+            + self._cell_entropy_scale * self._w(p, p[..., 0]) * h[1] / ln(n_rc)
+            + self._dbl_entropy_scale * self._w(p, p[..., 3]) * h[2] / ln(n_dbl)
+            + p[..., 1] * (h[3] + h[4] + h[5]) / (3.0 * ln(r) if norm else 1.0)
+            + self._zoom_weight(p) * h[6] / ln(n_zoom)
+        )
+
     @override(TorchMultiCategorical)
     def kl(self, other: "HierarchicalMultiCategorical") -> torch.Tensor:
         kls = [cat.kl(oth) for cat, oth in zip(self._cats, other._cats)]
         p = self._type_probs()
+        rc, dbl, rot, zm = self._idx()
+        if self._split:
+            click = p[..., 0] * kls[rc] + self._dbl_p(p) * kls[dbl]
+        else:
+            click = self._cell_weight(p) * kls[rc]
         return (
             kls[0]
-            + self._cell_weight(p) * kls[1]
-            + p[..., 1] * (kls[2] + kls[3] + kls[4])
-            + self._zoom_weight(p) * kls[5]
+            + click
+            + p[..., 1] * (kls[rot[0]] + kls[rot[1]] + kls[rot[2]])
+            + self._zoom_weight(p) * kls[zm]
         )
 
 
@@ -196,6 +255,7 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
         normalize_entropy: bool = False
         cell_entropy_scale: float = 1.0
         cell_entropy_stopgrad: bool = False   # cell bonus never moves the verb head
+        dbl_entropy_scale: float = 1.0  # double-click head's own multiplier (split heads)
       spatial (only read when obs has patch_features; see module docstring):
         spatial_channels: int = 128   # C, conv width over the token grid
         spatial_blocks: int = 3       # residual 3x3 blocks per pane
@@ -246,6 +306,7 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
             normalize_entropy=bool(self.model_config.get("normalize_entropy", False)),
             cell_entropy_scale=float(self.model_config.get("cell_entropy_scale", 1.0)),
             cell_entropy_stopgrad=bool(self.model_config.get("cell_entropy_stopgrad", False)),
+            dbl_entropy_scale=float(self.model_config.get("dbl_entropy_scale", 1.0)),
         )
 
     def _setup_spatial(self, patch_space, nvec: List[int], pos_hidden: int) -> None:
@@ -254,12 +315,14 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
         n_blocks = int(self.model_config.get("spatial_blocks", 3))
         flat_c = int(self.model_config.get("flat_channels", 16))
         hidden = int(self.model_config.get("hidden", 512))
-        n_verb, n_cell, r, _, _, n_zoom = nvec
+        # 7 components = split click heads: [verb, rc_cell, dbl_cell, rot*3, zoom]
+        n_verb, n_cell, *_, r, _, _, n_zoom = nvec
+        self._n_click_heads = len(nvec) - 5
         # One logit per token: the click grid is the token grid with the panes
         # side by side (EM cols 0..G-1, 3D cols G..2G-1). The ActionSpec's
         # cell_to_pixel maps row-major cells over click_bounds, which spans
         # both panes in that order, so no interpolation or re-indexing.
-        if n_cell != g_rows * n_panes * g_cols:
+        if any(n != g_rows * n_panes * g_cols for n in nvec[1:1 + self._n_click_heads]):
             raise ValueError(
                 f"spatial policy needs a {g_rows}x{n_panes * g_cols} click grid "
                 f"(one cell per token); action space has {n_cell} cells")
@@ -275,7 +338,9 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
 
         self._pi_rest = nn.Linear(hidden, n_verb + 3 * r + n_zoom)
         self._g_to_map = nn.Linear(hidden, c)
-        self._cell_score = nn.Conv2d(2 * c, 1, 1)
+        # One output channel per click head (channel 0 = right-click, 1 =
+        # double-click when split); both read the same feature map + context.
+        self._cell_score = nn.Conv2d(2 * c, self._n_click_heads, 1)
 
     def _features(self, batch: Dict[str, Any]) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         """(shared vector g, per-pane feature map (B*P, C, G, G) or None)."""
@@ -310,10 +375,12 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
         ctx = self._g_to_map(g)                                    # (B, C)
         ctx = ctx[:, None, :, None, None].expand(b, n_panes, -1, g_rows, g_cols)
         ctx = ctx.reshape(b * n_panes, -1, g_rows, g_cols)
-        score = self._cell_score(torch.cat([fmap, ctx], dim=1))    # (B*P, 1, G, G)
-        # (B, P, G, G) -> (B, G, P*G): row-major over [row][pane][col]
-        cell = score.reshape(b, n_panes, g_rows, g_cols).permute(0, 2, 1, 3).reshape(b, -1)
-        return torch.cat([rest[:, :n_verb], cell, rest[:, n_verb:]], dim=-1)
+        score = self._cell_score(torch.cat([fmap, ctx], dim=1))    # (B*P, K, G, G)
+        k = self._n_click_heads
+        # (B, P, K, G, G) -> per head (B, G, P*G): row-major over [row][pane][col]
+        score = score.reshape(b, n_panes, k, g_rows, g_cols)
+        cells = [score[:, :, h].permute(0, 2, 1, 3).reshape(b, -1) for h in range(k)]
+        return torch.cat([rest[:, :n_verb], *cells, rest[:, n_verb:]], dim=-1)
 
     def _autocast_ctx(self, batch: Dict[str, Any]):
         dev = batch[Columns.OBS]["pos_state"].device

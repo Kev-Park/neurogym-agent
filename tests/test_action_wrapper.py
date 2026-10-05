@@ -185,3 +185,22 @@ def test_a_four_verb_spec_cannot_emit_xs_zoom():
 def test_verbs_must_be_3_4_or_5():
     with pytest.raises(ValueError):
         ActionSpec(verbs=6)
+
+
+def test_split_click_heads_layout_and_decode():
+    spec = ActionSpec(verbs=5, grid_rows=4, grid_cols=8, split_click_heads=True)
+    assert spec.nvec() == [5, 32, 32, 9, 9, 9, 9]
+    # right_click reads index 1, double_click index 2
+    rc = decode([0, 5, 30, 4, 4, 4, 4], spec)
+    dbl = decode([3, 5, 30, 4, 4, 4, 4], spec)
+    assert np.allclose(rc["mouse_xy"], cell_to_pixel(5, spec))
+    assert np.allclose(dbl["mouse_xy"], cell_to_pixel(30, spec))
+    assert spec.click_cell([0, 5, 30, 0, 0, 0, 0]) == 5
+    assert spec.click_cell([3, 5, 30, 0, 0, 0, 0]) == 30
+    # rotation / zoom bins are the last four components
+    rot = decode([1, 0, 0, 8, 0, 4, 0], spec)
+    assert rot["delta_orient"][0] > 0 and rot["delta_orient"][1] < 0
+    zm = decode([2, 0, 0, 4, 4, 4, 8], spec)
+    assert zm["delta_proj_scale"][0] > 0
+    with pytest.raises(ValueError):
+        ActionSpec(verbs=3, split_click_heads=True)

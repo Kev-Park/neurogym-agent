@@ -51,6 +51,7 @@ def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
         zoom_bins=ac["zoom_bins"],
         **({"xs_zoom_step": float(ac["xs_zoom_step"])} if "xs_zoom_step" in ac else {}),
         zoom_step=ac["zoom_step"],
+        split_click_heads=bool(ac.get("split_click_heads", False)),
     )
 
 
