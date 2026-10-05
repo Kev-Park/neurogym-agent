@@ -24,6 +24,10 @@
 # with fewer updates (fragment length is a null effect, iteration count is
 # ~20pp -- project_v9test_chimera notes, 2026-09-02).
 #
+# CKPT_EVERY (default 10): checkpoint interval in iterations. Lower it when
+# preemptions arrive faster than 10 iterations (job 1002915 restarted from
+# ckpt_450 repeatedly without ever reaching 460); a checkpoint is ~66 MB.
+#
 # Usage: sbatch --nodes=N [--job-name=...] \
 #          --export=ALL,TRAIN_CONFIG=configs/native_zmaxleft_v7.yaml \
 #          native/r_train_zmaxleft_mn.slurm <run-name> <target-iters>
@@ -121,7 +125,7 @@ while :; do
       --sample-timeout-s "${SAMPLE_TIMEOUT:-600}" \
       --iters "$ITERS" \
       --train-batch-size "$BATCH" \
-      --checkpoint-dir "$CKPT" --checkpoint-every 10 \
+      --checkpoint-dir "$CKPT" --checkpoint-every "${CKPT_EVERY:-10}" \
       --wandb-project neurogym-agent --wandb-mode "$WANDB_MODE" \
       --learner-gpu \
       --resume
