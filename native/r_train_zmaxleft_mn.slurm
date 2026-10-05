@@ -103,7 +103,11 @@ srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" uv run --no-sync ray status --add
 
 # train.py exits 43 on sustained degradation after checkpointing; a fresh
 # process resuming from that checkpoint is the cure, so relaunch in place
-# (train.py disables the exit itself after 3 in 2h).
+# (train.py disables the exit itself after 3 in 2h). Any OTHER non-zero exit
+# (e.g. a transient learner CUDA OOM right after a runner restart, job
+# 1002322 at iter 778) is also relaunched from the last checkpoint, at most
+# MAX_CRASH_RETRIES times, so one fault does not end the job.
+crashes=0
 while :; do
   srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
     /usr/bin/env CUDA_VISIBLE_DEVICES=0 \
@@ -122,8 +126,18 @@ while :; do
       --learner-gpu \
       --resume
   rc=$?
-  [ "$rc" -eq 43 ] || break
-  echo "[mn] degraded exit (43) -> relaunching from checkpoint"
+  [ "$rc" -eq 0 ] && break
+  if [ "$rc" -eq 43 ]; then
+    echo "[mn] degraded exit (43) -> relaunching from checkpoint"
+    continue
+  fi
+  crashes=$((crashes + 1))
+  if [ "$crashes" -gt "${MAX_CRASH_RETRIES:-3}" ]; then
+    echo "[mn] train crashed (rc=$rc) $crashes times -> giving up"
+    break
+  fi
+  echo "[mn] train crashed (rc=$rc) -> relaunching from checkpoint ($crashes/${MAX_CRASH_RETRIES:-3})"
+  sleep 30
 done
 echo "[mn] train exited rc=$rc"
 exit "$rc"
