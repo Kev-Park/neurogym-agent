@@ -181,6 +181,10 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         sim_kwargs = dict(cache_dir=ec.get("cv_cache"))
         if "pane_mode" in ec:
             sim_kwargs["pane_mode"] = ec["pane_mode"]
+        if cfg.get("action", {}).get("cell_bounded_clicks", False):
+            ac = cfg["action"]
+            sim_kwargs["click_grid"] = (ac["grid_rows"], ac["grid_cols"])
+            sim_kwargs["click_bounds"] = tuple(ac["click_bounds"])
         if layout_start_url:
             sim_kwargs["dataset"] = DatasetSpec.from_start_url(layout_start_url)
         renderer = SimulatorRenderer(**layout, **sim_kwargs)

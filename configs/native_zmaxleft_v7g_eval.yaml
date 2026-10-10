@@ -1,0 +1,69 @@
+# v7g eval: split heads and cell-bounded picking, matching training.
+# EVAL config for v7 (CNN-on-DINO-tokens) checkpoints: the v2 eval recipe
+# (native_zmaxleft.yaml: z_free reward, TimeLimit-only 500 steps, frozen
+# eval_zmaxleft_v1 holdout) with v7's observation + action space, which an
+# eval must reproduce exactly to rebuild the module. Reward terms do not
+# matter for the paired delta-z metric; they are left at v2's for parity
+# with every earlier scoreboard entry.
+
+env:
+  backend: simulator
+  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet
+  projection_scale_range: [3500, 14000]
+  orientation: euler
+  headless: true
+  renderer: gpu
+  image_size: [84, 84]
+  max_episode_steps: 500
+
+obs:
+  mode: dino
+  use_left_pane: true
+  dino:
+    model_name: dinov2_vits14
+    input_size: 224
+    patch_tokens: true
+  pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
+
+model:
+  pos_hidden_dim: 64
+  normalize_entropy: true
+  cell_entropy_scale: 1.0
+  spatial_channels: 128
+  spatial_blocks: 3
+  flat_channels: 16
+  hidden: 512
+  autocast_bf16: true
+
+action:
+  verbs: 5
+  xs_zoom_step: 0.25
+  grid_rows: 16
+  grid_cols: 32
+  split_click_heads: true
+  cell_bounded_clicks: true
+  click_bounds: [0, 23, 1800, 876]
+  rotation_bins_per_axis: 9
+  rotation_step_rad: 0.08
+  zoom_bins: 9
+  zoom_step: 500.0
+
+reward:
+  mode: z_free
+  shaping_coef: 0.001
+  select_novelty_bonus: 0.1
+  select_novelty_end_steps: 1500000
+  select_novelty_cap: 10
+  step_penalty: 0.0
+
+ppo:
+  train_batch_size: 16000
+  sgd_minibatch_size: 512
+  num_sgd_iter: 4
+  entropy_coeff: [[0, 0.2], [900000, 0.05], [3000000, 0.01]]
+  gamma: 0.99
+  lambda: 0.95
+  clip_param: 0.2
+  lr: 3.0e-4
+  kl_target: 0.01

@@ -47,6 +47,7 @@ action:
   # ARM C: separate right-click and double-click cell distributions, each
   # over the full 16x32 grid of BOTH panes (split by verb, not pane).
   split_click_heads: true
+  cell_bounded_clicks: true
   click_bounds: [0, 23, 1800, 876]     # x0, y0, x1, y1 — BOTH panes
   rotation_bins_per_axis: 9
   rotation_step_rad: 0.08
