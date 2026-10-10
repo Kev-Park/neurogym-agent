@@ -1,5 +1,6 @@
-# v7g: matched v7f ablation, adding double-click entropy annealing 1 -> 0.5.
-# Same split-head base at iteration 450, target 800; all other settings unchanged.
+# v7g: double-click entropy annealing 1 -> 0.5 and cell-bounded picking.
+# Same split-head base at iteration 450, target 800. Picking searches only
+# inside the selected cell; training and eval must both enable it.
 
 env:
   backend: simulator
