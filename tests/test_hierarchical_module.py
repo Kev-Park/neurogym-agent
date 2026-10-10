@@ -233,6 +233,35 @@ def test_cell_entropy_stopgrad_cuts_only_the_verb_path():
     assert z.grad[:, n_verb:n_verb + n_cell].abs().sum() > 0
 
 
+@pytest.mark.parametrize("normalized", [False, True])
+def test_split_grid_entropy_defaults_to_independent_verb_gradient(normalized):
+    from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
+
+    nvec = [5, 16, 16, 9, 9, 9, 9]
+    base = torch.randn(4, sum(nvec))
+    results = []
+    for rc, dbl in [(1.0, 1.0), (0.1, 1.0), (1.0, 0.1)]:
+        cls = HierarchicalMultiCategorical.for_nvec(
+            nvec, normalize_entropy=normalized,
+            cell_entropy_scale=rc, dbl_entropy_scale=dbl)
+        assert cls._cell_entropy_stopgrad is True
+        z = base.clone().requires_grad_(True)
+        cls.from_logits(z).entropy().sum().backward()
+        results.append(z.grad.clone())
+    full, rc_low, dbl_low = results
+    # Each scale changes only its own grid gradient; the complete entropy
+    # bonus's gradient into verb logits is unaffected by either scale.
+    for grad in (rc_low, dbl_low):
+        assert torch.allclose(grad[:, :5], full[:, :5])
+    assert torch.allclose(rc_low[:, 5:21], full[:, 5:21] * 0.1)
+    assert torch.allclose(rc_low[:, 21:], full[:, 21:])
+    assert torch.allclose(dbl_low[:, 21:37], full[:, 21:37] * 0.1)
+    assert torch.allclose(dbl_low[:, 5:21], full[:, 5:21])
+    assert torch.allclose(dbl_low[:, 37:], full[:, 37:])
+    legacy = HierarchicalMultiCategorical.for_nvec(nvec, cell_entropy_stopgrad=False)
+    assert legacy._cell_entropy_stopgrad is False
+
+
 def test_cell_entropy_scale():
     from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
 
