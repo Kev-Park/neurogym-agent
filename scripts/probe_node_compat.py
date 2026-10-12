@@ -6,6 +6,7 @@ import json
 import socket
 import subprocess
 import sys
+import time
 
 
 def cuda():
@@ -68,10 +69,52 @@ def chromium():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", choices=["cuda", "egl", "chromium"])
+    parser.add_argument("--seconds", type=int, default=0)
+    parser.add_argument("--workers", type=int, default=1)
     args = parser.parse_args()
     if args.stage:
-        print(json.dumps(globals()[args.stage]()), flush=True)
+        deadline = time.monotonic() + args.seconds
+        cycles = 0
+        while True:
+            result = globals()[args.stage]()
+            cycles += 1
+            print(json.dumps({"cycle": cycles, **result}), flush=True)
+            if time.monotonic() >= deadline:
+                break
         return
+    if args.seconds:
+        # Keep all three backends active together. Each worker repeatedly
+        # creates and closes contexts, catching initialization and churn faults.
+        processes = []
+        for stage in ("cuda", "egl", "chromium"):
+            for worker in range(args.workers):
+                name = f"node-compat-{socket.gethostname()}-{stage}-{worker}.log"
+                stream = open(f"slurm_outputs/{name}", "w")
+                p = subprocess.Popen([sys.executable, __file__, "--stage", stage,
+                                      "--seconds", str(args.seconds)],
+                                     stdout=stream, stderr=subprocess.STDOUT)
+                processes.append((stage, worker, p, stream, name))
+        deadline = time.monotonic() + args.seconds + 120
+        try:
+            while any(p.poll() is None for _, _, p, _, _ in processes):
+                print(json.dumps({"heartbeat": time.time(), "host": socket.gethostname(),
+                                  "workers": [{"stage": s, "worker": w, "exit": p.poll()}
+                                              for s, w, p, _, _ in processes]}), flush=True)
+                if time.monotonic() > deadline:
+                    raise TimeoutError("stress workers exceeded deadline")
+                time.sleep(30)
+        finally:
+            for _, _, p, stream, _ in processes:
+                if p.poll() is None:
+                    p.kill()
+                p.wait()
+                stream.close()
+        summary = [{"stage": s, "worker": w, "exit": p.returncode, "log": name}
+                   for s, w, p, _, name in processes]
+        passed = all(r["exit"] == 0 for r in summary)
+        print(json.dumps({"host": socket.gethostname(), "seconds": args.seconds,
+                          "stress": summary, "all_pass": passed}), flush=True)
+        sys.exit(0 if passed else 1)
     results = []
     for stage in ("cuda", "egl", "chromium"):
         for attempt in range(3):
