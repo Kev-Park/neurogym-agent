@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -72,6 +73,9 @@ def main():
     parser.add_argument("--seconds", type=int, default=0)
     parser.add_argument("--workers", type=int, default=1)
     args = parser.parse_args()
+    print(json.dumps({"host": socket.gethostname(), "pid": os.getpid(),
+                      "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+                      "slurm_step_gpus": os.environ.get("SLURM_STEP_GPUS")}), flush=True)
     if args.stage:
         deadline = time.monotonic() + args.seconds
         cycles = 0
@@ -88,7 +92,8 @@ def main():
         processes = []
         for stage in ("cuda", "egl", "chromium"):
             for worker in range(args.workers):
-                name = f"node-compat-{socket.gethostname()}-{stage}-{worker}.log"
+                name = (f"node-compat-{socket.gethostname()}-{os.environ.get('SLURM_JOB_ID', 'manual')}"
+                        f"-{os.getpid()}-{stage}-{worker}.log")
                 stream = open(f"slurm_outputs/{name}", "w")
                 p = subprocess.Popen([sys.executable, __file__, "--stage", stage,
                                       "--seconds", str(args.seconds)],
