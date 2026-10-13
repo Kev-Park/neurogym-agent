@@ -145,6 +145,12 @@ def main():
                 dest = Path('/scratch/kp0374/checkpoints') / f'zmaxleft-v7i-{arm}'
                 dest.mkdir(exist_ok=False)
                 shutil.copy2('/scratch/kp0374/checkpoints/zmaxleft-v7h/ckpt_000800.pkl', dest)
+                # The reward curriculum reads this before the first iteration.
+                # An absent progress file would briefly restore novelty rewards.
+                source_meta = json.loads(Path('/scratch/kp0374/checkpoints/zmaxleft-v7h/meta.json').read_text())
+                (dest / 'meta.json').write_text(json.dumps({
+                    'iteration': 800, 'total_steps': source_meta['total_steps'],
+                    'run_name': f'zmaxleft-v7i-{arm}', 'degraded_exits': []}))
             data = {'created': time.time(), 'source': command('git', 'rev-parse', 'HEAD'), 'stages': stages()}
         else:
             data = json.loads(MANIFEST.read_text())
