@@ -24,10 +24,11 @@ class AuditPolicy(StatePklPolicy):
             dist = self.dist_cls.from_logits(out[Columns.ACTION_DIST_INPUTS])
             a = dist.sample().squeeze(0).cpu().numpy()
             grid = dist._cats[2]
+            probabilities = torch.softmax(grid.logits, dim=-1)
             self.audit = {"grid_entropy": float(grid.entropy().item()),
                           "p_double": float(dist._type_probs()[0, 3]),
-                          "grid_2d_mass": float(grid.probs[0].reshape(16, 32)[:, :16].sum()),
-                          "chosen_probability": float(grid.probs[0, int(a[2])])}
+                          "grid_2d_mass": float(probabilities[0].reshape(16, 32)[:, :16].sum()),
+                          "chosen_probability": float(probabilities[0, int(a[2])])}
         return a
 
 
