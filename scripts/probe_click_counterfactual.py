@@ -81,7 +81,9 @@ def main():
                 pre = raw['source']
                 best_z = max(best_z, float(pre['position'][2]))
                 seen.update(pre['segments'])
-                zmax.update(zip(pre['segments'], pre.get('segment_zmax', ())))
+                for sid, zm in zip(pre['segments'], pre.get('segment_zmax', ())):
+                    if float(zm) > 0:
+                        zmax[str(sid)] = float(zm)
                 a = policy.act(obs)
                 if step >= 50 and int(a[0]) == 3:
                     sampled = a.copy()
