@@ -67,6 +67,7 @@ def main():
     wrapper.action = action
     rows = pq.read_table('/scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet').to_pylist()[::8][:24]
     records = []
+    completed = []
     try:
         for row in rows[args.offset:args.offset + args.limit]:
             idx = int(row['idx'])
@@ -90,6 +91,9 @@ def main():
                     break
             if sampled is None:
                 records.append({'idx': idx, 'skipped': 'no late double-click decision'})
+                completed.append(idx)
+                with open(args.output, 'w') as f:
+                    json.dump({'fresh_mode': True, 'completed_indices': completed, 'records': records}, f)
                 continue
             snapshot = copy.deepcopy(source.unwrapped._renderer._state)
             probabilities = policy.grid_probabilities.copy()
@@ -148,6 +152,9 @@ def main():
                     with open(args.output, 'w') as f:
                         json.dump({'fresh_mode': True, 'records': records}, f)
                     print(json.dumps(records[-1]), flush=True)
+            completed.append(idx)
+            with open(args.output, 'w') as f:
+                json.dump({'fresh_mode': True, 'completed_indices': completed, 'records': records}, f)
     finally:
         source.close()
         branch.close()

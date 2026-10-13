@@ -77,6 +77,7 @@ def main():
     # Evenly cover all 200 starts, with shard offsets selecting disjoint episodes.
     picks = rows[::5][args.offset:args.offset + args.limit]
     records = []
+    completed = []
     try:
         for row in picks:
             idx = int(row['idx'])
@@ -99,8 +100,9 @@ def main():
                     previous_cell, previous_miss = cell, not current['hit']
                 if terminated or truncated:
                     break
+            completed.append(idx)
             with open(args.output, 'w') as f:
-                json.dump({'episodes': args.offset + len([r for r in picks if int(r['idx']) <= idx]),
+                json.dump({'episodes': len(completed), 'completed_indices': completed,
                            'records': records}, f)
             print(json.dumps({'idx': idx, 'double_clicks': len(records)}), flush=True)
     finally:
