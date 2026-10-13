@@ -110,6 +110,7 @@ def submit(key, stage):
                  '--wrap', f'cd {ROOT} && ' + stage['wrap']]
     else:
         stage_args = list(stage['args'])
+        args += ['--exclude=' + EXCLUDE]
         if extra:
             stage_args = [a for a in stage_args if not a.startswith('--exclude=')]
             args += ['--exclude=' + EXCLUDE + ',' + extra]
@@ -132,9 +133,24 @@ def main():
     ap.add_argument('--start', action='store_true')
     ap.add_argument('--tick', action='store_true')
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--status', action='store_true')
     args = ap.parse_args()
     if args.dry_run:
         print(json.dumps(stages(), indent=2))
+        return
+    if args.status:
+        data = json.loads(MANIFEST.read_text())
+        active = {k: v['job'] for k, v in data['stages'].items() if v.get('status') == 'submitted'}
+        progress = {}
+        for arm in ARMS:
+            p = Path('/scratch/kp0374/checkpoints') / f'zmaxleft-v7i-{arm}' / 'meta.json'
+            progress[arm] = json.loads(p.read_text()).get('iteration') if p.exists() else None
+        print('ENTROPY_STATUS_JSON ' + json.dumps({
+            'updated': data['updated'], 'active': active, 'progress': progress,
+            'failed': [k for k, v in data['stages'].items() if v.get('status') == 'failed'],
+            'report_done': data['stages']['report'].get('status') == 'done'}))
+        if active:
+            print(command('sacct', '-n', '-X', '-P', '-j', ','.join(active.values()), '-o', 'JobID,State,Elapsed'))
         return
     with open(ROOT / 'entropy_v7i_pipeline.lock', 'w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

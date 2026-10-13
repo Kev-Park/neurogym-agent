@@ -1,5 +1,6 @@
 """Summarize the matched entropy arms and paired click interventions."""
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -64,6 +65,17 @@ def main():
                       'vs_noop_climb': paired(values[:, 1] if len(values) else [])}
     output['counterfactuals'] = cf
     Path('entropy_v7i_report.json').write_text(json.dumps(output, indent=2))
+    destination = Path('entropy_v7i_results')
+    destination.mkdir(exist_ok=True)
+    for name in ['entropy_v7i_report.json', 'entropy_v7i_pipeline.json']:
+        shutil.copy2(name, destination / name)
+    for arm in arms:
+        run = f'zmaxleft-v7i-{arm}'
+        for name in [f'eval_{run}_full.json', f'dbl_{run}_stats.json']:
+            shutil.copy2(name, destination / name)
+        shutil.copytree(f'eval_videos_{run}', destination / f'eval_videos_{run}', dirs_exist_ok=True)
+    for i in range(4):
+        shutil.copy2(f'cf_click_part{i}.json', destination / f'cf_click_part{i}.json')
     print(json.dumps(output, indent=2))
 
 
