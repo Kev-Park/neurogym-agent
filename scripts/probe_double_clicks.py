@@ -57,6 +57,8 @@ def main():
             return click_orig(kind, x, y, modifiers)
         st = renderer._state
         current.update(pane='3d' if x >= 900 else '2d', n_visible=len(S.visible_segments(st['segments'])),
+                       loaded_meshes=sum(renderer._renderer.has_mesh(rid) for rid in S.visible_segments(st['segments'])),
+                       missing_tiles=renderer._tiles.get('ids') is None or renderer._tiles.get('em') is None,
                        mesh_loading=bool(renderer._mesh_futs),
                        stale_tiles=renderer._tile_key != renderer._tile_key_for(st['position'], st['crossSectionScale']),
                        projection_scale=float(st['projectionScale']), xs_scale=float(st['crossSectionScale']),
