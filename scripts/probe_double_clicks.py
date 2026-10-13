@@ -25,6 +25,7 @@ class AuditPolicy(StatePklPolicy):
             a = dist.sample().squeeze(0).cpu().numpy()
             grid = dist._cats[2]
             probabilities = torch.softmax(grid.logits, dim=-1)
+            self.grid_probabilities = probabilities[0].cpu().numpy()
             self.audit = {"grid_entropy": float(grid.entropy().item()),
                           "p_double": float(dist._type_probs()[0, 3]),
                           "grid_2d_mass": float(probabilities[0].reshape(16, 32)[:, :16].sum()),
@@ -37,11 +38,13 @@ def main():
     ap.add_argument("--offset", type=int, default=0)
     ap.add_argument("--limit", type=int, default=10)
     ap.add_argument("--output", required=True)
+    ap.add_argument("--config", default='configs/native_zmaxleft_v7h_eval.yaml')
+    ap.add_argument("--state-pkl", default='/scratch/kp0374/checkpoints/zmaxleft-v7h/ckpt_000800.pkl')
     args = ap.parse_args()
-    cfg = load_config('configs/native_zmaxleft_v7h_eval.yaml')
+    cfg = load_config(args.config)
     env = build_env(cfg)
     renderer = env.unwrapped._renderer
-    policy = AuditPolicy('/scratch/kp0374/checkpoints/zmaxleft-v7h/ckpt_000800.pkl',
+    policy = AuditPolicy(args.state_pkl,
                          env, cfg['model'], stochastic=True)
     sample_orig, click_orig = renderer._cell_sample, renderer.click
     current = {}

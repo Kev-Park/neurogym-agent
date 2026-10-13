@@ -262,6 +262,28 @@ def test_split_grid_entropy_defaults_to_independent_verb_gradient(normalized):
     assert legacy._cell_entropy_stopgrad is False
 
 
+@pytest.mark.parametrize("normalized", [False, True])
+def test_verb_entropy_scale_changes_only_verb_entropy_gradient(normalized):
+    from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
+    nvec = [5, 16, 16, 9, 9, 9, 9]
+    base = torch.randn(4, sum(nvec))
+    results = []
+    for scale in [1.0, 0.1]:
+        cls = HierarchicalMultiCategorical.for_nvec(
+            nvec, normalize_entropy=normalized, verb_entropy_scale=scale)
+        z = base.clone().requires_grad_(True)
+        dist = cls.from_logits(z)
+        h = dist.entropy()
+        h.sum().backward()
+        results.append((h.detach(), z.grad.clone(), dist._cats[0].entropy().detach()))
+    h1, g1, hv = results[0]
+    h0, g0, _ = results[1]
+    divisor = np.log(5) if normalized else 1.0
+    assert torch.allclose(h1 - h0, 0.9 * hv / divisor, atol=1e-6)
+    assert torch.allclose(g1[:, 5:], g0[:, 5:])
+    assert not torch.allclose(g1[:, :5], g0[:, :5])
+
+
 def test_cell_entropy_scale():
     from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
 

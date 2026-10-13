@@ -318,8 +318,9 @@ def main(argv=None) -> int:
     # so retuning the bound distribution class here is enough.
     cell_sched = (cfg.get("model") or {}).get("cell_entropy_schedule")
     dbl_sched = (cfg.get("model") or {}).get("dbl_entropy_schedule")
+    verb_sched = (cfg.get("model") or {}).get("verb_entropy_schedule")
     lifetime_steps = int(prior_meta.get("total_steps") or 0)
-    if cell_sched or dbl_sched:
+    if cell_sched or dbl_sched or verb_sched:
         try:
             lifetime_steps = int(algo.metrics.peek(
                 ("env_runners", "num_env_steps_sampled_lifetime"), default=lifetime_steps))
@@ -347,6 +348,7 @@ def main(argv=None) -> int:
             print(f"MARK iter_start ts={time.time():.3f}", flush=True)
             cell_scale = _apply_click_entropy(lifetime_steps, cell_sched, "_cell_entropy_scale")
             dbl_scale = _apply_click_entropy(lifetime_steps, dbl_sched, "_dbl_entropy_scale")
+            verb_scale = _apply_click_entropy(lifetime_steps, verb_sched, "_verb_entropy_scale")
             result = algo.train()
             it = int(result.get("training_iteration", 0))
             er = result.get("env_runners", {}) or {}
@@ -369,6 +371,7 @@ def main(argv=None) -> int:
                 "perf/steps_per_s": (n_steps / t_iter) if (t_iter and n_steps) else None,
                 "learner/cell_entropy_scale": cell_scale,
                 "learner/dbl_entropy_scale": dbl_scale,
+                "learner/verb_entropy_scale": verb_scale,
             }
             wandb.log({k: v for k, v in metrics.items() if v is not None}, step=it)
             lifetime_steps = int(er.get("num_env_steps_sampled_lifetime") or lifetime_steps)

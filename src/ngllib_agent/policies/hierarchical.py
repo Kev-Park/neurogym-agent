@@ -71,6 +71,7 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
     _normalize_entropy: bool = False
     _cell_entropy_scale: float = 1.0
     _dbl_entropy_scale: float = 1.0
+    _verb_entropy_scale: float = 1.0
     _cell_entropy_stopgrad: bool = True
     _split: bool = False
 
@@ -78,7 +79,8 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
     def for_nvec(cls, nvec, normalize_entropy: bool = False,
                  cell_entropy_scale: float = 1.0,
                  cell_entropy_stopgrad: bool = True,
-                 dbl_entropy_scale: float = 1.0) -> type:
+                 dbl_entropy_scale: float = 1.0,
+                 verb_entropy_scale: float = 1.0) -> type:
         lens = [int(n) for n in nvec]
         # 3 verbs (right_click / rotate / zoom), 4 (+ double_click, 2026-09-10)
         # or 5 (+ xs_zoom, the 2D pane's zoom, 2026-09-24). The verb count sizes
@@ -110,6 +112,7 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
             # right-click aim is sharpened.
             _split = split
             _dbl_entropy_scale = float(dbl_entropy_scale)
+            _verb_entropy_scale = float(verb_entropy_scale)
 
         _Bound.__name__ = f"{cls.__name__}_{'_'.join(map(str, lens))}"
         return _Bound
@@ -197,13 +200,13 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
 
             n_verb, n_cell, r, _, _, n_zoom = self._input_lens
             return (
-                h[0] / math.log(n_verb)
+                self._verb_entropy_scale * h[0] / math.log(n_verb)
                 + self._cell_entropy_scale * self._cell_entropy_weight(p) * h[1] / math.log(n_cell)
                 + p[..., 1] * (h[2] + h[3] + h[4]) / (3.0 * math.log(r))
                 + self._zoom_weight(p) * h[5] / math.log(n_zoom)
             )
         return (
-            h[0]
+            self._verb_entropy_scale * h[0]
             + self._cell_entropy_scale * self._cell_entropy_weight(p) * h[1]
             + p[..., 1] * (h[2] + h[3] + h[4])
             + self._zoom_weight(p) * h[5]
@@ -222,7 +225,7 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
         norm = self._normalize_entropy
         ln = (lambda n: math.log(n)) if norm else (lambda n: 1.0)
         return (
-            h[0] / ln(n_verb)
+            self._verb_entropy_scale * h[0] / ln(n_verb)
             + self._cell_entropy_scale * self._w(p, p[..., 0]) * h[1] / ln(n_rc)
             + self._dbl_entropy_scale * self._w(p, p[..., 3]) * h[2] / ln(n_dbl)
             + p[..., 1] * (h[3] + h[4] + h[5]) / (3.0 * ln(r) if norm else 1.0)
@@ -256,6 +259,7 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
         cell_entropy_scale: float = 1.0
         cell_entropy_stopgrad: bool = True   # cell bonus never moves the verb head
         dbl_entropy_scale: float = 1.0  # double-click head's own multiplier (split heads)
+        verb_entropy_scale: float = 1.0  # scales only categorical verb entropy
       spatial (only read when obs has patch_features; see module docstring):
         spatial_channels: int = 128   # C, conv width over the token grid
         spatial_blocks: int = 3       # residual 3x3 blocks per pane
@@ -307,6 +311,7 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
             cell_entropy_scale=float(self.model_config.get("cell_entropy_scale", 1.0)),
             cell_entropy_stopgrad=bool(self.model_config.get("cell_entropy_stopgrad", True)),
             dbl_entropy_scale=float(self.model_config.get("dbl_entropy_scale", 1.0)),
+            verb_entropy_scale=float(self.model_config.get("verb_entropy_scale", 1.0)),
         )
 
     def _setup_spatial(self, patch_space, nvec: List[int], pos_hidden: int) -> None:
