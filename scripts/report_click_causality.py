@@ -64,6 +64,7 @@ def main():
                      'selection_changes_per_audit_episode': hits / 40,
                      'double_click_accuracy': stats['overall']['accuracy'],
                      'pane_accuracy': stats['panes'], 'grid': stats['grid'],
+                     'target_coverage': stats.get('target_coverage', {}),
                      'double_clicks_per_full_eval_episode': np.mean([r['diag']['verbs'][3] for r in rows])}
         if records and all('historical_headroom' in r for r in records):
             arms[arm]['mechanism_diagnostics'] = {
