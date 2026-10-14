@@ -58,6 +58,13 @@ def main():
     args = ap.parse_args()
     cfg = load_config(args.config)
     env = build_env(cfg)
+    raw = {}
+    original_obs = env.unwrapped._make_obs
+    def tap_obs(state, image):
+        result = original_obs(state, image)
+        raw.update(result)
+        return result
+    env.unwrapped._make_obs = tap_obs
     renderer = env.unwrapped._renderer
     policy = AuditPolicy(args.state_pkl,
                          env, cfg['model'], stochastic=True)
@@ -99,15 +106,28 @@ def main():
             torch.manual_seed(10000 + idx)
             state, info = state_from_row(row)
             obs, _ = env.reset(options={'state': state, 'task_info': info})
+            seen, heights = set(), {}
+            best_z = float(raw['position'][2])
             previous_cell = None
             previous_miss = False
             for step in range(500):
+                visible = {str(s) for s in raw['segments']}
+                seen.update(visible)
+                best_z = max(best_z, float(raw['position'][2]))
+                for sid, height in zip(raw['segments'], raw.get('segment_zmax', ())):
+                    if float(height) > 0:
+                        heights[str(sid)] = float(height)
+                historical_headroom = max([0.] + [heights[s] - best_z for s in seen if s in heights])
+                visible_headroom = max([0.] + [heights[s] - best_z for s in visible if s in heights])
                 a = policy.act(obs)
                 current.clear()
                 obs, reward, terminated, truncated, _ = env.step(a)
                 if int(a[0]) == 3:
                     cell = int(a[2])
                     current.update(idx=idx, step=step, cell=cell, row=cell // 32, col=cell % 32,
+                                   historical_headroom=historical_headroom,
+                                   visible_headroom=visible_headroom,
+                                   extra_cost_from_deselected_history=.00005 * (historical_headroom - visible_headroom),
                                    repeat_previous_double=cell == previous_cell,
                                    repeat_previous_miss=cell == previous_cell and previous_miss,
                                    **policy.audit)
