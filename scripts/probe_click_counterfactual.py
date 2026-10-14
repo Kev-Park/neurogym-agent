@@ -31,14 +31,17 @@ def main():
     ap.add_argument('--horizon', type=int, default=100)
     ap.add_argument('--repeats', type=int, default=3)
     ap.add_argument('--output', required=True)
+    ap.add_argument('--state-pkl', default='/scratch/kp0374/checkpoints/zmaxleft-v7h/ckpt_000800.pkl')
+    ap.add_argument('--train-config', default='configs/native_zmaxleft_v7h.yaml')
+    ap.add_argument('--only-3d-misses', action='store_true')
     args = ap.parse_args()
     cfg = load_config('configs/native_zmaxleft_v7h_eval.yaml')
     cfg['env']['pane_mode'] = 'fresh'
     source, branch = build_env(cfg), build_env(cfg)
     spec = action_spec_from_config(cfg['action'])
-    policy = AuditPolicy('/scratch/kp0374/checkpoints/zmaxleft-v7h/ckpt_000800.pkl',
+    policy = AuditPolicy(args.state_pkl,
                          source, cfg['model'], stochastic=True)
-    train_cfg = load_config('configs/native_zmaxleft_v7h.yaml')
+    train_cfg = load_config(args.train_config)
     keys = {f.name for f in fields(ZFreeRewardConfig)}
     rc = ZFreeRewardConfig(**{k: v for k, v in train_cfg['reward'].items() if k in keys})
     # v7h/800 is far beyond the novelty scaffold's end.
@@ -86,8 +89,13 @@ def main():
                         zmax[str(sid)] = float(zm)
                 a = policy.act(obs)
                 if step >= 50 and int(a[0]) == 3:
-                    sampled = a.copy()
-                    break
+                    eligible = True
+                    if args.only_3d_misses:
+                        x, y = cell_to_pixel(int(a[2]), spec)
+                        eligible = int(a[2]) % 32 >= 16 and source.unwrapped._renderer._segment_under_3d(x, y) is None
+                    if eligible:
+                        sampled = a.copy()
+                        break
                 obs, _, term, trunc, _ = source.step(a)
                 if term or trunc:
                     break
@@ -100,6 +108,9 @@ def main():
             snapshot = copy.deepcopy(source.unwrapped._renderer._state)
             probabilities = policy.grid_probabilities.copy()
             candidates = {'sampled': sampled, 'noop': np.array([-1, 0, 0, 4, 4, 4, 4])}
+            if args.only_3d_misses:
+                candidates['neutral_zoom'] = np.array([2, 0, 0, 4, 4, 4, 4])
+                candidates['small_rotation'] = np.array([1, 0, 0, 5, 4, 4, 4])
             r = source.unwrapped._renderer
             visible = set(S.visible_segments(snapshot['segments']))
             # Highest-policy-probability cell that actually performs the

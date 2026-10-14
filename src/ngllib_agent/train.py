@@ -261,6 +261,11 @@ def main(argv=None) -> int:
             )
         )
 
+    if cfg.get('diagnostics', {}).get('click_credit', False):
+        from .click_credit import AddClickOutcomes, ClickCreditLearner
+        config.learners(learner_class=ClickCreditLearner)
+        config.training(learner_connector=lambda obs_space, action_space: AddClickOutcomes())
+
     algo = config.build_algo() if hasattr(config, "build_algo") else config.build()
 
     # ---- resume ------------------------------------------------------------
