@@ -34,6 +34,7 @@ def main():
     ap.add_argument('--state-pkl', default='/scratch/kp0374/checkpoints/zmaxleft-v7h/ckpt_000800.pkl')
     ap.add_argument('--train-config', default='configs/native_zmaxleft_v7h.yaml')
     ap.add_argument('--only-3d-misses', action='store_true')
+    ap.add_argument('--cases-file', help='Captured training states with linked learner advantages')
     args = ap.parse_args()
     cfg = load_config('configs/native_zmaxleft_v7h_eval.yaml')
     cfg['env']['pane_mode'] = 'fresh'
@@ -69,18 +70,24 @@ def main():
         return result
     wrapper.action = action
     rows = pq.read_table('/scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet').to_pylist()[::8][:24]
+    if args.cases_file:
+        rows = json.load(open(args.cases_file))
     records = []
     completed = []
     try:
         for row in rows[args.offset:args.offset + args.limit]:
-            idx = int(row['idx'])
+            idx = int(row['episode'] if args.cases_file else row['idx'])
             torch.manual_seed(20000 + idx)
-            state, info = state_from_row(row)
+            state, info = (copy.deepcopy(row['state']), {}) if args.cases_file else state_from_row(row)
             obs, _ = source.reset(options={'state': state, 'task_info': info})
             seen, zmax = set(raw['source']['segments']), {}
             best_z = float(raw['source']['position'][2])
-            sampled = None
-            for step in range(400):
+            sampled = np.asarray(row['action']) if args.cases_file else None
+            step = int(row['step']) if args.cases_file else 0
+            if args.cases_file:
+                seen, zmax, best_z = set(row['seen']), dict(row['zmax']), float(row['best_z'])
+                policy.act(obs)  # diagnostic candidate probabilities on the settled snapshot
+            for step in range(0 if args.cases_file else 400):
                 pre = raw['source']
                 best_z = max(best_z, float(pre['position'][2]))
                 seen.update(pre['segments'])
@@ -112,6 +119,8 @@ def main():
                 candidates['neutral_zoom'] = np.array([2, 0, 0, 4, 4, 4, 4])
                 candidates['small_rotation'] = np.array([1, 0, 0, 5, 4, 4, 4])
             r = source.unwrapped._renderer
+            sx, sy = cell_to_pixel(int(sampled[2]), spec)
+            settled_sampled_is_miss = (r._segment_under_3d(sx, sy) is None) if sampled[2] % 32 >= 16 else None
             visible = set(S.visible_segments(snapshot['segments']))
             # Highest-policy-probability cell that actually performs the
             # desired operation; target availability is privileged diagnostic information.
@@ -159,6 +168,8 @@ def main():
                     records.append({'idx': idx, 'source_step': step, 'repeat': repeat,
                                     'branch': label, 'sampled_cell': int(sampled[2]),
                                     'sampled_pane': '2d' if sampled[2] % 32 < 16 else '3d',
+                                    'settled_sampled_is_miss': settled_sampled_is_miss,
+                                    'source_standardized_advantage': row.get('standardized_advantage'),
                                     'first_reward': first_reward, 'selection_changed': changed,
                                     'discounted_return': discounted, 'return': total,
                                     'new_peak_dz': peak - best_z, 'steps': t + 1})

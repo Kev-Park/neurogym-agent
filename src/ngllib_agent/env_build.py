@@ -238,7 +238,7 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
     if cfg.get('diagnostics', {}).get('click_credit', False):
         from .click_credit import ClickOutcomeWrapper
-        env = ClickOutcomeWrapper(env)
+        env = ClickOutcomeWrapper(env, cfg['model']['click_credit_directory'])
     return _wrap_obs_and_limits(env, cfg, first_episode_limit)
 
 

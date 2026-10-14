@@ -23,7 +23,7 @@ obs:
   pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
 
 model:
-  click_credit_directory: /scratch/kp0374/wt/neurogym-agent-zmax-left/click_credit_v7j_control
+  click_credit_directory: /scratch/kp0374/wt/neurogym-agent-zmax-left/click_credit_v7j_control_full
   pos_hidden_dim: 64
   normalize_entropy: true
   cell_entropy_stopgrad: true
@@ -52,7 +52,7 @@ action:
   # over the full 16x32 grid of BOTH panes (split by verb, not pane).
   split_click_heads: true
   cell_bounded_clicks: true
-  click_bounds: [0, 23, 1800, 876]     # x0, y0, x1, y1 â€” BOTH panes
+  click_bounds: [0, 23, 1800, 876]     # x0, y0, x1, y1 Ã¢â‚¬â€ BOTH panes
   rotation_bins_per_axis: 9
   rotation_step_rad: 0.08
   zoom_bins: 9

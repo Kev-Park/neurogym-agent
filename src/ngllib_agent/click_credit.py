@@ -2,6 +2,7 @@
 import json
 import os
 import uuid
+import copy
 from pathlib import Path
 
 import gymnasium as gym
@@ -14,11 +15,27 @@ from ray.rllib.evaluation.postprocessing import Postprocessing
 
 
 class ClickOutcomeWrapper(gym.Wrapper):
+    def __init__(self, env, directory):
+        super().__init__(env)
+        self._directory = Path(directory) / 'snapshots'
+        self._directory.mkdir(parents=True, exist_ok=True)
+
+    def _note_history(self, obs):
+        self._seen.update(str(s) for s in obs['segments'])
+        self._best_z = max(self._best_z, float(obs['position'][2]))
+        for sid, zm in zip(obs['segments'], obs.get('segment_zmax', ())):
+            if float(zm) > 0:
+                self._zmax[str(sid)] = float(zm)
+
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         self._previous = obs
         self._episode = uuid.uuid4().int % (2 ** 31)
         self._step = 0
+        self._seen, self._zmax = set(), {}
+        self._best_z = float(obs['position'][2])
+        self._snapshot_taken = False
+        self._note_history(obs)
         return obs, info
 
     def step(self, action):
@@ -26,10 +43,18 @@ class ClickOutcomeWrapper(gym.Wrapper):
         pending = r._pending
         tiles = pending is not None and not all(f.done() for f in pending[1].values())
         meshes = any(not f.done() for _, f in r._mesh_futs.values())
-        obs, reward, term, trunc, info = self.env.step(action)
-        before, after = set(self._previous['segments']), set(obs['segments'])
         verb = int(action[0])
         pane = int(action[2]) % 32 >= 16 if verb == 3 else -1
+        snapshot = None
+        if verb == 3 and pane and self._step >= 50 and not self._snapshot_taken:
+            snapshot = dict(episode=self._episode, step=self._step, state=copy.deepcopy(r._state),
+                            action=[int(v) for v in action], seen=sorted(self._seen),
+                            zmax=dict(self._zmax), best_z=self._best_z)
+        obs, reward, term, trunc, info = self.env.step(action)
+        before, after = set(self._previous['segments']), set(obs['segments'])
+        if snapshot is not None and before == after:
+            (self._directory / f'{self._episode}-{self._step}.json').write_text(json.dumps(snapshot))
+            self._snapshot_taken = True
         info = dict(info)
         info['click_credit'] = np.asarray([
             verb, pane, before != after, len(after - before), len(before - after),
@@ -37,6 +62,7 @@ class ClickOutcomeWrapper(gym.Wrapper):
         ], dtype=np.float64)
         self._step += 1
         self._previous = obs
+        self._note_history(obs)
         return obs, reward, term, trunc, info
 
 
