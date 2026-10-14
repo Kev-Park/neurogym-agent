@@ -82,7 +82,7 @@ for attempt in 1 2 3 4 5; do
     --salloc-gres gpu:3090:1 \\
     --salloc-cpus-per-node ${SALLOC_CPUS:-48} \\
     --salloc-mem ${SALLOC_MEM:-200G} \\
-    --exclude sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl15-5 \\
+    --exclude sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2 \\
     --target-iterations "${TARGET_ITERS}" \\
     --progress-file "${CKPT}/meta.json" \\
     --progress-stall-timeout-s 1800 \\
