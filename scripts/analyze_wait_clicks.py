@@ -60,12 +60,24 @@ def main():
         result['historical'][arm] = tests
     if args.trace:
         rr = [r for p in args.trace for r in json.load(open(p))['records']]
+        assert len({(r['idx'], r['step']) for r in rr}) == len(rr)
+        for idx in sorted({r['idx'] for r in rr}):
+            last_move = last_select = -1000
+            for r in sorted((s for s in rr if s['idx'] == idx), key=lambda s: s['step']):
+                r['recent_move'] = r['step'] - last_move <= 5
+                r['recent_selection'] = r['step'] - last_select <= 5
+                if r['position_changed']:
+                    last_move = r['step']
+                if r['added']:
+                    last_select = r['step']
         conditions = {
             'stale_tiles': lambda r: r['before']['stale_tiles'],
             'tile_fetch_pending': lambda r: r['before']['tile_fetch_pending'],
             'mesh_fetch_pending': lambda r: r['before']['mesh_fetch_pending'],
             'visible_mesh_missing': lambda r: r['before']['visible_mesh_missing'],
             'any_pending_fetch': lambda r: r['before']['tile_fetch_pending'] or r['before']['mesh_fetch_pending'],
+            'recent_move_5_steps': lambda r: r['recent_move'],
+            'recent_selection_5_steps': lambda r: r['recent_selection'],
         }
         outcomes = {
             'double_miss': lambda r: r['double_miss'],
@@ -81,6 +93,11 @@ def main():
         result['3d_misses_with_pending_fetch'] = sum(r['double_miss'] and r['double_pane'] == '3d'
             and conditions['any_pending_fetch'](r) for r in rr)
         result['3d_misses_total'] = sum(r['double_miss'] and r['double_pane'] == '3d' for r in rr)
+        result['per_episode'] = [{
+            'idx': idx, 'steps': sum(r['idx'] == idx for r in rr),
+            '3d_misses': sum(r['idx'] == idx and r['double_miss'] and r['double_pane'] == '3d' for r in rr),
+            'pending_fetch_steps': sum(r['idx'] == idx and conditions['any_pending_fetch'](r) for r in rr),
+        } for idx in sorted({r['idx'] for r in rr})]
         result['examples'] = {}
         for idx in sorted({r['idx'] for r in rr})[:5]:
             episode = [r for r in rr if r['idx'] == idx]
