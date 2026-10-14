@@ -14,6 +14,9 @@ import time
 
 ROOT = Path('/scratch/kp0374/wt/neurogym-agent-zmax-left')
 MANIFEST = ROOT / 'entropy_v7j_pipeline.json'
+RUN_PREFIX = 'zmaxleft-v7j'
+OUTPUT_STEM = 'entropy_v7j'
+COMPACT = False
 ARMS = ['control', 'zero', 'free', 'both', 'noop']
 EXCLUDE = 'sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl16-6'
 
@@ -29,7 +32,7 @@ def valid(key, stage):
         if kind == 'cf':
             return len(json.loads((ROOT / f'cf_click_part{key[-1]}.json').read_text())['completed_indices']) == 6
         arm = key.split('.')[0]
-        run = f'zmaxleft-v7j-{arm}'
+        run = f'{RUN_PREFIX}-{arm}'
         if kind == 'train':
             directory = Path('/scratch/kp0374/checkpoints') / run
             return (directory / 'ckpt_001000.pkl').exists() and json.loads((directory / 'meta.json').read_text())['iteration'] >= 1000
@@ -48,7 +51,7 @@ def valid(key, stage):
             return json.loads((ROOT / f'eval_{run}_full.json').read_text())['summary']['n'] == 200
         if key.endswith('.stats'):
             return json.loads((ROOT / f'dbl_{run}_stats.json').read_text())['episodes'] == 40
-        return (ROOT / 'entropy_v7j_report.json').exists()
+        return (ROOT / f'{OUTPUT_STEM}_report.json').exists()
     except (OSError, ValueError, KeyError):
         return False
 
@@ -60,13 +63,14 @@ def stages():
         result[key] = dict(needs=[], kind='cf', args=['scripts/probe_click_counterfactual.slurm',
                            '--offset', str(i * 6), '--limit', '6', '--output', f'cf_click_part{i}.json'])
     for arm in ARMS:
-        run = f'zmaxleft-v7j-{arm}'
+        run = f'{RUN_PREFIX}-{arm}'
         pkl = f'/scratch/kp0374/checkpoints/{run}/ckpt_001000.pkl'
         train = arm + '.train'
         result[train] = dict(needs=cf, kind='train', args=[
-            '--nodes=1', '--time=04:00:00', f'--exclude={EXCLUDE}',
+            '--nodes=1', '--time=10:00:00' if COMPACT else '--time=04:00:00', f'--exclude={EXCLUDE}',
+            f'--export=ALL,TRAIN_CONFIG=configs/native_zmaxleft_v7j_{arm}.yaml,CKPT_EVERY=1' if COMPACT else
             f'--export=ALL,TRAIN_CONFIG=configs/native_zmaxleft_v7j_{arm}.yaml,CKPT_EVERY=2',
-            'native/r_train_zmaxleft_mn.slurm', run, '1000'])
+            'native/r_train_zmaxleft_compact.slurm' if COMPACT else 'native/r_train_zmaxleft_mn.slurm', run, '1000'])
         # Wait for all training arms before highpri evaluation: our own evals
         # should not preempt the remaining experimental training arms.
         needs = [a + '.train' for a in ARMS]
@@ -96,7 +100,7 @@ def stages():
         result[arm + '.stats'] = dict(needs=audits, kind='cpu', wrap=
             f'uv run --no-sync python scripts/analyze_double_clicks.py {inputs} --output dbl_{run}_stats.json')
     result['report'] = dict(needs=list(result), kind='cpu', wrap=
-        'uv run --no-sync python scripts/report_click_causality.py')
+        'uv run --no-sync python scripts/report_click_causality.py' + (' --compact' if COMPACT else ''))
     return result
 
 
@@ -123,18 +127,25 @@ def submit(key, stage):
         '--qos=normal', '--cpus-per-task=1', '--mem=1G', '--time=00:05:00',
         f'--dependency=afterany:{jid}', '--job-name=entropy-tick',
         '--output=slurm_outputs/entropy-tick-%j.out', '--wrap',
-        f'cd {ROOT} && uv run --no-sync python scripts/run_click_causality.py --tick')
+        f'cd {ROOT} && uv run --no-sync python scripts/run_click_causality.py --tick' + (' --compact' if COMPACT else ''))
     stage.update(job=jid, callback=callback, status='submitted', attempts=stage.get('attempts', 0) + 1)
     print('SUBMITTED', key, jid, flush=True)
 
 
 def main():
+    global MANIFEST, RUN_PREFIX, OUTPUT_STEM, COMPACT
     ap = argparse.ArgumentParser()
     ap.add_argument('--start', action='store_true')
     ap.add_argument('--tick', action='store_true')
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--status', action='store_true')
+    ap.add_argument('--compact', action='store_true')
     args = ap.parse_args()
+    if args.compact:
+        COMPACT = True
+        RUN_PREFIX = 'zmaxleft-v7j-compact'
+        OUTPUT_STEM = 'entropy_v7j_compact'
+        MANIFEST = ROOT / f'{OUTPUT_STEM}_pipeline.json'
     if args.dry_run:
         print(json.dumps(stages(), indent=2))
         return
@@ -143,7 +154,7 @@ def main():
         active = {k: v['job'] for k, v in data['stages'].items() if v.get('status') == 'submitted'}
         progress = {}
         for arm in ARMS:
-            p = Path('/scratch/kp0374/checkpoints') / f'zmaxleft-v7j-{arm}' / 'meta.json'
+            p = Path('/scratch/kp0374/checkpoints') / f'{RUN_PREFIX}-{arm}' / 'meta.json'
             progress[arm] = json.loads(p.read_text()).get('iteration') if p.exists() else None
         print('ENTROPY_STATUS_JSON ' + json.dumps({
             'updated': data['updated'], 'active': active, 'progress': progress,
@@ -158,7 +169,7 @@ def main():
             if MANIFEST.exists():
                 raise RuntimeError('Pipeline already exists; use --tick')
             for arm in ARMS:
-                dest = Path('/scratch/kp0374/checkpoints') / f'zmaxleft-v7j-{arm}'
+                dest = Path('/scratch/kp0374/checkpoints') / f'{RUN_PREFIX}-{arm}'
                 dest.mkdir(exist_ok=False)
                 shutil.copy2('/scratch/kp0374/checkpoints/zmaxleft-v7i-grid/ckpt_000900.pkl', dest)
                 # The reward curriculum reads this before the first iteration.
@@ -166,7 +177,7 @@ def main():
                 source_meta = json.loads(Path('/scratch/kp0374/checkpoints/zmaxleft-v7i-grid/meta.json').read_text())
                 (dest / 'meta.json').write_text(json.dumps({
                     'iteration': 900, 'total_steps': source_meta['total_steps'],
-                    'run_name': f'zmaxleft-v7j-{arm}', 'degraded_exits': []}))
+                    'run_name': f'{RUN_PREFIX}-{arm}', 'degraded_exits': []}))
             data = {'created': time.time(), 'source': command('git', 'rev-parse', 'HEAD'), 'stages': stages()}
         else:
             data = json.loads(MANIFEST.read_text())

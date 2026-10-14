@@ -1,5 +1,6 @@
 """Summarize the matched entropy arms and paired click interventions."""
 import json
+import argparse
 import shutil
 from pathlib import Path
 
@@ -18,6 +19,11 @@ def paired(values):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--compact', action='store_true')
+    args = ap.parse_args()
+    prefix = 'zmaxleft-v7j-compact' if args.compact else 'zmaxleft-v7j'
+    stem = 'entropy_v7j_compact' if args.compact else 'entropy_v7j'
     output = {'limitations': [
         'One training continuation per arm; bootstrap intervals do not represent training-seed uncertainty.',
         'The higher no-op cost also affects unsuccessful 3D right-clicks; it is not double-click-specific.',
@@ -28,7 +34,7 @@ def main():
     evals = {}
     audit_episodes = {}
     for arm in ['control', 'zero', 'free', 'both', 'noop']:
-        run = f'zmaxleft-v7j-{arm}'
+        run = f'{prefix}-{arm}'
         evaluation = json.load(open(f'eval_{run}_full.json'))
         assert evaluation['summary']['n'] == 200 and not evaluation['summary']['partial']
         stats = json.load(open(f'dbl_{run}_stats.json'))
@@ -102,13 +108,14 @@ def main():
             sum(w * evals[a][idx]['dz@500'] for a, w in weights.items())
             for idx in sorted(evals['control'])])
     output['design'] = 'Shared v7i-grid/900 source; 100 updates; control, zero grid entropy, free new selections, both, 10x no-op cost. Verb entropy unchanged.'
-    Path('entropy_v7j_report.json').write_text(json.dumps(output, indent=2))
-    destination = Path('entropy_v7j_results')
+    output['runner_layout'] = '2 runners x 2 envs; dedicated learner GPU and one runner GPU' if args.compact else '18 runners x 2 envs; four GPUs'
+    Path(f'{stem}_report.json').write_text(json.dumps(output, indent=2))
+    destination = Path(f'{stem}_results')
     destination.mkdir(exist_ok=True)
-    for name in ['entropy_v7j_report.json', 'entropy_v7j_pipeline.json']:
+    for name in [f'{stem}_report.json', f'{stem}_pipeline.json']:
         shutil.copy2(name, destination / name)
     for arm in arms:
-        run = f'zmaxleft-v7j-{arm}'
+        run = f'{prefix}-{arm}'
         for name in [f'eval_{run}_full.json', f'dbl_{run}_stats.json']:
             shutil.copy2(name, destination / name)
         for i in [0, 10, 20, 30]:
