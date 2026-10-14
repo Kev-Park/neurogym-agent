@@ -70,7 +70,7 @@ NNODES=${#NODES[@]}
 # Preserve SLURM's physical device IDs on a node shared with other jobs.
 IFS=, read -r COMPACT_LEARNER_GPU COMPACT_RUNNER_GPU COMPACT_EXTRA <<< "${CUDA_VISIBLE_DEVICES:?SLURM GPU mask missing}"
 [ -n "$COMPACT_RUNNER_GPU" ] && [ -z "$COMPACT_EXTRA" ] || { echo 'Expected exactly two allocated GPUs'; exit 2; }
-COMPACT_RAY_PORT=$((20000 + SLURM_JOB_ID % 20000))
+JOB_RAY_DIR="/tmp/ngl-ray-$J"
 HEAD=${NODES[0]}
 HEAD_IP=$(srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" hostname -I | awk '{print $1}')
 # The GPU learner moves the whole train batch to its device before the update:
@@ -96,20 +96,26 @@ for n in "${NODES[@]}"; do
     'mkdir -p "$CUDA_MPS_PIPE_DIRECTORY" "$CUDA_MPS_LOG_DIRECTORY" && nvidia-cuda-mps-control -d && echo "[mn] MPS up on $(hostname)"' || true
 done
 
-# Ray head on node 0, then every other node joins.
+# A job-local registry and Ray's available-port allocation avoid collisions
+# with other processes on a shared node. Never start a learner without a head.
+mkdir -p "$JOB_RAY_DIR"
+rm -f "$JOB_RAY_DIR/ray_current_cluster"
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
   /usr/bin/env CUDA_VISIBLE_DEVICES="$COMPACT_RUNNER_GPU" \
-  uv run --no-sync ray start --head --node-ip-address="$HEAD_IP" --port="$COMPACT_RAY_PORT" \
+  uv run --no-sync ray start --head --node-ip-address="$HEAD_IP" --port=0 --temp-dir="$JOB_RAY_DIR" \
     --num-cpus=16 --num-gpus=1 --object-store-memory=6442450944 --block &
-sleep 25
-for n in "${NODES[@]:1}"; do
-  srun --overlap --nodes=1 --ntasks=1 -w "$n" \
-    uv run --no-sync ray start --address="$HEAD_IP:$COMPACT_RAY_PORT" --num-cpus=44 --num-gpus=4 --block &
+RAY_HEAD_STEP_PID=$!
+RAY_START_DEADLINE=$((SECONDS + 120))
+while [ ! -s "$JOB_RAY_DIR/ray_current_cluster" ]; do
+  if ! kill -0 "$RAY_HEAD_STEP_PID" 2>/dev/null || [ "$SECONDS" -ge "$RAY_START_DEADLINE" ]; then
+    echo '[compact] Ray head failed to become ready'
+    exit 1
+  fi
+  sleep 2
 done
-sleep 25
-export RAY_ADDRESS="$HEAD_IP:$COMPACT_RAY_PORT"
-srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" uv run --no-sync ray status --address="$HEAD_IP:$COMPACT_RAY_PORT" 2>&1 \
-  | grep -E 'GPU|CPU|node' | head -8 || true
+export RAY_ADDRESS=$(cat "$JOB_RAY_DIR/ray_current_cluster")
+timeout 30 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
+  uv run --no-sync ray status --address="$RAY_ADDRESS" || exit 1
 
 # train.py exits 43 on sustained degradation after checkpointing; a fresh
 # process resuming from that checkpoint is the cure, so relaunch in place
