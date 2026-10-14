@@ -1,6 +1,7 @@
 """Record actual double-click outcomes and pre-click conditions on holdout starts."""
 import argparse
 import json
+import math
 import os
 import sys
 
@@ -13,6 +14,22 @@ from eval_zmaxleft import StatePklPolicy, state_from_row
 from ngllib import state as S
 from ngllib_agent.env_build import build_env, load_config
 from ray.rllib.core.columns import Columns
+
+
+def double_verb_entropy_pressure(dist):
+    """Exact dH/d(double-verb-logit) for the detached split-grid policy."""
+    assert dist._split and dist._cell_entropy_stopgrad
+    p = dist._type_probs()[0]
+    pd = p[3]
+    nverb, _, _, nr, _, _, nz = dist._input_lens
+    ln = math.log if dist._normalize_entropy else lambda _: 1.
+    verb = dist._verb_entropy_scale * pd * ((p * p.clamp_min(1e-30).log()).sum()
+                                          - pd.clamp_min(1e-30).log()) / ln(nverb)
+    rotation = sum(dist._cats[i].entropy()[0] for i in [3, 4, 5])
+    rotation /= 3 * ln(nr) if dist._normalize_entropy else 1.
+    zoom = dist._cats[6].entropy()[0] / ln(nz)
+    others = -pd * (p[1] * rotation + (p[2] + p[4]) * zoom)
+    return float(verb), float(others), float(verb + others)
 
 
 class AuditPolicy(StatePklPolicy):
@@ -38,7 +55,11 @@ class AuditPolicy(StatePklPolicy):
             # means the entropy bonus locally favors shifting mass into 3D.
             pane_gradient = p2 * p3 * (p3.clamp_min(1e-30).log()
                                       - p2.clamp_min(1e-30).log() + h2 - h3)
+            verb_gradient, branch_gradient, total_verb_gradient = double_verb_entropy_pressure(dist)
             self.audit = {"grid_entropy": float(grid.entropy().item()),
+                          "verb_only_entropy_gradient_toward_double": verb_gradient,
+                          "branch_weight_entropy_gradient_toward_double": branch_gradient,
+                          "total_entropy_gradient_toward_double": total_verb_gradient,
                           "2d_conditional_entropy": float(h2),
                           "3d_conditional_entropy": float(h3),
                           "entropy_gradient_toward_2d": float(pane_gradient),
