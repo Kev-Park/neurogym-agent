@@ -26,7 +26,22 @@ class AuditPolicy(StatePklPolicy):
             grid = dist._cats[2]
             probabilities = torch.softmax(grid.logits, dim=-1)
             self.grid_probabilities = probabilities[0].cpu().numpy()
+            pane_probs = probabilities[0].reshape(16, 32)
+            left, right = pane_probs[:, :16].flatten(), pane_probs[:, 16:].flatten()
+            p2, p3 = left.sum(), right.sum()
+            def conditional_entropy(values, mass):
+                q = values / mass.clamp_min(1e-30)
+                return -(q * q.clamp_min(1e-30).log()).sum()
+            h2, h3 = conditional_entropy(left, p2), conditional_entropy(right, p3)
+            # Exact dH/d(delta): add delta to every 2D logit, holding the
+            # conditional distributions within each pane fixed. Negative
+            # means the entropy bonus locally favors shifting mass into 3D.
+            pane_gradient = p2 * p3 * (p3.clamp_min(1e-30).log()
+                                      - p2.clamp_min(1e-30).log() + h2 - h3)
             self.audit = {"grid_entropy": float(grid.entropy().item()),
+                          "2d_conditional_entropy": float(h2),
+                          "3d_conditional_entropy": float(h3),
+                          "entropy_gradient_toward_2d": float(pane_gradient),
                           "p_double": float(dist._type_probs()[0, 3]),
                           "grid_2d_mass": float(probabilities[0].reshape(16, 32)[:, :16].sum()),
                           "chosen_probability": float(probabilities[0, int(a[2])])}
