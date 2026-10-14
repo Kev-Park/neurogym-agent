@@ -103,6 +103,8 @@ def main():
         'target_coverage': 'target_coverage_v7i_grid_full_stats.json',
         'deselected_history_headroom': 'selection_headroom_v7i_grid_summary.json',
         'selection_cost_counterfactual_v7h': 'counterfactual_selection_cost_summary.json',
+        'cost_probability_associations': 'selection_cost_probability_association.json',
+        'entropy_schedule_runtime_snapshot': 'entropy_schedule_verification.json',
     }
     output['baseline_mechanism_diagnostics'] = {
         key: json.load(open(filename)) for key, filename in diagnostic_files.items()}
