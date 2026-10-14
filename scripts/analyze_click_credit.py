@@ -49,6 +49,7 @@ def main():
         if row['verb'] == 3:
             assert row['policy_chosen_cell_direction'] * row['standardized_advantage'] >= -1e-7
     groups = {
+        'all_actions': lambda r: True,
         '3d_miss': lambda r: r['verb'] == 3 and r['pane3d'] == 1 and not r['selection_changed'],
         '3d_hit': lambda r: r['verb'] == 3 and r['pane3d'] == 1 and r['selection_changed'],
         '2d_miss': lambda r: r['verb'] == 3 and r['pane3d'] == 0 and not r['selection_changed'],
