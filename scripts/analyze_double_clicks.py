@@ -53,6 +53,27 @@ def main():
         'cell_target_but_no_selection_change': sum(r['cell_has_target'] for r in misses)}
     output['outcomes'] = {'additions': sum(r['added'] for r in records),
                           'removals': sum(r['removed'] for r in records)}
+    if records and all('policy_target_hit_chance' in r for r in records):
+        output['target_coverage'] = {}
+        for pane in ['2d', '3d']:
+            counts = []
+            for idx in sorted(covered):
+                episode = [r for r in records if r['idx'] == idx and r['pane'] == pane]
+                counts.append([sum(r['policy_target_hit_chance'] for r in episode),
+                               sum(r['uniform_target_hit_chance'] for r in episode), len(episode)])
+            counts = np.asarray(counts)
+            total = counts.sum(axis=0)
+            if not total[2]:
+                continue
+            boot = counts[rng.integers(0, len(counts), size=(4000, len(counts)))].sum(axis=1)
+            boot = boot[boot[:, 2] > 0]
+            difference = (boot[:, 0] - boot[:, 1]) / boot[:, 2]
+            output['target_coverage'][pane] = {
+                'decision_states': int(total[2]),
+                'mean_policy_hit_probability': float(total[0] / total[2]),
+                'mean_uniform_hit_probability': float(total[1] / total[2]),
+                'policy_minus_uniform': float((total[0] - total[1]) / total[2]),
+                'episode_bootstrap_difference_95ci': np.quantile(difference, [.025, .975]).tolist()}
     output['associations'] = {}
     for pane in ['all', '2d', '3d']:
         rows = records if pane == 'all' else [r for r in records if r['pane'] == pane]

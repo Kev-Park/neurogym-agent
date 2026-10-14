@@ -16,6 +16,20 @@ from ngllib_agent.env_build import build_env, load_config
 from ray.rllib.core.columns import Columns
 
 
+def selectable_cells(valid, *, pane_x, toolbar, scale, grid, bounds):
+    """Cells containing valid displayed pixels, using picker pixel centres."""
+    rows, cols = grid
+    x0, y0, x1, y1 = bounds
+    yy, xx = np.nonzero(valid)
+    xs, ys = (xx + pane_x + .5) / scale, (yy + toolbar + .5) / scale
+    inside = (xs >= x0) & (xs < x1) & (ys >= y0) & (ys < y1)
+    cc = ((xs[inside] - x0) * cols / (x1 - x0)).astype(int)
+    rr = ((ys[inside] - y0) * rows / (y1 - y0)).astype(int)
+    result = np.zeros(rows * cols, dtype=bool)
+    result[rr * cols + cc] = True
+    return result
+
+
 def double_verb_entropy_pressure(dist):
     """Exact dH/d(double-verb-logit) for the detached split-grid policy."""
     assert dist._split and dist._cell_entropy_stopgrad
@@ -91,10 +105,14 @@ def main():
                          env, cfg['model'], stochastic=True)
     sample_orig, click_orig = renderer._cell_sample, renderer.click
     current = {}
+    target_cells = np.zeros(512, dtype=bool)
 
     def sample(valid, x, y, *, pane_x, toolbar):
         result = sample_orig(valid, x, y, pane_x=pane_x, toolbar=toolbar)
         if current:
+            target_cells[:] |= selectable_cells(valid, pane_x=pane_x, toolbar=toolbar,
+                                                scale=renderer.layout.capture_scale,
+                                                grid=renderer.click_grid, bounds=renderer.click_bounds)
             current['pane_has_target'] |= bool(valid.any())
             current['cell_has_target'] |= result is not None
         return result
@@ -103,6 +121,7 @@ def main():
         if kind != 'double_click':
             return click_orig(kind, x, y, modifiers)
         st = renderer._state
+        target_cells.fill(False)
         current.update(pane='3d' if x >= 900 else '2d', n_visible=len(S.visible_segments(st['segments'])),
                        loaded_meshes=sum(renderer._renderer.has_mesh(rid) for rid in S.visible_segments(st['segments'])),
                        missing_tiles=renderer._tiles.get('ids') is None or renderer._tiles.get('em') is None,
@@ -114,6 +133,13 @@ def main():
         click_orig(kind, x, y, modifiers)
         after = set(S.visible_segments(renderer._state['segments']))
         current.update(hit=before != after, added=len(after - before), removed=len(before - after))
+        pane = np.arange(512) % 32 < 16
+        if current['pane'] == '3d':
+            pane = ~pane
+        p = policy.grid_probabilities
+        current.update(selectable_cell_count=int(target_cells[pane].sum()),
+                       uniform_target_hit_chance=float(target_cells[pane].mean()),
+                       policy_target_hit_chance=float(p[target_cells & pane].sum() / p[pane].sum()))
 
     renderer._cell_sample, renderer.click = sample, click
     rows = pq.read_table('/scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet').to_pylist()
