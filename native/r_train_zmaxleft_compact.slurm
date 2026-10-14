@@ -83,9 +83,16 @@ RUNNERS=$((HEAD_RUNNERS + RUNNERS_PER_NODE * (NNODES - 1)))
 echo "[mn] nodes(${NNODES}): ${NODES[*]}  head=$HEAD ($HEAD_IP)  runners=$RUNNERS x M=$ENVS_PER_RUNNER batch=$BATCH"
 
 cleanup() {
+  # ray stop matches every Ray process owned by this user on the node.
+  # Compact allocations can share a node: terminate only our blocking head
+  # step, whose Ray Node shutdown/reaper owns this cluster's children.
+  if [ -n "${RAY_HEAD_STEP_PID:-}" ]; then
+    kill -TERM "$RAY_HEAD_STEP_PID" 2>/dev/null || true
+    wait "$RAY_HEAD_STEP_PID" 2>/dev/null || true
+  fi
   for n in "${NODES[@]}"; do
-    srun --overlap --nodes=1 --ntasks=1 -w "$n" bash -c \
-      'uv run --no-sync ray stop --force >/dev/null 2>&1; echo quit | nvidia-cuda-mps-control >/dev/null 2>&1; true' || true
+    srun --input=none --overlap --nodes=1 --ntasks=1 -w "$n" bash -c \
+      'echo quit | nvidia-cuda-mps-control >/dev/null 2>&1; true' || true
   done
 }
 trap cleanup EXIT
@@ -103,6 +110,7 @@ rm -f "$JOB_RAY_DIR/ray_current_cluster"
 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
   /usr/bin/env CUDA_VISIBLE_DEVICES="$COMPACT_RUNNER_GPU" \
   uv run --no-sync ray start --head --node-ip-address="$HEAD_IP" --port=0 --temp-dir="$JOB_RAY_DIR" \
+    --min-worker-port=0 --max-worker-port=0 \
     --num-cpus=16 --num-gpus=1 --object-store-memory=6442450944 --block &
 RAY_HEAD_STEP_PID=$!
 RAY_START_DEADLINE=$((SECONDS + 120))
