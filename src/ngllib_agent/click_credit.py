@@ -81,10 +81,11 @@ class ClickCreditLearner(PPOTorchLearner):
         right_pane = torch.arange(ndouble, device=logits.device) % 32 >= 16
         values = [labels, actions[:, :1].float(), advantages[:, None], batch[Columns.REWARDS][:, None],
                   ratio[:, None], torch.softmax(logits[:, :nverb], -1)[:, 3:4],
-                  torch.softmax(logits[:, offset:offset + ndouble], -1)[:, right_pane].sum(-1, keepdim=True)]
+                  torch.softmax(logits[:, offset:offset + ndouble], -1)[:, right_pane].sum(-1, keepdim=True),
+                  torch.softmax(logits[:, offset:offset + ndouble], -1)[row, actions[:, 2].long(), None]]
         names = ['verb_label', 'pane3d', 'selection_changed', 'added', 'removed', 'tiles_pending',
                  'meshes_pending', 'episode', 'step', 'verb', 'standardized_advantage', 'reward',
-                 'ratio', 'p_double', 'p_3d_given_double']
+                 'ratio', 'p_double', 'p_3d_given_double', 'p_chosen_double_cell']
         for name, term in terms.items():
             # Negative loss derivative is the direct descent direction. These
             # are per-row derivatives before the common valid-batch mean.
