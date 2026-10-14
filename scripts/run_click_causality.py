@@ -207,7 +207,7 @@ def main():
                     stage['status'] = 'failed'
                     print('NEEDS_ATTENTION', key, state, flush=True)
         for key, stage in data['stages'].items():
-            if stage.get('status') in ['submitted', 'done', 'failed']:
+            if stage.get('status') in ['submitted', 'done', 'failed', 'superseded']:
                 continue
             if all(data['stages'][p].get('status') == 'done' for p in stage['needs']):
                 submit(key, stage)

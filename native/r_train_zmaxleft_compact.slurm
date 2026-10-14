@@ -8,7 +8,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:3090:2
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=44G
+#SBATCH --mem=46G
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2
 #SBATCH --time=00:40:00
 #SBATCH --requeue
