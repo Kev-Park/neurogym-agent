@@ -16,7 +16,7 @@ def association(records, condition, outcome):
                 continue
             k = 0 if condition(r) else 2
             counts[i, k] += 1
-            counts[i, k + 1] += bool(outcome(r))
+            counts[i, k + 1] += float(outcome(r))
     totals = counts.sum(0)
     rates = [totals[k + 1] / totals[k] if totals[k] else None for k in (0, 2)]
     rng = np.random.default_rng(7)
@@ -84,6 +84,8 @@ def main():
             '3d_double_miss': lambda r: r['double_miss'] and r['double_pane'] == '3d',
             'double_click': lambda r: r['action'][0] == 3,
             'state_unchanged': lambda r: r['state_unchanged'],
+            'policy_probability_double': lambda r: r['p_double'],
+            'policy_probability_3d_double': lambda r: r['p_double'] * (1 - r['grid_2d_mass']),
         }
         result['all_steps'] = {name: {out: association(rr, cond, fn) for out, fn in outcomes.items()}
                                for name, cond in conditions.items()}
