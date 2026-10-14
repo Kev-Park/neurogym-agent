@@ -68,7 +68,8 @@ def main():
         if records and all('historical_headroom' in r for r in records):
             arms[arm]['mechanism_diagnostics'] = {
                 'sampled_3d_fraction': float(np.mean([r['pane'] == '3d' for r in records])),
-                'fraction_entropy_gradient_pushes_3d': float(np.mean([
+                'final_double_click_grid_entropy_scale': 0.0 if arm in ['zero', 'both'] else .01,
+                'fraction_raw_grid_entropy_gradient_toward_3d': float(np.mean([
                     r['entropy_gradient_toward_2d'] < 0 for r in records])),
                 'mean_raw_entropy_gradient_toward_2d': float(np.mean([
                     r['entropy_gradient_toward_2d'] for r in records])),
@@ -82,7 +83,7 @@ def main():
                     .0015 + .00005 * r['historical_headroom'] for r in records])),
                 'mean_hypothetical_baseline_extra_cost_from_deselected_history': float(np.mean([
                     .00005 * (r['historical_headroom'] - r['visible_headroom']) for r in records])),
-                'note': 'Cost diagnostics use the baseline formula even in free-selection arms; they are not observed rewards.'}
+                'note': 'Grid gradient diagnostics describe raw entropy, even when its bonus is disabled. Cost diagnostics use the baseline formula even in free-selection arms; they are not observed rewards.'}
     for arm in ['zero', 'free', 'both', 'noop']:
         keys = sorted(set(evals['control']) & set(evals[arm]))
         arms[arm]['paired_vs_control_dz500'] = paired(
