@@ -22,6 +22,7 @@ meta = Path('/scratch/kp0374/checkpoints/zmaxleft-click-credit/meta.json')
 result = dict(jobs=states, terminal=terminal, failed=failed,
               iteration=json.loads(meta.read_text()).get('iteration') if meta.exists() else None,
               gradient_report=Path('click_credit_report.json').exists(),
+              counterfactual_report=Path('click_credit_counterfactual_report.json').exists(),
               cf_completed={p.name: len(json.loads(p.read_text()).get('completed_indices', []))
                             for p in Path('.').glob('cf_credit_part*.json')})
 print('CREDIT_STATUS_JSON ' + json.dumps(result))

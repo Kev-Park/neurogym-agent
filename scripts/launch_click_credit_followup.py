@@ -33,6 +33,11 @@ for i in range(4):
         '--state-pkl', '/scratch/kp0374/checkpoints/zmaxleft-click-credit/ckpt_001001.pkl',
         '--train-config', 'configs/native_zmaxleft_v7j_control.yaml', '--only-3d-misses',
         '--cases-file', 'click_credit_cases.json', '--output', 'cf_credit_part' + str(i) + '.json')
+jobs['cf_report'] = submit('--job-name=click-credit-cf-report', '--partition=highpri', '--account=pni',
+    '--qos=normal', '--cpus-per-task=2', '--mem=4G', '--time=00:05:00',
+    '--output=slurm_outputs/click-credit-cf-report-%j.out',
+    '--dependency=afterok:' + ':'.join(jobs['cf' + str(i)] for i in range(4)),
+    '--wrap=cd ' + str(ROOT) + ' && uv run --no-sync python scripts/analyze_credit_counterfactuals.py')
 manifest.write_text(json.dumps({'jobs': jobs, 'source_iteration': 1001, 'target_iteration': 1011,
                                'counterfactual_states': 8, 'repeats': 2, 'continuation_actions': 100}, indent=2))
 print(json.dumps(jobs))
