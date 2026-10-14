@@ -33,6 +33,9 @@ def main():
     arms = {}
     evals = {}
     audit_episodes = {}
+    source_eval = json.load(open('eval_zmaxleft-v7i-grid_full.json'))
+    source_rows = {r['idx']: r for r in source_eval['per_state']}
+    assert len(source_rows) == 200
     for arm in ['control', 'zero', 'free', 'both', 'noop']:
         run = f'{prefix}-{arm}'
         evaluation = json.load(open(f'eval_{run}_full.json'))
@@ -43,6 +46,7 @@ def main():
         assert len(videos) == 6
         rows = evaluation['per_state']
         evals[arm] = {r['idx']: r for r in rows}
+        assert set(evals[arm]) == set(source_rows)
         attempts, hits = stats['overall']['attempts'], stats['overall']['hits']
         payloads = [json.load(open(f'dbl_{run}_{i}.json')) for i in [0, 10, 20, 30]]
         covered = [i for p in payloads for i in p['completed_indices']]
@@ -66,6 +70,8 @@ def main():
                      'pane_accuracy': stats['panes'], 'grid': stats['grid'],
                      'target_coverage': stats.get('target_coverage', {}),
                      'double_clicks_per_full_eval_episode': np.mean([r['diag']['verbs'][3] for r in rows])}
+        arms[arm]['paired_vs_source_dz500'] = paired([
+            evals[arm][idx]['dz@500'] - source_rows[idx]['dz@500'] for idx in sorted(source_rows)])
         if records and all('historical_headroom' in r for r in records):
             arms[arm]['mechanism_diagnostics'] = {
                 'sampled_3d_fraction': float(np.mean([r['pane'] == '3d' for r in records])),
@@ -90,6 +96,20 @@ def main():
         arms[arm]['paired_vs_control_dz500'] = paired(
             [evals[arm][k]['dz@500'] - evals['control'][k]['dz@500'] for k in keys])
     output['arms'] = arms
+    output['source_checkpoint'] = {'run': 'zmaxleft-v7i-grid', 'iteration': 900,
+                                   'eval': source_eval['summary']}
+    diagnostic_files = {
+        'entropy_gradients': 'verb_entropy_v7i_grid_summary.json',
+        'target_coverage': 'target_coverage_v7i_grid_full_stats.json',
+        'deselected_history_headroom': 'selection_headroom_v7i_grid_summary.json',
+        'selection_cost_counterfactual_v7h': 'counterfactual_selection_cost_summary.json',
+    }
+    output['baseline_mechanism_diagnostics'] = {
+        key: json.load(open(filename)) for key, filename in diagnostic_files.items()}
+    assert output['baseline_mechanism_diagnostics']['target_coverage']['episodes'] == 40
+    prior = json.load(open('entropy_v7i_report.json'))
+    output['prior_counterfactuals'] = {'checkpoint': 'v7h/800', 'results': prior['counterfactuals'],
+                                      'limitations': prior['limitations'][1:]}
     output['paired_audit_vs_control'] = {}
     for arm in ['zero', 'free', 'both', 'noop']:
         assert set(audit_episodes[arm]) == set(audit_episodes['control'])
@@ -115,6 +135,8 @@ def main():
     destination = Path(f'{stem}_results')
     destination.mkdir(exist_ok=True)
     for name in [f'{stem}_report.json', f'{stem}_pipeline.json']:
+        shutil.copy2(name, destination / name)
+    for name in list(diagnostic_files.values()) + ['eval_zmaxleft-v7i-grid_full.json']:
         shutil.copy2(name, destination / name)
     for arm in arms:
         run = f'{prefix}-{arm}'
