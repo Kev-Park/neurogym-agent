@@ -88,6 +88,7 @@ def main():
     ap.add_argument("--offset", type=int, default=0)
     ap.add_argument("--limit", type=int, default=10)
     ap.add_argument("--output", required=True)
+    ap.add_argument("--trace-output", help="Optional pre/post loading and action trace for every step")
     ap.add_argument("--config", default='configs/native_zmaxleft_v7h_eval.yaml')
     ap.add_argument("--state-pkl", default='/scratch/kp0374/checkpoints/zmaxleft-v7h/ckpt_000800.pkl')
     args = ap.parse_args()
@@ -146,7 +147,22 @@ def main():
     # Evenly cover all 200 starts, with shard offsets selecting disjoint episodes.
     picks = rows[::5][args.offset:args.offset + args.limit]
     records = []
+    trace = []
     completed = []
+
+    def loading_snapshot():
+        st = renderer._state
+        visible = S.visible_segments(st['segments'])
+        pending = renderer._pending
+        return {
+            'stale_tiles': renderer._tile_key != renderer._tile_state_key(),
+            'tile_fetch_pending': pending is not None and not all(f.done() for f in pending[1].values()),
+            'mesh_fetch_pending': any(not f.done() for _, f in renderer._mesh_futs.values()),
+            'mesh_refinement_or_fetch': bool(renderer._mesh_futs),
+            'visible_mesh_missing': any(not renderer._renderer.has_mesh(s) for s in visible),
+            'loaded_meshes': sum(renderer._renderer.has_mesh(s) for s in visible),
+            'n_visible': len(visible),
+        }
     try:
         for row in picks:
             idx = int(row['idx'])
@@ -168,7 +184,25 @@ def main():
                 visible_headroom = max([0.] + [heights[s] - best_z for s in visible if s in heights])
                 a = policy.act(obs)
                 current.clear()
+                if args.trace_output:
+                    before_loading = loading_snapshot()
+                    before_state = json.loads(json.dumps(renderer._state))
                 obs, reward, terminated, truncated, _ = env.step(a)
+                if args.trace_output:
+                    after_state = renderer._state
+                    before_segments = set(S.visible_segments(before_state['segments']))
+                    after_segments = set(S.visible_segments(after_state['segments']))
+                    trace.append(dict(
+                        idx=idx, step=step, action=[int(v) for v in a],
+                        before=before_loading, after=loading_snapshot(),
+                        state_unchanged=before_state == after_state,
+                        position_changed=before_state['position'] != after_state['position'],
+                        added=len(after_segments - before_segments),
+                        removed=len(before_segments - after_segments),
+                        double_miss=int(a[0]) == 3 and not current['hit'],
+                        double_pane=current.get('pane'),
+                        p_double=policy.audit['p_double'],
+                        grid_2d_mass=policy.audit['grid_2d_mass']))
                 if int(a[0]) == 3:
                     cell = int(a[2])
                     current.update(idx=idx, step=step, cell=cell, row=cell // 32, col=cell % 32,
@@ -186,6 +220,10 @@ def main():
             with open(args.output, 'w') as f:
                 json.dump({'episodes': len(completed), 'completed_indices': completed,
                            'records': records}, f)
+            if args.trace_output:
+                with open(args.trace_output, 'w') as f:
+                    json.dump({'episodes': len(completed), 'completed_indices': completed,
+                               'records': trace}, f)
             print(json.dumps({'idx': idx, 'double_clicks': len(records)}), flush=True)
     finally:
         env.close()
