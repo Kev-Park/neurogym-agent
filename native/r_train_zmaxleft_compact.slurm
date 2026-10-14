@@ -1,5 +1,5 @@
-# Two-GPU backfill smoke: fixed PPO batch, dedicated learner, two runners.
 #!/bin/bash
+# Two-GPU backfill smoke: fixed PPO batch, dedicated learner, two runners.
 #SBATCH --job-name=zmaxleft-mn
 #SBATCH --partition=preempt
 #SBATCH --account=pni
