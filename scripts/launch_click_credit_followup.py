@@ -17,6 +17,7 @@ def submit(*args):
 
 jobs = {}
 jobs['train'] = submit('--job-name=click-credit-full', '--time=00:55:00',
+    '--exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl16-6',
     '--export=ALL,TRAIN_CONFIG=configs/native_zmaxleft_credit.yaml,CKPT_EVERY=1,WANDB_MODE=offline',
     'native/r_train_zmaxleft_compact.slurm', 'zmaxleft-click-credit', '1011')
 directory = 'click_credit_v7j_control_full'
