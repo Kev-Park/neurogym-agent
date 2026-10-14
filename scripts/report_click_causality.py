@@ -66,6 +66,10 @@ def main():
                     r['entropy_gradient_toward_2d'] < 0 for r in records])),
                 'mean_raw_entropy_gradient_toward_2d': float(np.mean([
                     r['entropy_gradient_toward_2d'] for r in records])),
+                'fraction_total_entropy_pushes_double': float(np.mean([
+                    r['total_entropy_gradient_toward_double'] > 0 for r in records])),
+                'mean_total_entropy_gradient_toward_double': float(np.mean([
+                    r['total_entropy_gradient_toward_double'] for r in records])),
                 'fraction_with_deselected_history_surcharge': float(np.mean([
                     r['historical_headroom'] > r['visible_headroom'] + 1e-6 for r in records])),
                 'mean_hypothetical_baseline_selection_cost': float(np.mean([

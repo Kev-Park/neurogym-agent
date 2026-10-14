@@ -27,6 +27,14 @@ def main():
         'raw_entropy_gradient_toward_2d': lambda r: r['entropy_gradient_toward_2d'],
         'weighted_bonus_gradient_toward_2d': lambda r: beta * r['p_double'] * r['entropy_gradient_toward_2d'],
     }
+    if all('total_entropy_gradient_toward_double' in r for r in records):
+        metrics.update({
+            'verb_only_entropy_gradient_toward_double': lambda r: r['verb_only_entropy_gradient_toward_double'],
+            'branch_weight_entropy_gradient_toward_double': lambda r: r['branch_weight_entropy_gradient_toward_double'],
+            'total_entropy_gradient_toward_double': lambda r: r['total_entropy_gradient_toward_double'],
+            'fraction_total_entropy_pushes_double': lambda r: float(r['total_entropy_gradient_toward_double'] > 0),
+            'weighted_bonus_gradient_toward_double': lambda r: .01 * r['total_entropy_gradient_toward_double'],
+        })
     rng = np.random.default_rng(42)
     indices = rng.integers(len(episodes), size=(4000, len(episodes)))
     output = {'episodes': len(episodes), 'sampled_double_click_states': len(records),
