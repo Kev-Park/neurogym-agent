@@ -59,6 +59,20 @@ def main():
                      'double_click_accuracy': stats['overall']['accuracy'],
                      'pane_accuracy': stats['panes'], 'grid': stats['grid'],
                      'double_clicks_per_full_eval_episode': np.mean([r['diag']['verbs'][3] for r in rows])}
+        if records and all('historical_headroom' in r for r in records):
+            arms[arm]['mechanism_diagnostics'] = {
+                'sampled_3d_fraction': float(np.mean([r['pane'] == '3d' for r in records])),
+                'fraction_entropy_gradient_pushes_3d': float(np.mean([
+                    r['entropy_gradient_toward_2d'] < 0 for r in records])),
+                'mean_raw_entropy_gradient_toward_2d': float(np.mean([
+                    r['entropy_gradient_toward_2d'] for r in records])),
+                'fraction_with_deselected_history_surcharge': float(np.mean([
+                    r['historical_headroom'] > r['visible_headroom'] + 1e-6 for r in records])),
+                'mean_hypothetical_baseline_selection_cost': float(np.mean([
+                    .0015 + .00005 * r['historical_headroom'] for r in records])),
+                'mean_hypothetical_baseline_extra_cost_from_deselected_history': float(np.mean([
+                    .00005 * (r['historical_headroom'] - r['visible_headroom']) for r in records])),
+                'note': 'Cost diagnostics use the baseline formula even in free-selection arms; they are not observed rewards.'}
     for arm in ['zero', 'free', 'both', 'noop']:
         keys = sorted(set(evals['control']) & set(evals[arm]))
         arms[arm]['paired_vs_control_dz500'] = paired(

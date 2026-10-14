@@ -127,7 +127,7 @@ def main():
                     current.update(idx=idx, step=step, cell=cell, row=cell // 32, col=cell % 32,
                                    historical_headroom=historical_headroom,
                                    visible_headroom=visible_headroom,
-                                   extra_cost_from_deselected_history=.00005 * (historical_headroom - visible_headroom),
+                                   baseline_extra_cost_from_deselected_history=.00005 * (historical_headroom - visible_headroom),
                                    repeat_previous_double=cell == previous_cell,
                                    repeat_previous_miss=cell == previous_cell and previous_miss,
                                    **policy.audit)
