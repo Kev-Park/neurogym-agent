@@ -67,7 +67,7 @@ def stages():
         pkl = f'/scratch/kp0374/checkpoints/{run}/ckpt_001000.pkl'
         train = arm + '.train'
         result[train] = dict(needs=cf, kind='train', args=[
-            '--nodes=1', '--time=10:00:00' if COMPACT else '--time=04:00:00', f'--exclude={EXCLUDE}',
+            '--nodes=1', '--time=00:40:00' if COMPACT else '--time=04:00:00', f'--exclude={EXCLUDE}',
             f'--export=ALL,TRAIN_CONFIG=configs/native_zmaxleft_v7j_{arm}.yaml,CKPT_EVERY=1' if COMPACT else
             f'--export=ALL,TRAIN_CONFIG=configs/native_zmaxleft_v7j_{arm}.yaml,CKPT_EVERY=2',
             'native/r_train_zmaxleft_compact.slurm' if COMPACT else 'native/r_train_zmaxleft_mn.slurm', run, '1000'])
@@ -196,7 +196,18 @@ def main():
                 stage['status'] = 'done'
                 continue
             if state == 'COMPLETED' or (state.split()[0:1] and state.split()[0] in ['FAILED', 'TIMEOUT', 'CANCELLED', 'OUT_OF_MEMORY', 'NODE_FAIL']):
-                if stage['attempts'] < 3:
+                retry = stage['attempts'] < 3
+                if COMPACT and stage['kind'] == 'train':
+                    arm = key.split('.')[0]
+                    meta = json.loads((Path('/scratch/kp0374/checkpoints') / f'{RUN_PREFIX}-{arm}' / 'meta.json').read_text())
+                    iteration = meta['iteration']
+                    progressing_timeout = state == 'TIMEOUT' and iteration > stage.get('last_retry_iteration', 900)
+                    stage['consecutive_faults'] = 0 if progressing_timeout else stage.get('consecutive_faults', 0) + 1
+                    stage['last_retry_iteration'] = iteration
+                    # Short allocations fit backfill windows; a timeout with a
+                    # newer checkpoint is a normal continuation, not a crash.
+                    retry = stage['attempts'] < 24 and stage['consecutive_faults'] < 3
+                if retry:
                     stage['status'] = 'retry'
                     # Do not keep retrying a node with a CUDA-init fault.
                     logs = ''.join(p.read_text(errors='replace')[-1000000:]
