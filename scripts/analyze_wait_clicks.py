@@ -23,9 +23,18 @@ def association(records, condition, outcome):
     samples = counts[rng.integers(len(episodes), size=(4000, len(episodes)))].sum(1)
     valid = (samples[:, 0] > 0) & (samples[:, 2] > 0)
     diffs = samples[valid, 1] / samples[valid, 0] - samples[valid, 3] / samples[valid, 2]
+    both = (counts[:, 0] > 0) & (counts[:, 2] > 0)
+    within = counts[both, 1] / counts[both, 0] - counts[both, 3] / counts[both, 2]
+    within_ci = None
+    if len(within):
+        means = within[rng.integers(len(within), size=(4000, len(within)))].mean(1)
+        within_ci = np.quantile(means, [.025, .975]).tolist()
     return dict(episodes=len(episodes), condition_n=int(totals[0]), other_n=int(totals[2]),
                 condition_rate=rates[0], other_rate=rates[1],
                 difference=None if None in rates else rates[0] - rates[1],
+                within_episode_n=len(within),
+                within_episode_equal_weight_difference=float(within.mean()) if len(within) else None,
+                within_episode_bootstrap_95ci=within_ci,
                 episode_bootstrap_95ci=np.quantile(diffs, [.025, .975]).tolist() if len(diffs) else None)
 
 
@@ -40,6 +49,7 @@ def main():
         'Historical mesh_loading includes refinement and completed-but-not-adopted futures.',
         'Stale tiles need not imply an unusable observation or an unfinished fetch.',
         'Intervals resample episodes and do not represent training-seed uncertainty.']}
+    result['limitations'].append('Multiple exploratory associations are reported without multiplicity correction.')
     result['historical'] = {}
     for arm in ['control', 'zero', 'free', 'both', 'noop']:
         rr = [r for i in (0, 10, 20, 30) for r in json.load(open(
