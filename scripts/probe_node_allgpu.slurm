@@ -19,7 +19,7 @@ nvidia-smi --query-gpu=index,uuid,pci.bus_id,name,driver_version --format=csv
 pids=()
 for slot in $(seq 0 7); do
   # Step-level GPU cgroups also constrain Chromium, which ignores CVD.
-  srun --exclusive --exact --nodes=1 --ntasks=1 --cpus-per-task=4 --gres=gpu:3090:1 \
+  srun --exclusive --exact --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=8G --gres=gpu:3090:1 \
     uv run --no-sync python scripts/probe_node_compat.py --seconds 1800 --workers 1 \
     > slurm_outputs/node-allgpu-${SLURM_JOB_ID}-slot${slot}.out 2>&1 &
   pids+=("$!")

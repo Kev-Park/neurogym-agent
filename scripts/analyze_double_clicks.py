@@ -10,7 +10,10 @@ def main():
     ap.add_argument('inputs', nargs='+')
     ap.add_argument('--output', required=True)
     args = ap.parse_args()
-    records = [r for path in args.inputs for r in json.load(open(path))['records']]
+    payloads = [json.load(open(path)) for path in args.inputs]
+    records = [r for payload in payloads for r in payload['records']]
+    covered = {idx for payload in payloads for idx in payload.get(
+        'completed_indices', sorted({r['idx'] for r in payload['records']}))}
     rng = np.random.default_rng(42)
 
     def summary(rows):
@@ -18,7 +21,7 @@ def main():
                 'accuracy': float(np.mean([r['hit'] for r in rows])) if rows else None}
 
     def association(rows, factor):
-        episodes = sorted({r['idx'] for r in rows})
+        episodes = sorted(covered)
         counts = []
         for idx in episodes:
             episode = [r for r in rows if r['idx'] == idx]
@@ -40,7 +43,8 @@ def main():
                 'miss_rate_difference': float(total[0] / total[1] - total[2] / total[3]),
                 'episode_bootstrap_95ci': np.quantile(differences, [0.025, 0.975]).tolist()}
 
-    output = {'episodes': len({r['idx'] for r in records}), 'overall': summary(records),
+    output = {'episodes': len(covered), 'episodes_with_double_clicks': len({r['idx'] for r in records}),
+              'overall': summary(records),
               'panes': {p: summary([r for r in records if r['pane'] == p]) for p in ['2d', '3d']}}
     misses = [r for r in records if not r['hit']]
     output['miss_breakdown'] = {
