@@ -27,13 +27,21 @@ for path in source_files[:1]:
             row = dict(zip(packet['columns'], values))
             labels.setdefault((int(row['episode']), int(row['step'])), row)
 candidates = []
+represented_ids = {}
 for path in sorted((directory / 'snapshots').glob('*.json')):
     case = json.loads(path.read_text())
-    label = labels.get((case['episode'], case['step']))
+    # RLlib converts the float64 info vector to float32. Preserve the raw
+    # snapshot ID, but join through its actual learner representation and
+    # reject any ambiguity from that conversion.
+    represented_id = int(np.float32(case['episode']))
+    assert represented_id not in represented_ids or represented_ids[represented_id] == case['episode'], 'Ambiguous episode ID after float32 conversion'
+    represented_ids[represented_id] = case['episode']
+    label = labels.get((represented_id, case['step']))
     if label is None:
         continue
     assert label['verb'] == 3 and label['pane3d'] == 1 and not label['selection_changed']
     case['standardized_advantage'] = label['standardized_advantage']
+    case['learner_episode_id'] = represented_id
     candidates.append(case)
 rng = np.random.default_rng(7)
 selected = []
