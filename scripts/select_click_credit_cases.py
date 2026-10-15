@@ -12,7 +12,11 @@ ap.add_argument('--output', required=True)
 args = ap.parse_args()
 directory = Path(args.directory)
 labels = {}
-for path in sorted(directory.glob('learner-*.jsonl')):
+source_files = sorted(directory.glob('learner-*.jsonl'), key=lambda p: p.stat().st_mtime)
+assert source_files, 'No learner records'
+# A resumed allocation has a new learner PID and a later source policy.
+# Counterfactuals use checkpoint 1001, so select only from the original file.
+for path in source_files[:1]:
     for line in path.open():
         packet = json.loads(line)
         # 16001 collected actions at minibatch 512: the first 32 calls cover

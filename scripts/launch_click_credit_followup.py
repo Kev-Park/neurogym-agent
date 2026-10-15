@@ -1,14 +1,27 @@
 """Launch an isolated diagnostic continuation and linked counterfactual probes."""
 import json
 import subprocess
+import argparse
 from pathlib import Path
 
 
 ROOT = Path('/scratch/kp0374/wt/neurogym-agent-zmax-left')
 manifest = ROOT / 'click_credit_followup.json'
-assert not manifest.exists(), 'Follow-up already launched; inspect manifest instead'
+ap = argparse.ArgumentParser()
+ap.add_argument('--resume', action='store_true')
+args = ap.parse_args()
+history = []
+if manifest.exists():
+    assert args.resume, 'Follow-up already launched; inspect manifest instead'
+    prior = json.loads(manifest.read_text())
+    jid = prior['jobs']['train']
+    lines = subprocess.check_output(['sacct', '-j', jid, '-n', '-P', '-o', 'JobIDRaw,State'], text=True)
+    state = next(line.split('|')[1].split()[0] for line in lines.splitlines() if line.startswith(jid + '|'))
+    assert state in ['TIMEOUT', 'PREEMPTED', 'FAILED', 'CANCELLED'], 'Original training is not failed/terminal'
+    subprocess.run(['scancel', *prior['jobs'].values()], check=False)
+    history = prior.get('history', []) + [prior['jobs']]
 meta = json.loads(Path('/scratch/kp0374/checkpoints/zmaxleft-click-credit/meta.json').read_text())
-assert meta['iteration'] == 1001, 'First complete diagnostic update is required'
+assert 1001 <= meta['iteration'] < 1011, 'An unfinished diagnostic checkpoint is required'
 
 
 def submit(*args):
@@ -16,7 +29,7 @@ def submit(*args):
 
 
 jobs = {}
-jobs['train'] = submit('--job-name=click-credit-full', '--time=00:55:00',
+jobs['train'] = submit('--job-name=click-credit-full', '--time=00:35:00' if args.resume else '--time=00:55:00',
     '--exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl16-6',
     '--export=ALL,TRAIN_CONFIG=configs/native_zmaxleft_credit.yaml,CKPT_EVERY=1,WANDB_MODE=offline',
     'native/r_train_zmaxleft_compact.slurm', 'zmaxleft-click-credit', '1011')
@@ -39,6 +52,6 @@ jobs['cf_report'] = submit('--job-name=click-credit-cf-report', '--partition=hig
     '--output=slurm_outputs/click-credit-cf-report-%j.out',
     '--dependency=afterok:' + ':'.join(jobs['cf' + str(i)] for i in range(4)),
     '--wrap=cd ' + str(ROOT) + ' && uv run --no-sync python scripts/analyze_credit_counterfactuals.py')
-manifest.write_text(json.dumps({'jobs': jobs, 'source_iteration': 1001, 'target_iteration': 1011,
+manifest.write_text(json.dumps({'jobs': jobs, 'history': history, 'source_iteration': 1001, 'target_iteration': 1011,
                                'counterfactual_states': 8, 'repeats': 2, 'continuation_actions': 100}, indent=2))
 print(json.dumps(jobs))
