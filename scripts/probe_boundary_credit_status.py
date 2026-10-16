@@ -64,10 +64,32 @@ with path.with_suffix('.lock').open('w') as lock:
         states[jobs['report']] = {'state': 'PENDING', 'exit_code': '0:0'}
         temporary = path.with_suffix('.tmp')
         temporary.write_text(json.dumps(manifest, indent=2)); temporary.replace(path)
+    waiting = bool(manifest.get('awaiting_training_barrier'))
+    if waiting:
+        ready = True
+        for name in manifest['awaiting_training_barrier']:
+            other_path = root / name
+            if not other_path.exists():
+                continue
+            other = json.loads(other_path.read_text())
+            for arm in other['arms']:
+                directory = Path('/scratch/kp0374/checkpoints') / (other['run_prefix'] + arm)
+                ready &= json.loads((directory / 'meta.json').read_text())['iteration'] >= other['target_iteration']
+                ready &= (directory / ('ckpt_' + str(other['target_iteration']).zfill(6) + '.pkl')).exists()
+        if ready:
+            jobs['report'] = submit('--job-name=entropy-training-barrier-report', '--partition=highpri',
+                '--account=pni', '--qos=normal', '--cpus-per-task=4', '--mem=16G', '--time=00:15:00',
+                '--output=slurm_outputs/entropy-training-barrier-%j.out',
+                '--wrap=cd ' + str(root) + ' && ' + report_command)
+            states[jobs['report']] = {'state': 'PENDING', 'exit_code': '0:0'}
+            manifest.pop('awaiting_training_barrier'); waiting = False
+            temporary = path.with_suffix('.tmp')
+            temporary.write_text(json.dumps(manifest, indent=2)); temporary.replace(path)
     current = {jid: states.get(jid, {'state': 'UNKNOWN'}) for jid in jobs.values()}
     live = {'RUNNING', 'PENDING', 'CONFIGURING', 'COMPLETING', 'SUSPENDED', 'REQUEUED', 'UNKNOWN'}
     failed = [jid for jid, s in current.items() if s['state'] not in live | {'COMPLETED'}]
     report = root / manifest.get('report_file', 'boundary_credit_report.json')
     print('CREDIT_STATUS_JSON ' + json.dumps({'jobs': current, 'iterations': iterations,
         'failed': failed, 'events': events, 'report_done': report.exists(),
-        'terminal': all(s['state'] not in live for s in current.values())}))
+        'waiting_for_training_barrier': waiting,
+        'terminal': not waiting and all(s['state'] not in live for s in current.values())}))

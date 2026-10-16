@@ -73,6 +73,24 @@ def finish_training():
         fcntl.flock(lock, fcntl.LOCK_EX)
         manifest = json.loads(MANIFEST.read_text())
         assert not any(k.startswith('audit_') for k in manifest['jobs']), 'Audits already submitted'
+        barriers = ['verb_entropy_pipeline.json', 'verb_entropy_fixed_pipeline.json']
+        ready = True
+        for name in barriers:
+            other_path = ROOT / name
+            if not other_path.exists():
+                continue
+            other = json.loads(other_path.read_text())
+            for arm in other['arms']:
+                directory = Path('/scratch/kp0374/checkpoints') / (other['run_prefix'] + arm)
+                ready &= json.loads((directory / 'meta.json').read_text())['iteration'] >= 1021
+                ready &= (directory / 'ckpt_001021.pkl').exists()
+        if not ready:
+            # Highpri audits must not preempt the other matched training pair.
+            manifest['awaiting_training_barrier'] = barriers
+            MANIFEST.write_text(json.dumps(manifest, indent=2))
+            print('WAITING_FOR_BOTH_TRAINING_PAIRS')
+            return
+        manifest.pop('awaiting_training_barrier', None)
         manifest['jobs']['training_report'] = manifest['jobs']['report']
         audits = []
         for arm in ['on', 'off']:
@@ -153,6 +171,7 @@ def report():
             'Ten updates test short-term sensitivity, not asymptotic convergence.']}
     Path(REPORT_FILE).write_text(json.dumps(output, indent=2))
     print(json.dumps(output, indent=2))
+    subprocess.run(['uv', 'run', '--no-sync', 'python', 'scripts/report_entropy_restart_factorial.py'], check=True)
 
 
 ap = argparse.ArgumentParser()
