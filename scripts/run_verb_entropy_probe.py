@@ -90,6 +90,28 @@ def bootstrap(values):
     return {'n': len(a), 'mean': float(a.mean()), 'episode_bootstrap_95ci': np.quantile(means, [.025, .975]).tolist()}
 
 
+def training_calibration(arm):
+    batches = []
+    for path in sorted(Path('verb_entropy_' + arm + '/batches').glob('*.jsonl'), key=lambda p: p.stat().st_mtime):
+        for line in path.open():
+            d = json.loads(line)
+            a = np.asarray(d['rows'], dtype=float)
+            c = {name: i for i, name in enumerate(d['columns'])}
+            a = a[a[:, c['valid']] > 0]
+            pd = a[:, c['behavior_p_double']]
+            p3 = pd * a[:, c['behavior_p_3d_given_double']]
+            actual = (a[:, c['verb_label']] == 3) & (a[:, c['pane3d']] == 1)
+            misses = actual & (a[:, c['selection_changed']] == 0)
+            variance = np.sum(p3 * (1 - p3))
+            batches.append({'file': path.name, 'batch': d['batch'], 'actions': len(a),
+                'mean_behavior_p_double': float(pd.mean()),
+                'mean_behavior_p_3d_double': float(p3.mean()),
+                'observed_3d_double_fraction': float(actual.mean()),
+                'observed_3d_miss_fraction': float(misses.mean()),
+                'sampling_residual_standardized': float((actual.sum() - p3.sum()) / np.sqrt(variance))})
+    return batches
+
+
 def report():
     arms, episodes = {}, {}
     for arm in ['on', 'off']:
@@ -110,6 +132,7 @@ def report():
         arms[arm] = {key: bootstrap([r[key] for r in per.values()]) for key in next(iter(per.values()))}
         arms[arm]['3d_miss_action_fraction'] = sum(r['misses_3d'] for r in per.values()) / 20000
         arms[arm]['gradient_report'] = json.load(open('verb_entropy_' + arm + '_gradient_report.json'))
+        arms[arm]['training_sampling_calibration'] = training_calibration(arm)
     assert set(episodes['on']) == set(episodes['off'])
     paired = {key: bootstrap([episodes['off'][idx][key] - episodes['on'][idx][key]
                               for idx in sorted(episodes['on'])]) for key in next(iter(episodes['on'].values()))}
