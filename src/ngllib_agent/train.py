@@ -344,14 +344,13 @@ def main(argv=None) -> int:
     dbl_sched = (cfg.get("model") or {}).get("dbl_entropy_schedule")
     verb_sched = (cfg.get("model") or {}).get("verb_entropy_schedule")
     lifetime_steps = int(prior_meta.get("total_steps") or 0)
-    if cell_sched or dbl_sched or verb_sched:
-        try:
-            restored_steps = int(algo.metrics.peek(
-                ("env_runners", "num_env_steps_sampled_lifetime"), default=lifetime_steps))
-            if restored_steps > 0:
-                lifetime_steps = restored_steps
-        except Exception:  # noqa: BLE001
-            pass
+    try:
+        restored_steps = int(algo.metrics.peek(
+            ("env_runners", "num_env_steps_sampled_lifetime"), default=lifetime_steps))
+        if restored_steps > 0:
+            lifetime_steps = restored_steps
+    except Exception:  # noqa: BLE001
+        pass
 
     if cfg.get('diagnostics', {}).get('preserve_resume_entropy_spike', False):
         # Experimental reproduction only; normal training restores the schedule.
