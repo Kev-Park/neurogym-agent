@@ -33,6 +33,20 @@ os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
 os.environ.setdefault("RAY_ADDRESS", "local")
 
 
+def _restore_entropy_schedule(algo, lifetime_steps):
+    """Initialize lazy learner schedulers before the first resumed PPO loss."""
+    learner = algo.learner_group._learner
+    restored = {}
+    # RLlib creates these schedulers lazily and advances them AFTER an update.
+    # They are not in the learner checkpoint. Iterating the module IDs also
+    # initializes schedulers absent from the fresh LambdaDefaultDict.
+    for module_id in learner.module.keys():
+        scheduler = learner.entropy_coeff_schedulers_per_module[module_id]
+        scheduler.update(timestep=lifetime_steps)
+        restored[module_id] = float(scheduler.get_current_value())
+    return restored
+
+
 def build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="ngllib_agent.train")
     ap.add_argument("--config", default="configs/ppo_zmax_navigate.yaml")
@@ -332,10 +346,19 @@ def main(argv=None) -> int:
     lifetime_steps = int(prior_meta.get("total_steps") or 0)
     if cell_sched or dbl_sched or verb_sched:
         try:
-            lifetime_steps = int(algo.metrics.peek(
+            restored_steps = int(algo.metrics.peek(
                 ("env_runners", "num_env_steps_sampled_lifetime"), default=lifetime_steps))
+            if restored_steps > 0:
+                lifetime_steps = restored_steps
         except Exception:  # noqa: BLE001
             pass
+
+    if cfg.get('diagnostics', {}).get('preserve_resume_entropy_spike', False):
+        # Experimental reproduction only; normal training restores the schedule.
+        print('MARK entropy_schedule legacy_resume_spike=True', flush=True)
+    else:
+        restored = _restore_entropy_schedule(algo, lifetime_steps)
+        print(f'MARK entropy_schedule lifetime_steps={lifetime_steps} coefficients={restored}', flush=True)
 
     def _apply_click_entropy(steps: int, schedule, attribute: str) -> float | None:
         if not schedule:

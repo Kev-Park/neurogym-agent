@@ -90,3 +90,5 @@ ppo:
 diagnostics:
   click_credit: true
   boundary_credit: true
+  # Reproduce the observed first-update global entropy spike in this experiment only.
+  preserve_resume_entropy_spike: true

@@ -11,6 +11,11 @@ import numpy as np
 
 ROOT = Path('/scratch/kp0374/wt/neurogym-agent-zmax-left')
 MANIFEST = ROOT / 'verb_entropy_pipeline.json'
+PREFIX = 'verb_entropy_'
+RUN_PREFIX = 'zmaxleft-verb-entropy-'
+CONFIG_PREFIX = 'configs/native_verb_entropy_'
+EXTRA = ''
+REPORT_FILE = 'verb_entropy_report.json'
 
 
 def submit(*args):
@@ -30,38 +35,40 @@ def start():
     assert original['iteration'] == 1011
     jobs = {}
     for arm in ['on', 'off']:
-        run = 'zmaxleft-verb-entropy-' + arm
+        run = RUN_PREFIX + arm
         dest = Path('/scratch/kp0374/checkpoints') / run
         dest.mkdir(exist_ok=True)
         assert not (dest / 'meta.json').exists()
         shutil.copy2(source / 'ckpt_001011.pkl', dest)
         meta = dict(original); meta.pop('wandb_id', None); meta['run_name'] = run
         (dest / 'meta.json').write_text(json.dumps(meta))
-        jobs[arm] = submit('--job-name=verb-entropy-' + arm, '--time=00:40:00',
+        jobs[arm] = submit('--job-name=' + RUN_PREFIX + arm, '--time=00:40:00',
             '--exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl16-6',
-            '--export=ALL,TRAIN_CONFIG=configs/native_verb_entropy_' + arm + '.yaml,CKPT_EVERY=1,WANDB_MODE=offline',
+            '--export=ALL,TRAIN_CONFIG=' + CONFIG_PREFIX + arm + '.yaml,CKPT_EVERY=1,WANDB_MODE=offline',
             'native/r_train_zmaxleft_compact.slurm', run, '1021')
-    command = 'uv run --no-sync python scripts/run_verb_entropy_probe.py --finish-training'
+    command = 'uv run --no-sync python scripts/run_verb_entropy_probe.py --finish-training' + EXTRA
     jobs['report'] = cpu_job(command, list(jobs.values()), 'verb-entropy-training-report')
     MANIFEST.write_text(json.dumps({'jobs': jobs, 'arms': ['on', 'off'], 'target_iteration': 1021,
-        'source_iteration': 1011, 'run_prefix': 'zmaxleft-verb-entropy-',
-        'config_prefix': 'configs/native_verb_entropy_', 'report_file': 'verb_entropy_report.json',
+        'source_iteration': 1011, 'run_prefix': RUN_PREFIX,
+        'config_prefix': CONFIG_PREFIX, 'report_file': REPORT_FILE,
         'report_command': command}, indent=2))
     print(json.dumps(jobs))
 
 
 def finish_training():
     for arm in ['on', 'off']:
-        meta = json.loads(Path('/scratch/kp0374/checkpoints/zmaxleft-verb-entropy-' + arm + '/meta.json').read_text())
+        meta = json.loads(Path('/scratch/kp0374/checkpoints/' + RUN_PREFIX + arm + '/meta.json').read_text())
         assert meta['iteration'] >= 1021
         subprocess.run(['uv', 'run', '--no-sync', 'python', 'scripts/analyze_click_credit.py',
-            'verb_entropy_' + arm + '/gradients', '--output', 'verb_entropy_' + arm + '_gradient_report.json'],
+            PREFIX + arm + '/gradients', '--output', PREFIX + arm + '_gradient_report.json'],
             check=True, stdout=subprocess.DEVNULL)
-        for p in Path('verb_entropy_' + arm + '/gradients').glob('learner-*.jsonl'):
+        for p in Path(PREFIX + arm + '/gradients').glob('learner-*.jsonl'):
             for line in p.open():
                 d = json.loads(line)
                 assert d['verb_entropy_scale'] == (1. if arm == 'on' else 0.)
                 assert d['double_grid_entropy_scale'] == 0.
+                if EXTRA:
+                    assert abs(d['entropy_coeff'] - .01) < 1e-6, 'Fixed arm entropy schedule reset'
     with MANIFEST.with_suffix('.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         manifest = json.loads(MANIFEST.read_text())
@@ -72,12 +79,12 @@ def finish_training():
             for offset in [0, 20]:
                 jid = submit('--job-name=verb-audit-' + arm + '-' + str(offset), '--time=00:25:00',
                     'scripts/probe_double_clicks.slurm', '--offset', str(offset), '--limit', '20',
-                    '--state-pkl', '/scratch/kp0374/checkpoints/zmaxleft-verb-entropy-' + arm + '/ckpt_001021.pkl',
+                    '--state-pkl', '/scratch/kp0374/checkpoints/' + RUN_PREFIX + arm + '/ckpt_001021.pkl',
                     '--config', 'configs/native_zmaxleft_v7h_eval.yaml',
-                    '--output', f'verb_entropy_{arm}_audit{offset}.json',
-                    '--trace-output', f'verb_entropy_{arm}_trace{offset}.json')
+                    '--output', f'{PREFIX}{arm}_audit{offset}.json',
+                    '--trace-output', f'{PREFIX}{arm}_trace{offset}.json')
                 manifest['jobs'][f'audit_{arm}_{offset}'] = jid; audits.append(jid)
-        manifest['jobs']['report'] = cpu_job('uv run --no-sync python scripts/run_verb_entropy_probe.py --report',
+        manifest['jobs']['report'] = cpu_job('uv run --no-sync python scripts/run_verb_entropy_probe.py --report' + EXTRA,
                                              audits, 'verb-entropy-final-report')
         MANIFEST.write_text(json.dumps(manifest, indent=2))
     print(json.dumps(manifest['jobs']))
@@ -92,7 +99,7 @@ def bootstrap(values):
 
 def training_calibration(arm):
     batches = []
-    for path in sorted(Path('verb_entropy_' + arm + '/batches').glob('*.jsonl'), key=lambda p: p.stat().st_mtime):
+    for path in sorted(Path(PREFIX + arm + '/batches').glob('*.jsonl'), key=lambda p: p.stat().st_mtime):
         for line in path.open():
             d = json.loads(line)
             a = np.asarray(d['rows'], dtype=float)
@@ -117,7 +124,7 @@ def report():
     for arm in ['on', 'off']:
         records, results, covered = [], [], []
         for offset in [0, 20]:
-            d = json.load(open(f'verb_entropy_{arm}_audit{offset}.json'))
+            d = json.load(open(f'{PREFIX}{arm}_audit{offset}.json'))
             assert len(d['completed_indices']) == 20
             records.extend(d['records']); results.extend(d['episode_results']); covered.extend(d['completed_indices'])
         assert len(covered) == len(set(covered)) == 40
@@ -131,18 +138,20 @@ def report():
         episodes[arm] = per
         arms[arm] = {key: bootstrap([r[key] for r in per.values()]) for key in next(iter(per.values()))}
         arms[arm]['3d_miss_action_fraction'] = sum(r['misses_3d'] for r in per.values()) / 20000
-        arms[arm]['gradient_report'] = json.load(open('verb_entropy_' + arm + '_gradient_report.json'))
+        arms[arm]['gradient_report'] = json.load(open(PREFIX + arm + '_gradient_report.json'))
         arms[arm]['training_sampling_calibration'] = training_calibration(arm)
+        arms[arm]['per_episode'] = per
     assert set(episodes['on']) == set(episodes['off'])
     paired = {key: bootstrap([episodes['off'][idx][key] - episodes['on'][idx][key]
                               for idx in sorted(episodes['on'])]) for key in next(iter(episodes['on'].values()))}
     output = {'design': 'Shared checkpoint 1011; ten updates; double-grid entropy zero in both arms; verb entropy scale 1 versus 0; rewards unchanged.',
+        'global_entropy_schedule': 'Restored to .01 before every resumed update' if EXTRA else 'Legacy reproduction: .2 on the first update of each allocation, then .01',
         'arms': arms, 'paired_off_minus_on': paired, 'limitations': [
             'One training continuation per arm; episode intervals do not cover training-seed uncertainty.',
             'Verb entropy removal affects all verb choices, not only double clicks.',
             'Rotation/zoom conditional-entropy branch weights remain attached; their effects are included in the gradient trace.',
             'Ten updates test short-term sensitivity, not asymptotic convergence.']}
-    Path('verb_entropy_report.json').write_text(json.dumps(output, indent=2))
+    Path(REPORT_FILE).write_text(json.dumps(output, indent=2))
     print(json.dumps(output, indent=2))
 
 
@@ -150,7 +159,15 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--start', action='store_true')
 ap.add_argument('--finish-training', action='store_true')
 ap.add_argument('--report', action='store_true')
+ap.add_argument('--fixed-schedule', action='store_true')
 args = ap.parse_args()
+if args.fixed_schedule:
+    MANIFEST = ROOT / 'verb_entropy_fixed_pipeline.json'
+    PREFIX = 'verb_entropy_fixed_'
+    RUN_PREFIX = 'zmaxleft-verb-entropy-fixed-'
+    CONFIG_PREFIX = 'configs/native_verb_entropy_fixed_'
+    EXTRA = ' --fixed-schedule'
+    REPORT_FILE = 'verb_entropy_fixed_report.json'
 if args.start: start()
 elif args.finish_training: finish_training()
 elif args.report: report()
