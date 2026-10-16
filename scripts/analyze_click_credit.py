@@ -18,6 +18,7 @@ def summarize(rows):
     keys = ['standardized_advantage', 'reward', 'ratio', 'p_double', 'p_3d_given_double']
     keys += [term + suffix for term in ['policy', 'entropy', 'kl']
              for suffix in ['_chosen_cell_direction', '_toward_3d_direction', '_double_verb_direction']]
+    keys += ['combined_double_verb_direction']
     for key in keys:
         values = np.array([r[key] for r in rows])
         totals = np.column_stack([np.bincount(labels, weights=values, minlength=len(episodes)), counts])
@@ -38,7 +39,11 @@ def main():
         for line in path.open():
             payload = json.loads(line)
             calls += 1
-            rows.extend(dict(zip(payload['columns'], values)) for values in payload['rows'])
+            for values in payload['rows']:
+                row = dict(zip(payload['columns'], values))
+                row['combined_double_verb_direction'] = sum(row[term + '_double_verb_direction']
+                    for term in ['policy', 'entropy', 'kl'])
+                rows.append(row)
     unique = {}
     for row in rows:
         key = (row['episode'], row['step'])

@@ -71,9 +71,13 @@ class CaptureBoundaryGAE(ConnectorV2):
                        'episode_hi', 'episode_lo', 'chunk_length', 'chunk_start_step',
                        'env_end', 'full_episode', 'steps_to_chunk_end',
                        'reward', 'value', 'value_target', 'standardized_advantage',
-                       'terminated', 'truncated', 'valid']
+                       'terminated', 'truncated', 'valid', 'behavior_p_double', 'behavior_p_3d_given_double']
+            behavior = module.get_exploration_action_dist_cls().from_logits(mb[Columns.ACTION_DIST_INPUTS])
+            pd = torch.softmax(behavior._cats[0].logits, -1)[:, 3].detach().cpu().numpy()
+            grid = torch.softmax(behavior._cats[2].logits, -1).detach().cpu().numpy()
+            p3 = grid[:, np.arange(grid.shape[1]) % 32 >= 16].sum(-1)
             matrix = np.column_stack([labels, meta, rewards, values, targets,
-                                      array(Postprocessing.ADVANTAGES), terminated, truncated, mask])
+                                      array(Postprocessing.ADVANTAGES), terminated, truncated, mask, pd, p3])
             with (self.directory / f'boundary-{os.getpid()}.jsonl').open('a') as stream:
                 stream.write(json.dumps({'batch': self.calls, 'module': mid, 'gamma': self.gamma,
                     'lambda': self.lambda_, 'max_gae_error': max(errors, default=0.),

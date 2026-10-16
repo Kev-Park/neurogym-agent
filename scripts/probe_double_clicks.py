@@ -149,6 +149,7 @@ def main():
     records = []
     trace = []
     completed = []
+    episode_results = []
 
     def loading_snapshot():
         st = renderer._state
@@ -171,6 +172,7 @@ def main():
             obs, _ = env.reset(options={'state': state, 'task_info': info})
             seen, heights = set(), {}
             best_z = float(raw['position'][2])
+            initial_z = best_z
             previous_cell = None
             previous_miss = False
             for step in range(500):
@@ -217,8 +219,11 @@ def main():
                 if terminated or truncated:
                     break
             completed.append(idx)
+            episode_results.append({'idx': idx, 'steps': step + 1,
+                                    'peak_dz': max(best_z, float(raw['position'][2])) - initial_z})
             with open(args.output, 'w') as f:
                 json.dump({'episodes': len(completed), 'completed_indices': completed,
+                           'episode_results': episode_results,
                            'records': records}, f)
             if args.trace_output:
                 with open(args.trace_output, 'w') as f:

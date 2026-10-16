@@ -149,5 +149,7 @@ class ClickCreditLearner(PPOTorchLearner):
         self._click_credit_calls = getattr(self, '_click_credit_calls', 0) + 1
         with (directory / f'learner-{os.getpid()}.jsonl').open('a') as stream:
             stream.write(json.dumps({'call': self._click_credit_calls, 'columns': names,
+                                     'verb_entropy_scale': float(dist._verb_entropy_scale),
+                                     'double_grid_entropy_scale': float(dist._dbl_entropy_scale),
                                      'entropy_coeff': float(entropy_coeff), 'rows': data.tolist()}) + '\n')
         return loss
