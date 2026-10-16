@@ -67,6 +67,10 @@ class ClickOutcomeWrapper(gym.Wrapper):
 
 
 class AddClickOutcomes(ConnectorV2):
+    def __init__(self, boundary=False):
+        super().__init__()
+        self.boundary = boundary
+
     def __call__(self, *, batch, episodes, **kwargs):
         for episode in self.single_agent_episode_iterator(episodes, agents_that_stepped_only=False):
             # Infos are observation-indexed: info[t+1] describes action[t]. PPO
@@ -75,10 +79,28 @@ class AddClickOutcomes(ConnectorV2):
             values = [info.get('click_credit', np.full(9, -1.)) for info in infos]
             self.add_n_batch_items(batch, 'click_credit', items_to_add=values,
                                    num_items=len(episode), single_agent_episode=episode)
+            if self.boundary:
+                n = len(episode) - 1
+                assert n > 0
+                first = infos[0]['click_credit']
+                eid, initial_step = int(first[7]), int(first[8])
+                ended = bool(infos[n - 1].get('boundary_env_done', False))
+                metadata = [np.asarray([eid // 65536, eid % 65536, n, initial_step,
+                    ended, ended and initial_step == 0, n - 1 - t], dtype=np.float32)
+                    for t in range(n + 1)]
+                self.add_n_batch_items(batch, 'boundary_meta', items_to_add=metadata,
+                                       num_items=len(episode), single_agent_episode=episode)
         return batch
 
 
 class ClickCreditLearner(PPOTorchLearner):
+    def build(self):
+        super().build()
+        directory = self.module['default_policy'].unwrapped().model_config.get('boundary_directory')
+        if directory:
+            from .boundary_credit import CaptureBoundaryGAE
+            self._learner_connector.append(CaptureBoundaryGAE(directory, self.config.gamma, self.config.lambda_))
+
     def compute_loss_for_module(self, *, module_id, config, batch, fwd_out):
         loss = super().compute_loss_for_module(module_id=module_id, config=config,
                                                batch=batch, fwd_out=fwd_out)

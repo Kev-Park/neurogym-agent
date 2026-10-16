@@ -185,6 +185,9 @@ def main(argv=None) -> int:
         cfg.setdefault("env", {}).pop("spawn_curriculum", None)
     pc = cfg.get("ppo", {})
     train_batch = args.train_batch_size or pc.get("train_batch_size", 2000)
+    fragment = args.rollout_fragment_length
+    if fragment == 'auto':
+        fragment = pc.get('rollout_fragment_length', fragment)
     ckpt_dir = args.checkpoint_dir or os.path.join("checkpoints", args.run_name)
 
     register_env("ngl-znav", make_env_creator(cfg, vector_mode=args.vector))
@@ -207,11 +210,12 @@ def main(argv=None) -> int:
             num_gpus_per_env_runner=args.num_gpus_per_env_runner,
             num_cpus_per_env_runner=args.num_cpus_per_env_runner,
             rollout_fragment_length=(
-                int(args.rollout_fragment_length)
-                if str(args.rollout_fragment_length).isdigit()
-                else args.rollout_fragment_length
+                int(fragment)
+                if str(fragment).isdigit()
+                else fragment
             ),
             sample_timeout_s=args.sample_timeout_s,
+            batch_mode=pc.get('batch_mode', 'truncate_episodes'),
         )
         # Learner stays LOGICALLY separated (local learner in the driver;
         # weights broadcast to runners each iter) — --learner-gpu only moves
@@ -264,7 +268,8 @@ def main(argv=None) -> int:
     if cfg.get('diagnostics', {}).get('click_credit', False):
         from .click_credit import AddClickOutcomes, ClickCreditLearner
         config.learners(learner_class=ClickCreditLearner)
-        config.training(learner_connector=lambda obs_space, action_space: AddClickOutcomes())
+        config.training(learner_connector=lambda obs_space, action_space: AddClickOutcomes(
+            boundary=cfg.get('diagnostics', {}).get('boundary_credit', False)))
 
     algo = config.build_algo() if hasattr(config, "build_algo") else config.build()
 

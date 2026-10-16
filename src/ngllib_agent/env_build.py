@@ -297,6 +297,9 @@ def _wrap_obs_and_limits(env, cfg: dict[str, Any], first_episode_limit: int | No
         from .wrappers import FirstEpisodeStagger
 
         env = FirstEpisodeStagger(env, first_episode_limit)
+    if cfg.get('diagnostics', {}).get('boundary_credit', False):
+        from .boundary_credit import BoundaryInfoWrapper
+        env = BoundaryInfoWrapper(env)
     return env
 
 
