@@ -43,7 +43,7 @@ with path.with_suffix('.lock').open('w') as lock:
         iterations[arm] = meta['iteration']
         state = states.get(jobs[arm], {}).get('state')
         retries = manifest.setdefault('retries', {}).get(arm, 0)
-        if state in ['TIMEOUT', 'PREEMPTED'] and meta['iteration'] < target and retries < 3:
+        if state in ['TIMEOUT', 'PREEMPTED'] and meta['iteration'] < target and retries < manifest.get('max_retries', 3):
             old = jobs[arm]
             jobs[arm] = submit('--job-name=boundary-' + arm, '--time=00:30:00',
                 '--exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl16-6',

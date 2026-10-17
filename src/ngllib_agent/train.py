@@ -308,6 +308,8 @@ def main(argv=None) -> int:
             algo.set_state(load_checkpoint(ckpt))
             wandb_id = prior_meta.get("wandb_id")
 
+    print(f'MARK discount gamma={algo.config.gamma} lambda={algo.config.lambda_}', flush=True)
+
     # R10 degraded-throughput exit: detector + cross-restart exit cap. The cap
     # lives in meta.json because each exit is a fresh process — if 3 exits in
     # 2h haven't cured it, the cause is environmental (co-tenant load, sick
