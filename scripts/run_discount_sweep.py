@@ -223,10 +223,15 @@ if __name__ == '__main__':
     parser.add_argument('--start', action='store_true')
     parser.add_argument('--status', action='store_true')
     parser.add_argument('--report', action='store_true')
+    parser.add_argument('--jobs', nargs='*')
+    parser.add_argument('--manifest', default='discount_sweep_pipeline.json')
     args = parser.parse_args()
+    if Path(args.manifest).name != args.manifest:
+        parser.error('--manifest must be a filename in the repository root')
+    MANIFEST = ROOT / args.manifest
     if args.start:
         start()
-    elif args.status:
+    elif args.status or args.jobs is not None:
         status()
     elif args.report:
         report()
