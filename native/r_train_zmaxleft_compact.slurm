@@ -133,6 +133,10 @@ timeout 30 srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
 # MAX_CRASH_RETRIES times, so one fault does not end the job.
 crashes=0
 while :; do
+  TRAIN_SEED_ARGS=()
+  if [ -n "${TRAIN_SEED:-}" ]; then
+    TRAIN_SEED_ARGS=(--set "seed=${TRAIN_SEED}")
+  fi
   srun --overlap --nodes=1 --ntasks=1 -w "$HEAD" \
     /usr/bin/env CUDA_VISIBLE_DEVICES="$COMPACT_LEARNER_GPU" \
     uv run --no-sync python -m ngllib_agent.train \
@@ -147,7 +151,7 @@ while :; do
       --train-batch-size "$BATCH" \
       --checkpoint-dir "$CKPT" --checkpoint-every "${CKPT_EVERY:-10}" \
       --wandb-project neurogym-agent --wandb-mode "$WANDB_MODE" \
-      --learner-gpu \
+      --learner-gpu "${TRAIN_SEED_ARGS[@]}" \
       --resume
   rc=$?
   [ "$rc" -eq 0 ] && break

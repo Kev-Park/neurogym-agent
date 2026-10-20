@@ -266,6 +266,7 @@ def main(argv=None) -> int:
             # float or [[timestep, value], ...] schedule (see config comment)
             entropy_coeff=pc.get("entropy_coeff", 0.0),
         )
+        .debugging(seed=cfg.get("seed"))
     )
     if args.obs == "dino":
         from ray.rllib.core.rl_module.rl_module import RLModuleSpec
@@ -308,7 +309,7 @@ def main(argv=None) -> int:
             algo.set_state(load_checkpoint(ckpt))
             wandb_id = prior_meta.get("wandb_id")
 
-    print(f'MARK discount gamma={algo.config.gamma} lambda={algo.config.lambda_}', flush=True)
+    print(f'MARK discount gamma={algo.config.gamma} lambda={algo.config.lambda_} seed={cfg.get("seed")}', flush=True)
 
     # R10 degraded-throughput exit: detector + cross-restart exit cap. The cap
     # lives in meta.json because each exit is a fresh process — if 3 exits in
