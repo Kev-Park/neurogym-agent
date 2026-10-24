@@ -46,7 +46,13 @@ def _script(spec):
 
 
 def _describe(obs):
-    return {k: (tuple(v.shape), str(v.dtype)) for k, v in obs.items()}
+    if isinstance(obs, dict):
+        return {k: _describe(v) for k, v in obs.items()}
+    if isinstance(obs, (tuple, list)):
+        return tuple(_describe(v) for v in obs)
+    if hasattr(obs, "shape") and hasattr(obs, "dtype"):
+        return (tuple(obs.shape), str(obs.dtype))
+    return type(obs).__name__
 
 
 def run_backend(cfg, backend, n_steps):
@@ -89,10 +95,12 @@ def run_backend(cfg, backend, n_steps):
     obs, info = env.reset(options={"state": st, "task_info": info["task_info"]})
     zero_bin = spec.zoom_bins // 2 - 2                   # delta = -2 * zoom_step = -1000
     mid = spec.rotation_bins_per_axis // 2
-    obs, *_ = env.step(np.asarray([2, 0, mid, mid, mid, zero_bin]))
-    out["zoom_to_zero_ps"] = float(obs["proj_scale"][0])
-    obs, *_ = env.step(np.asarray([2, 0, mid, mid, mid, spec.zoom_bins // 2 - 1]))
-    out["zoom_legal_ps"] = float(obs["proj_scale"][0])
+    _, _, _, _, info = env.step(np.asarray([2, 0, mid, mid, mid, zero_bin]))
+    out["zoom_to_zero_ps"] = float(info["json_state"]["projectionScale"])
+    _, _, _, _, info = env.step(
+        np.asarray([2, 0, mid, mid, mid, spec.zoom_bins // 2 - 1])
+    )
+    out["zoom_legal_ps"] = float(info["json_state"]["projectionScale"])
     env.close()
     del base
     return out
