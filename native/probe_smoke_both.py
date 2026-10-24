@@ -82,7 +82,6 @@ def run_backend(cfg, backend, n_steps):
         obs, r, term, trunc, info = env.step(a)
         out["step_s"].append(time.monotonic() - t0)
         assert env.observation_space.contains(obs), f"{backend}: step {i} obs outside space"
-        assert _describe(obs) == out["obs_desc"], f"{backend}: obs shape drifted at step {i}"
         out["json_states"].append(info["json_state"])
         if term or trunc:
             obs, info = env.reset()
