@@ -22,6 +22,7 @@ def main():
         'One training continuation per arm; bootstrap intervals do not represent training-seed uncertainty.',
         'Counterfactuals use settled fresh rendering, not exact cloning of asynchronous renderer queues.',
         'Valid-target branches use privileged hit testing for diagnosis, not a deployable policy.',
+        'Valid branches target never-selected segments; reselect branches target previously seen, currently deselected segments. Selected targets are excluded because they toggle visibility.',
         '100-step counterfactual horizon can miss longer-term selection benefits.']}
     arms = {}
     evals = {}
@@ -53,17 +54,36 @@ def main():
     for r in records:
         by_pair.setdefault((r['idx'], r['repeat']), {})[r['branch']] = r
     cf = {}
-    for branch in ['sampled', 'valid_2d', 'valid_3d']:
+    candidate_coverage = {}
+    for branch in ['sampled', 'valid_2d', 'valid_3d', 'reselect_2d', 'reselect_3d']:
         by_state = {}
+        target_statuses = {}
+        diagnostics = {'first_reward': {}, 'new_selection': {}, 'made_visible': {}}
         for (idx, _), choices in by_pair.items():
             if branch in choices and 'noop' in choices:
                 b, n = choices[branch], choices['noop']
                 by_state.setdefault(idx, []).append([b['discounted_return'] - n['discounted_return'],
                                                      b['new_peak_dz'] - n['new_peak_dz']])
+                diagnostics['first_reward'].setdefault(idx, []).append(b['first_reward'])
+                diagnostics['new_selection'].setdefault(idx, []).append(
+                    bool((b.get('selection_delta') or {}).get('added')))
+                diagnostics['made_visible'].setdefault(idx, []).append(
+                    bool((b.get('visibility_delta') or {}).get('shown')))
+                target = b.get('candidate_target') or {}
+                status = target.get('target_status', 'unlabeled')
+                target_statuses.setdefault(status, set()).add(idx)
         values = np.asarray([np.mean(v, axis=0) for v in by_state.values()])
         cf[branch] = {'vs_noop_discounted_return': paired(values[:, 0] if len(values) else []),
-                      'vs_noop_climb': paired(values[:, 1] if len(values) else [])}
+                      'vs_noop_climb': paired(values[:, 1] if len(values) else []),
+                      'first_reward': paired([np.mean(v) for v in diagnostics['first_reward'].values()]),
+                      'new_selection_rate': paired([np.mean(v) for v in diagnostics['new_selection'].values()]),
+                      'made_visible_rate': paired([np.mean(v) for v in diagnostics['made_visible'].values()])}
+        candidate_coverage[branch] = {
+            'states_with_candidate': len(by_state),
+            'states_by_target_status': {status: len(indices)
+                                        for status, indices in target_statuses.items()}}
     output['counterfactuals'] = cf
+    output['counterfactual_candidate_coverage'] = candidate_coverage
     Path('entropy_v7i_report.json').write_text(json.dumps(output, indent=2))
     destination = Path('entropy_v7i_results')
     destination.mkdir(exist_ok=True)

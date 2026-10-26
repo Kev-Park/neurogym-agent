@@ -115,27 +115,53 @@ def main():
             snapshot = copy.deepcopy(source.unwrapped._renderer._state)
             probabilities = policy.grid_probabilities.copy()
             candidates = {'sampled': sampled, 'noop': np.array([-1, 0, 0, 4, 4, 4, 4])}
+            candidate_targets = {'noop': None}
             if args.only_3d_misses:
                 candidates['neutral_zoom'] = np.array([2, 0, 0, 4, 4, 4, 4])
                 candidates['small_rotation'] = np.array([1, 0, 0, 5, 4, 4, 4])
             r = source.unwrapped._renderer
             sx, sy = cell_to_pixel(int(sampled[2]), spec)
-            settled_sampled_is_miss = (r._segment_under_3d(sx, sy) is None) if sampled[2] % 32 >= 16 else None
-            visible = set(S.visible_segments(snapshot['segments']))
-            # Highest-policy-probability cell that actually performs the
-            # desired operation; target availability is privileged diagnostic information.
+            sampled_pane = '2d' if sampled[2] % 32 < 16 else '3d'
+            sampled_rid = (r._segment_under_2d(sx, sy) if sampled_pane == '2d'
+                           else r._segment_under_3d(sx, sy))
+            settled_sampled_is_miss = sampled_rid is None if sampled_pane == '3d' else None
+            selected_ids = {str(s).removeprefix('!') for s in snapshot['segments']}
+            seen_ids = {str(s).removeprefix('!') for s in seen}
+            sampled_id = None if sampled_rid is None else str(sampled_rid)
+            candidate_targets['sampled'] = {
+                'pane': sampled_pane, 'cell': int(sampled[2]),
+                'segment_id': sampled_id,
+                'target_status': ('empty' if sampled_id is None else
+                                  'selected' if sampled_id in selected_ids else
+                                  'reselect' if sampled_id in seen_ids else 'new')}
+            # Candidate selection uses privileged hit-testing for diagnosis.
+            # "valid" means a new, never-selected target. Previously seen but
+            # currently deselected targets are reported separately as reselections.
             for pane in ['2d', '3d']:
-                for cell in np.argsort(probabilities)[::-1]:
-                    if (int(cell) % 32 < 16) != (pane == '2d'):
-                        continue
-                    x, y = cell_to_pixel(int(cell), spec)
-                    rid = r._segment_under_2d(x, y) if pane == '2d' else r._segment_under_3d(x, y)
-                    if rid is None or (pane == '2d' and str(rid) in visible):
-                        continue
-                    candidate = sampled.copy()
-                    candidate[2] = int(cell)
-                    candidates[f'valid_{pane}'] = candidate
-                    break
+                for status in ['new', 'reselect']:
+                    for cell in np.argsort(probabilities)[::-1]:
+                        if (int(cell) % 32 < 16) != (pane == '2d'):
+                            continue
+                        x, y = cell_to_pixel(int(cell), spec)
+                        rid = r._segment_under_2d(x, y) if pane == '2d' else r._segment_under_3d(x, y)
+                        if rid is None:
+                            continue
+                        rid = str(rid)
+                        # Any currently selected target can only toggle its
+                        # visibility; it is neither a new selection nor a reselection.
+                        if rid in selected_ids:
+                            continue
+                        target_status = 'new' if rid not in seen_ids else 'reselect'
+                        if target_status != status:
+                            continue
+                        candidate = sampled.copy()
+                        candidate[2] = int(cell)
+                        label = f'valid_{pane}' if status == 'new' else f'reselect_{pane}'
+                        candidates[label] = candidate
+                        candidate_targets[label] = {
+                            'pane': pane, 'cell': int(cell), 'segment_id': rid,
+                            'target_status': status}
+                        break
             for repeat in range(args.repeats):
                 seed = 30000 + idx * 10 + repeat
                 for label, first in candidates.items():
@@ -150,6 +176,7 @@ def main():
                     reward_fn(before, None, before, False)
                     peak, discounted, total = best_z, 0.0, 0.0
                     first_reward, changed = None, None
+                    selection_delta, visibility_delta = None, None
                     for t in range(args.horizon + 1):
                         av = first if t == 0 else policy.act(ob)
                         ra = action(av)
@@ -160,6 +187,16 @@ def main():
                         if t == 0:
                             first_reward = reward
                             changed = set(after['segments']) != set(prev['segments'])
+                            before_selected = {str(s).removeprefix('!') for s in prev['segments']}
+                            after_selected = {str(s).removeprefix('!') for s in after['segments']}
+                            before_visible = set(S.visible_segments(prev['segments']))
+                            after_visible = set(S.visible_segments(after['segments']))
+                            selection_delta = {
+                                'added': sorted(after_selected - before_selected),
+                                'removed': sorted(before_selected - after_selected)}
+                            visibility_delta = {
+                                'shown': sorted(after_visible - before_visible),
+                                'hidden': sorted(before_visible - after_visible)}
                         total += reward
                         discounted += (0.99 ** t) * reward
                         peak = max(peak, float(after['position'][2]))
@@ -168,9 +205,12 @@ def main():
                     records.append({'idx': idx, 'source_step': step, 'repeat': repeat,
                                     'branch': label, 'sampled_cell': int(sampled[2]),
                                     'sampled_pane': '2d' if sampled[2] % 32 < 16 else '3d',
+                                    'candidate_target': candidate_targets.get(label),
                                     'settled_sampled_is_miss': settled_sampled_is_miss,
                                     'source_standardized_advantage': row.get('standardized_advantage'),
                                     'first_reward': first_reward, 'selection_changed': changed,
+                                    'selection_delta': selection_delta,
+                                    'visibility_delta': visibility_delta,
                                     'discounted_return': discounted, 'return': total,
                                     'new_peak_dz': peak - best_z, 'steps': t + 1})
                     with open(args.output, 'w') as f:
