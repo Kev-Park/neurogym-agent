@@ -74,7 +74,7 @@ def main():
                     'mean_distinct_segments': float(np.mean([r['distinct_segments'] for r in rows])),
                     'states_with_any_cells': sum(r['cells'] > 0 for r in rows),
                 }
-    for branch in ['sampled', 'valid_2d', 'valid_3d', 'reselect_2d', 'reselect_3d']:
+    for branch in ['sampled', 'hit_3d', 'valid_2d', 'valid_3d', 'reselect_2d', 'reselect_3d']:
         by_state = {}
         target_statuses = {}
         diagnostics = {'first_reward': {}, 'new_selection': {}, 'made_visible': {}}

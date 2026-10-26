@@ -164,6 +164,13 @@ def main():
                     counts[status]['probability_mass'] += float(probabilities[cell])
                     if rid is not None:
                         category_ids[pane][status].add(rid)
+                    if pane == '3d' and status == 'selected_visible' and 'hit_3d' not in candidates:
+                        candidate = sampled.copy()
+                        candidate[2] = cell
+                        candidates['hit_3d'] = candidate
+                        candidate_targets['hit_3d'] = {
+                            'pane': pane, 'cell': cell, 'segment_id': rid,
+                            'target_status': status}
                     if status in ['new', 'reselect']:
                         label = f'valid_{pane}' if status == 'new' else f'reselect_{pane}'
                         if label not in candidates:
