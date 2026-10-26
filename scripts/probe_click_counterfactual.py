@@ -127,6 +127,7 @@ def main():
             settled_sampled_is_miss = sampled_rid is None if sampled_pane == '3d' else None
             selected_ids = {str(s).removeprefix('!') for s in snapshot['segments']}
             seen_ids = {str(s).removeprefix('!') for s in seen}
+            visible_ids = set(S.visible_segments(snapshot['segments']))
             sampled_id = None if sampled_rid is None else str(sampled_rid)
             candidate_targets['sampled'] = {
                 'pane': sampled_pane, 'cell': int(sampled[2]),
@@ -137,31 +138,44 @@ def main():
             # Candidate selection uses privileged hit-testing for diagnosis.
             # "valid" means a new, never-selected target. Previously seen but
             # currently deselected targets are reported separately as reselections.
+            grid_hit_distribution = {}
+            category_ids = {}
             for pane in ['2d', '3d']:
-                for status in ['new', 'reselect']:
-                    for cell in np.argsort(probabilities)[::-1]:
-                        if (int(cell) % 32 < 16) != (pane == '2d'):
-                            continue
-                        x, y = cell_to_pixel(int(cell), spec)
-                        rid = r._segment_under_2d(x, y) if pane == '2d' else r._segment_under_3d(x, y)
-                        if rid is None:
-                            continue
-                        rid = str(rid)
-                        # Any currently selected target can only toggle its
-                        # visibility; it is neither a new selection nor a reselection.
-                        if rid in selected_ids:
-                            continue
-                        target_status = 'new' if rid not in seen_ids else 'reselect'
-                        if target_status != status:
-                            continue
-                        candidate = sampled.copy()
-                        candidate[2] = int(cell)
+                category_ids[pane] = {name: set() for name in
+                                      ['empty', 'selected_visible', 'selected_hidden', 'reselect', 'new']}
+                counts = {name: {'cells': 0, 'probability_mass': 0.0} for name in category_ids[pane]}
+                cells = [int(c) for c in np.argsort(probabilities)[::-1]
+                         if (int(c) % 32 < 16) == (pane == '2d')]
+                for cell in cells:
+                    x, y = cell_to_pixel(cell, spec)
+                    rid = r._segment_under_2d(x, y) if pane == '2d' else r._segment_under_3d(x, y)
+                    rid = None if rid is None else str(rid)
+                    if rid is None:
+                        status = 'empty'
+                    elif rid in visible_ids:
+                        status = 'selected_visible'
+                    elif rid in selected_ids:
+                        status = 'selected_hidden'
+                    elif rid in seen_ids:
+                        status = 'reselect'
+                    else:
+                        status = 'new'
+                    counts[status]['cells'] += 1
+                    counts[status]['probability_mass'] += float(probabilities[cell])
+                    if rid is not None:
+                        category_ids[pane][status].add(rid)
+                    if status in ['new', 'reselect']:
                         label = f'valid_{pane}' if status == 'new' else f'reselect_{pane}'
-                        candidates[label] = candidate
-                        candidate_targets[label] = {
-                            'pane': pane, 'cell': int(cell), 'segment_id': rid,
-                            'target_status': status}
-                        break
+                        if label not in candidates:
+                            candidate = sampled.copy()
+                            candidate[2] = cell
+                            candidates[label] = candidate
+                            candidate_targets[label] = {
+                                'pane': pane, 'cell': cell, 'segment_id': rid,
+                                'target_status': status}
+                grid_hit_distribution[pane] = {
+                    name: {**counts[name], 'distinct_segments': len(category_ids[pane][name])}
+                    for name in counts}
             for repeat in range(args.repeats):
                 seed = 30000 + idx * 10 + repeat
                 for label, first in candidates.items():
@@ -206,6 +220,7 @@ def main():
                                     'branch': label, 'sampled_cell': int(sampled[2]),
                                     'sampled_pane': '2d' if sampled[2] % 32 < 16 else '3d',
                                     'candidate_target': candidate_targets.get(label),
+                                    'grid_hit_distribution': grid_hit_distribution,
                                     'settled_sampled_is_miss': settled_sampled_is_miss,
                                     'source_standardized_advantage': row.get('standardized_advantage'),
                                     'first_reward': first_reward, 'selection_changed': changed,

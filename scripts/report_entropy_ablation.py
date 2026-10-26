@@ -55,6 +55,25 @@ def main():
         by_pair.setdefault((r['idx'], r['repeat']), {})[r['branch']] = r
     cf = {}
     candidate_coverage = {}
+    grid_coverage = {}
+    for (idx, _), choices in by_pair.items():
+        record = choices.get('sampled')
+        if record is None or 'grid_hit_distribution' not in record:
+            continue
+        grid_coverage.setdefault(idx, record['grid_hit_distribution'])
+    output['grid_hit_distribution_by_state'] = grid_coverage
+    output['grid_hit_distribution_summary'] = {}
+    if grid_coverage:
+        for pane in ['2d', '3d']:
+            output['grid_hit_distribution_summary'][pane] = {}
+            for category in ['empty', 'selected_visible', 'selected_hidden', 'reselect', 'new']:
+                rows = [state[pane][category] for state in grid_coverage.values()]
+                output['grid_hit_distribution_summary'][pane][category] = {
+                    'mean_cells': float(np.mean([r['cells'] for r in rows])),
+                    'mean_policy_probability_mass': float(np.mean([r['probability_mass'] for r in rows])),
+                    'mean_distinct_segments': float(np.mean([r['distinct_segments'] for r in rows])),
+                    'states_with_any_cells': sum(r['cells'] > 0 for r in rows),
+                }
     for branch in ['sampled', 'valid_2d', 'valid_3d', 'reselect_2d', 'reselect_3d']:
         by_state = {}
         target_statuses = {}
