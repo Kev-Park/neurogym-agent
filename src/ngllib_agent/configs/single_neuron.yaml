@@ -23,7 +23,11 @@ model:
   normalize_entropy: true
   cell_entropy_stopgrad: false
   cell_entropy_scale: 1.0
+  dbl_entropy_scale: 1.0
   verb_entropy_scale: 1.0
+  cell_entropy_schedule: null
+  dbl_entropy_schedule: null
+  verb_entropy_schedule: null
   spatial_channels: 128
   spatial_blocks: 3
   flat_channels: 16

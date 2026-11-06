@@ -20,6 +20,40 @@ intentional configuration change or a legacy checkpoint. Restoring weights does
 not preserve an in-flight browser episode. Credentials must be supplied at
 runtime, and should never be embedded in a task config or launch override.
 
+Entropy controls are explicit in the YAML's `model` section:
+`normalize_entropy`, `cell_entropy_stopgrad`, `cell_entropy_scale`,
+`dbl_entropy_scale`, and `verb_entropy_scale`. Each scale supports its
+corresponding `*_entropy_schedule`; `ppo.entropy_coeff` is the global multiplier.
+These configure learner exploration, not renderer dynamics.
+
+In DINO mode, use `obs.use_left_pane` and `obs.dino.input_size`. Contradictory
+renderer pane settings or a non-null `env.image_size` now fail rather than
+being silently ignored. Existing DINO recipes omit those redundant settings.
+For multi-layer viewer URLs, set `env.image_layer` and/or
+`env.segmentation_layer`; the selected pair is used by both backends.
+
+Evaluate new paired checkpoints on complete frozen starts:
+
+```bash
+python -m ngllib_agent.evaluate --state-pkl checkpoints/run/ckpt_000100.pkl \
+  --starts frozen_starts.json --max-steps 500 --output evaluation.json
+```
+
+The JSON input is a list of `{id, state, task_info}` records; `state` contains
+the full camera/selection state, and `task_info` supplies the chosen task's
+targets. The checkpoint sidecar supplies the config; legacy weights require
+`--config`. `--backend`, `--stochastic`, `--seed`, and `--video-dir` are optional.
+Evaluation preserves task termination; a different evaluation reward or
+termination recipe must be supplied explicitly with `--config`, with matching
+observation/action/model settings. Traces record positions in viewer voxel
+coordinates, reward, actions, and separate termination/truncation flags.
+
+Use `--compare LEFT.json RIGHT.json --output differences.json` for paired
+return/Z-gain differences. Incomplete runs or different starts/protocols are
+rejected. `--allow-backend-difference` explicitly permits a simulator/Chrome
+comparison. Historical task-specific metrics remain in the existing scripts,
+which now share policy loading with the supported evaluator.
+
 Distributed RL for FlyWire neuron navigation in Neuroglancer, built on
 [`ngllib`](../neurogym) 0.2's Gymnasium-compliant `Environment`.
 

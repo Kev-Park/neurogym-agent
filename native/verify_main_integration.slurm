@@ -25,6 +25,7 @@ echo "VALIDATION node=$(hostname) out=$OUT"
 nvidia-smi
 git rev-parse HEAD
 git -C ../neurogym rev-parse HEAD
+"$PY" "$ROOT/neurogym/scripts/probe_egl_mapping.py"
 "$PY" -m pytest ../neurogym/tests tests -q > "$OUT/tests.log" 2>&1 || { tail -100 "$OUT/tests.log"; exit 1; }
 tail -5 "$OUT/tests.log"
 echo TESTS-OK
@@ -40,6 +41,7 @@ echo TRAIN-SINGLE-OK
 echo AUTO-RESUME-OK
 "$PY" -m ngllib_agent.train --config configs/native_zmaxleft_v7.yaml "${common[@]}" --run-name compat-multi --iters 1 --checkpoint-dir "$OUT/multi" 2>&1 | tee "$OUT/multi.log"
 echo TRAIN-MULTI-OK
+"$PY" scripts/probe_evaluation.py --checkpoint "$OUT/single/ckpt_000002.pkl" --out "$OUT/evaluation"
 "$PY" "$ROOT/neurogym/scripts/probe_label_resolution.py" capture --out "$OUT/labels" --cases /scratch/kp0374/zoom_resolution_probe_20261101/validation/cases.json
 "$PY" "$ROOT/neurogym/scripts/probe_label_resolution.py" simulator --out "$OUT/labels" --tag after
 echo INTEGRATION-DONE

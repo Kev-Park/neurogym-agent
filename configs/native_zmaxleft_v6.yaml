@@ -31,7 +31,6 @@ env:
   orientation: euler
   headless: true
   renderer: gpu
-  image_size: [84, 84]
   max_episode_steps: 500
 
 obs:

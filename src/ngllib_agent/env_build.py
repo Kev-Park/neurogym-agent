@@ -28,6 +28,19 @@ from .wrappers import (
 BACKENDS = {"chrome": "chrome", "browser": "chrome", "simulator": "simulator", "native": "simulator"}
 
 
+def dino_layout(ec, oc):
+    """Observation config owns DINO panes and preprocessing resolution."""
+    left = bool(oc.get("use_left_pane", True))
+    if "left_pane" in ec and bool(ec["left_pane"]) != left:
+        raise ValueError("env.left_pane conflicts with obs.use_left_pane in DINO mode")
+    if ec.get("right_pane") is False:
+        raise ValueError("DINO mode requires env.right_pane=true")
+    if ec.get("image_size") is not None:
+        raise ValueError("DINO mode requires env.image_size=null; set obs.dino.input_size for preprocessing")
+    return {**ec, "left_pane": left, "right_pane": True, "image_size": None,
+            "capture_scale": ec.get("capture_scale", 0.5)}
+
+
 def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
     # `click_bounds` supersedes `pane_3d_bounds`: clicks may address either
     # pane now that the simulator matches Chrome on the 2D pane too. The old
@@ -55,7 +68,7 @@ def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
     )
 
 
-def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
+def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None, frame_callback=None):
     """Construct `TimeLimit(MultiDiscreteActionWrapper(ngllib.Environment))`."""
     import logging
 
@@ -93,14 +106,7 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         # the 2D EM pane carries real signal -- plausibly a z cue, since the
         # cross-section's appearance varies with depth and the task is
         # z-navigation. Keep both panes unless re-testing that ablation.
-        _use_left = bool(oc.get("use_left_pane", True))
-        if "left_pane" in ec and bool(ec["left_pane"]) != _use_left:
-            logging.getLogger(__name__).warning(
-                "env.left_pane=%s is IGNORED in dino mode; panes follow "
-                "obs.use_left_pane=%s", ec["left_pane"], _use_left)
-        ec = {**ec, "left_pane": _use_left, "right_pane": True,
-              "image_size": None,
-              "capture_scale": ec.get("capture_scale", 0.5)}
+        ec = dino_layout(ec, oc)
 
     # env.holdout_parquet: a frozen eval pool whose root_ids are EXCLUDED from
     # training resets, so eval measures unseen-neuron generalization. The eval
@@ -180,6 +186,14 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     else:
         layout_start_url = None
 
+    if ec.get("image_layer") or ec.get("segmentation_layer"):
+        from ngllib.dataset import default_start_url, select_viewer_layers, split_state_url, state_to_url
+
+        host, state = split_state_url(layout_start_url or default_start_url())
+        state = select_viewer_layers(state, image_layer=ec.get("image_layer"),
+                                     segmentation_layer=ec.get("segmentation_layer"))
+        layout_start_url = state_to_url(host, state)
+
     if backend == "simulator":
         # env.pane_mode: the 2D-pane fill policy (atomic | progressive |
         # concurrent | random); ngllib's default is the shipping `atomic`.
@@ -240,6 +254,15 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
         termination_factory=termination_factory,
         **env_kwargs,
     )
+    if frame_callback is not None:
+        import gymnasium as gym
+
+        class FrameTap(gym.ObservationWrapper):
+            def observation(self, obs):
+                frame_callback(obs["image"])
+                return obs
+
+        env = FrameTap(env)
     env = MultiDiscreteActionWrapper(env, action_spec_from_config(ac))
     if cfg.get('diagnostics', {}).get('click_credit', False):
         from .click_credit import ClickOutcomeWrapper

@@ -29,6 +29,8 @@ import time
 from typing import Any
 
 import duckdb
+from ngllib_agent.evaluation import StatePklPolicy, CheckpointPolicy
+
 import numpy as np
 import pyarrow.parquet as pq
 
@@ -121,64 +123,6 @@ class RandomPolicy:
     def act(self, obs):
         return self.action_space.sample()
 
-
-class CheckpointPolicy:
-    """RLlib checkpoint-restored policy. Deterministic (explore=False)."""
-    def __init__(self, checkpoint_path: str):
-        # Lazy import so --random-policy mode doesn't need Ray installed.
-        from ray.rllib.algorithms.algorithm import Algorithm
-        self.algo = Algorithm.from_checkpoint(checkpoint_path)
-
-    def act(self, obs):
-        return self.algo.compute_single_action(obs, explore=False)
-
-
-class StatePklPolicy:
-    """Policy from a `ngllib_agent.train` state pickle (`ckpt_*.pkl`).
-
-    Rebuilds HierarchicalPPOModule with the env's spaces, loads the module
-    slice of the pickled Algorithm state, and acts via forward_inference —
-    per-head argmax by default, or sampled (training-matched) with
-    stochastic=True. Argmax on the 1024-way click head can be degenerate
-    for a policy that only ever acted by sampling; eval both when in doubt.
-    """
-
-    def __init__(self, pkl_path: str, env, model_config: dict,
-                 stochastic: bool = False):
-        import torch
-
-        from ngllib_agent.distributed.checkpoint import load_checkpoint
-        from ngllib_agent.policies import HierarchicalPPOModule
-
-        self._torch = torch
-        self._stochastic = stochastic
-        # inference_only=False so the state (which includes the vf head) maps 1:1.
-        self.module = HierarchicalPPOModule(
-            observation_space=env.observation_space,
-            action_space=env.action_space,
-            model_config=model_config,
-        )
-        state = load_checkpoint(pkl_path)
-        module_state = state["learner_group"]["learner"]["rl_module"]["default_policy"]
-        self.module.set_state(module_state)
-        self.dist_cls = self.module.get_inference_action_dist_cls()
-
-    def act(self, obs):
-        torch = self._torch
-        from ray.rllib.core.columns import Columns
-
-        batch = {
-            Columns.OBS: {
-                k: torch.from_numpy(np.asarray(v, np.float32)).unsqueeze(0)
-                for k, v in obs.items()
-            }
-        }
-        with torch.no_grad():
-            out = self.module.forward_inference(batch)
-        dist = self.dist_cls.from_logits(out[Columns.ACTION_DIST_INPUTS])
-        if not self._stochastic:
-            dist = dist.to_deterministic()
-        return dist.sample().squeeze(0).cpu().numpy()
 
 
 # ============================================================================

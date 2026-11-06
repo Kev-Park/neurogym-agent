@@ -34,6 +34,8 @@ import sys
 import time
 from typing import Any
 
+from ngllib_agent.evaluation import StatePklPolicy, CheckpointPolicy
+
 import numpy as np
 import pyarrow.parquet as pq
 
@@ -67,53 +69,6 @@ class RandomPolicy:
         return self.action_space.sample()
 
 
-class StatePklPolicy:
-    """Policy from a train.py state pickle — mirrors eval_d0.StatePklPolicy."""
-
-    def __init__(self, pkl_path: str, env, model_config: dict,
-                 stochastic: bool = False):
-        import torch
-
-        from ngllib_agent.distributed.checkpoint import load_checkpoint
-        from ngllib_agent.policies import HierarchicalPPOModule
-
-        self._torch = torch
-        self._stochastic = stochastic
-        self.module = HierarchicalPPOModule(
-            observation_space=env.observation_space,
-            action_space=env.action_space,
-            model_config=model_config,
-        )
-        state = load_checkpoint(pkl_path)
-        module_state = state["learner_group"]["learner"]["rl_module"]["default_policy"]
-        self.module.set_state(module_state)
-        self.dist_cls = self.module.get_inference_action_dist_cls()
-
-    def act(self, obs):
-        torch = self._torch
-        from ray.rllib.core.columns import Columns
-
-        batch = {
-            Columns.OBS: {
-                k: torch.from_numpy(np.asarray(v, np.float32)).unsqueeze(0)
-                for k, v in obs.items()
-            }
-        }
-        with torch.no_grad():
-            out = self.module.forward_inference(batch)
-        dist = self.dist_cls.from_logits(out[Columns.ACTION_DIST_INPUTS])
-        if not self._stochastic:
-            dist = dist.to_deterministic()
-        return dist.sample().squeeze(0).cpu().numpy()
-
-
-class CheckpointPolicy:
-    def __init__(self, checkpoint_path: str):
-        from ray.rllib.algorithms.algorithm import Algorithm
-        self.algo = Algorithm.from_checkpoint(checkpoint_path)
-
-    def act(self, obs):
-        return self.algo.compute_single_action(obs, explore=False)
 
 
 def main() -> int:
