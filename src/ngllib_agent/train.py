@@ -13,8 +13,8 @@ Env-runner topology defaults to the PINNED 2-process x 16-thread/GPU config
 (see the --num-env-runners note below); for N renderer nodes pass
 `--num-env-runners <2*N>`.
 
-Resume: `--resume` loads the latest `ckpt_*.pkl` from --checkpoint-dir and
-continues the same wandb run (id kept in meta.json).
+Matching checkpoint directories resume automatically; `--resume` also permits
+legacy checkpoints or an intentional configuration change.
 """
 
 from __future__ import annotations
@@ -169,8 +169,9 @@ def main(argv=None) -> int:
         AsyncCheckpointer,
         atomic_json,
         atomic_pickle,
-        latest_checkpoint,
         load_checkpoint,
+        public_config,
+        resume_metadata,
     )
     from .env_build import load_config, make_env_creator
 
@@ -208,6 +209,14 @@ def main(argv=None) -> int:
     if fragment == 'auto':
         fragment = pc.get('rollout_fragment_length', fragment)
     ckpt_dir = args.checkpoint_dir or os.path.join("checkpoints", args.run_name)
+    if not cfg.get("env", {}).get("parquet_path"):
+        raise ValueError("Supply env.parquet_path in the task config or with --set")
+    resume_path, prior_meta = resume_metadata(ckpt_dir, cfg, explicit=args.resume)
+    args.resume = resume_path is not None
+    meta_path = os.path.join(ckpt_dir, "meta.json")
+    os.environ.setdefault("CURRICULUM_PROGRESS_FILE", meta_path)
+    atomic_json({"total_steps": prior_meta.get("total_steps", 0)}, meta_path)
+    atomic_json(public_config(cfg), os.path.join(ckpt_dir, "run_config.json"))
 
     register_env("ngl-znav", make_env_creator(cfg, vector_mode=args.vector))
 
@@ -296,23 +305,11 @@ def main(argv=None) -> int:
     # ---- resume ------------------------------------------------------------
     import json
 
-    meta_path = os.path.join(ckpt_dir, "meta.json")
-    prior_meta = {}
-    if os.path.exists(meta_path):
-        try:
-            prior_meta = json.load(open(meta_path))
-        except (json.JSONDecodeError, OSError):
-            prior_meta = {}
-
     wandb_id = None
-    if args.resume:
-        ckpt = latest_checkpoint(ckpt_dir)
-        if ckpt is None:
-            print(f"[train] --resume but no checkpoint in {ckpt_dir}; starting fresh")
-        else:
-            print(f"[train] resuming from {ckpt}")
-            algo.set_state(load_checkpoint(ckpt))
-            wandb_id = prior_meta.get("wandb_id")
+    if resume_path is not None:
+        print(f"[train] resuming from {resume_path}")
+        algo.set_state(load_checkpoint(resume_path))
+        wandb_id = prior_meta.get("wandb_id")
 
     print(f'MARK discount gamma={algo.config.gamma} lambda={algo.config.lambda_} seed={cfg.get("seed")}', flush=True)
 
@@ -430,7 +427,13 @@ def main(argv=None) -> int:
                 },
                 meta_path,
             )
-            checkpointer.maybe_save(algo, it)
+            checkpoint_meta = {
+                "config": public_config(cfg), "total_steps": lifetime_steps,
+                "wandb_id": run.id, "run_name": args.run_name,
+                "degraded_exits": degraded_exits,
+                "launch_args": vars(args), "iteration": it,
+            }
+            checkpointer.maybe_save(algo, it, meta=checkpoint_meta)
             if args.checkpoint_every and it % args.checkpoint_every == 0:
                 print(f"MARK checkpoint it={it} ts={time.time():.3f}", flush=True)
             # Healthy-runner count on the iter line: v7 forensics had to
@@ -475,18 +478,15 @@ def main(argv=None) -> int:
                 # Checkpoint synchronously (off-cadence iters would otherwise
                 # lose up to checkpoint_every-1 iters of samples), persist the
                 # exit record, and die so the coordinator respawns us fresh.
+                checkpointer.finalize()
+                atomic_json(
+                    checkpoint_meta,
+                    os.path.join(ckpt_dir, f"ckpt_{it:06d}.json"),
+                )
+                atomic_json(checkpoint_meta, meta_path)
                 atomic_pickle(
                     algo.get_state(),
                     os.path.join(ckpt_dir, f"ckpt_{it:06d}.pkl"),
-                )
-                atomic_json(
-                    {
-                        "iteration": it,
-                        "wandb_id": run.id,
-                        "run_name": args.run_name,
-                        "degraded_exits": degraded_exits,
-                    },
-                    meta_path,
                 )
                 return 43
             # --iters is an ABSOLUTE target. RLlib's training_iteration

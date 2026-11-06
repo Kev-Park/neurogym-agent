@@ -1,4 +1,24 @@
-# ngllib-agent (branch `dist-rl-rewrite`)
+# ngllib-agent
+
+New training defaults to a single 3D-pane max-Z navigation task with spatial
+DINO patch tokens. Supply the reset dataset explicitly:
+
+```bash
+python -m ngllib_agent.train --set env.parquet_path=/path/to/positions.parquet
+```
+
+`configs/native_zmaxleft_v7.yaml` explicitly selects the two-pane multi-neuron
+climbing experiment. New DINO training requires `obs.dino.patch_tokens: true`.
+The CLI respects the observation mode in YAML unless `--obs` overrides it.
+W&B logging is disabled by default. RLlib is pinned to 2.56.0.
+
+Each checkpoint has a JSON sidecar containing its task/model configuration,
+launch arguments, and progress. Matching configurations in the same checkpoint
+directory continue automatically, including the curriculum and entropy schedule.
+Use a new directory for an independent run; `--resume` explicitly permits an
+intentional configuration change or a legacy checkpoint. Restoring weights does
+not preserve an in-flight browser episode. Credentials must be supplied at
+runtime, and should never be embedded in a task config or launch override.
 
 Distributed RL for FlyWire neuron navigation in Neuroglancer, built on
 [`ngllib`](../neurogym) 0.2's Gymnasium-compliant `Environment`.

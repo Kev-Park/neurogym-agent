@@ -234,7 +234,7 @@ def test_cell_entropy_stopgrad_cuts_only_the_verb_path():
 
 
 @pytest.mark.parametrize("normalized", [False, True])
-def test_split_grid_entropy_defaults_to_independent_verb_gradient(normalized):
+def test_split_grid_entropy_can_decouple_verb_gradient(normalized):
     from ngllib_agent.policies.hierarchical import HierarchicalMultiCategorical
 
     nvec = [5, 16, 16, 9, 9, 9, 9]
@@ -243,7 +243,7 @@ def test_split_grid_entropy_defaults_to_independent_verb_gradient(normalized):
     for rc, dbl in [(1.0, 1.0), (0.1, 1.0), (1.0, 0.1)]:
         cls = HierarchicalMultiCategorical.for_nvec(
             nvec, normalize_entropy=normalized,
-            cell_entropy_scale=rc, dbl_entropy_scale=dbl)
+            cell_entropy_scale=rc, dbl_entropy_scale=dbl, cell_entropy_stopgrad=True)
         assert cls._cell_entropy_stopgrad is True
         z = base.clone().requires_grad_(True)
         cls.from_logits(z).entropy().sum().backward()
@@ -258,7 +258,7 @@ def test_split_grid_entropy_defaults_to_independent_verb_gradient(normalized):
     assert torch.allclose(dbl_low[:, 21:37], full[:, 21:37] * 0.1)
     assert torch.allclose(dbl_low[:, 5:21], full[:, 5:21])
     assert torch.allclose(dbl_low[:, 37:], full[:, 37:])
-    legacy = HierarchicalMultiCategorical.for_nvec(nvec, cell_entropy_stopgrad=False)
+    legacy = HierarchicalMultiCategorical.for_nvec(nvec)
     assert legacy._cell_entropy_stopgrad is False
 
 

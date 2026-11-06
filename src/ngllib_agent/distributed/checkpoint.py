@@ -36,6 +36,39 @@ def atomic_json(obj: Any, path: str | Path) -> str:
     return str(path)
 
 
+def public_config(value):
+    """Checkpoint task settings without copying inline credentials."""
+    if isinstance(value, dict):
+        return {k: public_config(v) for k, v in value.items()
+                if k not in ("cave_token", "google_password", "google_email_address")}
+    if isinstance(value, (list, tuple)):
+        return [public_config(v) for v in value]
+    return value
+
+
+def resume_metadata(ckpt_dir, config, explicit=False):
+    """Auto-continue only a checkpoint paired with the same task settings."""
+    path = latest_checkpoint(ckpt_dir)
+    if path is None:
+        return None, {}
+    sidecar = path.with_suffix(".json")
+    metadata = json.loads(sidecar.read_text()) if sidecar.exists() else {}
+    if not explicit and metadata.get("config") != public_config(config):
+        raise ValueError("Checkpoint directory contains a different or unpaired run; use a new directory or explicit --resume")
+    if not metadata and explicit:
+        legacy = Path(ckpt_dir) / "meta.json"
+        metadata = json.loads(legacy.read_text()) if legacy.exists() else {}
+    return path, metadata
+
+
+def _write_checkpoint(state, path, metadata=None):
+    # Publish metadata first: a crash leaves an ignored orphan sidecar rather
+    # than a visible checkpoint without its task settings.
+    if metadata is not None:
+        atomic_json(metadata, Path(path).with_suffix(".json"))
+    return atomic_pickle(state, path)
+
+
 _CKPT_RE = re.compile(r"ckpt_(\d+)\.pkl$")
 
 
@@ -69,8 +102,8 @@ class AsyncCheckpointer:
 
             @ray.remote(num_cpus=0.1)
             class CheckpointWriter:
-                def write(self, state, path):
-                    return atomic_pickle(state, path)
+                def write(self, state, path, metadata):
+                    return _write_checkpoint(state, path, metadata)
 
             self._writer = CheckpointWriter.remote()
 
@@ -81,14 +114,15 @@ class AsyncCheckpointer:
         path = self.ckpt_dir / f"ckpt_{iteration:06d}.pkl"
         state = algo.get_state()  # quick in-memory snapshot
         if meta is not None:
-            atomic_json({**meta, "iteration": iteration}, self.ckpt_dir / "meta.json")
+            meta = {**meta, "iteration": iteration}
+            atomic_json(meta, self.ckpt_dir / "meta.json")
         if self._writer is None:
-            return atomic_pickle(state, path)
+            return _write_checkpoint(state, path, meta)
         import ray
 
         if self._pending is not None:
             ray.get(self._pending)  # rare: previous write still in flight
-        self._pending = self._writer.write.remote(state, str(path))
+        self._pending = self._writer.write.remote(state, str(path), meta)
         return str(path)
 
     def finalize(self) -> None:
