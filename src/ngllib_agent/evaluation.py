@@ -24,8 +24,10 @@ def checkpoint_config(checkpoint, explicit_config=None):
 
 def rollout(env, policy, start, max_steps, seed):
     """One frozen start; retain task-independent per-step outcomes."""
+    task_info = dict(start["task_info"])
+    task_info.setdefault("termination_seed", seed)
     obs, info = env.reset(seed=seed, options={"state": start["state"],
-                                            "task_info": start["task_info"]})
+                                            "task_info": task_info})
     initial = info["json_state"]["position"]
     trace = []
     for _ in range(max_steps):

@@ -43,6 +43,8 @@ The JSON input is a list of `{id, state, task_info}` records; `state` contains
 the full camera/selection state, and `task_info` supplies the chosen task's
 targets. The checkpoint sidecar supplies the config; legacy weights require
 `--config`. `--backend`, `--stochastic`, `--seed`, and `--video-dir` are optional.
+`--progress-steps` fixes step-annealed reward progress (default zero); frozen
+episodes seed randomized termination independently of rollout order.
 Evaluation preserves task termination; a different evaluation reward or
 termination recipe must be supplied explicitly with `--config`, with matching
 observation/action/model settings. Traces record positions in viewer voxel

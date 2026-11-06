@@ -250,7 +250,11 @@ def make_v3_termination_factory(
     rng = np.random.default_rng(seed)
 
     def factory(task_info: dict[str, Any]) -> Callable[..., bool]:
-        budget = int(rng.integers(budget_min, budget_max + 1))
+        # Frozen evaluation starts can specify episode-local randomness without
+        # changing the historical training stream when this key is absent.
+        episode_rng = (np.random.default_rng(task_info["termination_seed"])
+                       if "termination_seed" in task_info else rng)
+        budget = int(episode_rng.integers(budget_min, budget_max + 1))
         state = {"steps": 0, "z_best": None, "stall": 0}
 
         def terminated_fn(obs, action, prev_obs) -> bool:

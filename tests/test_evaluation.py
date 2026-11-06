@@ -32,3 +32,17 @@ def test_comparison_pairs_ids_and_rejects_incomplete_or_different_protocol():
     right["complete"] = False
     with pytest.raises(ValueError, match="incomplete"):
         compare_results(left, right, True)
+
+
+def test_frozen_termination_seed_is_independent_of_factory_rng():
+    from ngllib_agent.rewards.z_free import make_v3_termination_factory
+
+    horizons = []
+    for seed in (1, 2):
+        terminal = make_v3_termination_factory(10, 30, stall_limit=None, seed=seed)(
+            {"termination_seed": 1234})
+        for step in range(1, 31):
+            if terminal({"position": [0, 0, step]}, None, {"position": [0, 0, step - 1]}):
+                horizons.append(step)
+                break
+    assert len(horizons) == 2 and horizons[0] == horizons[1]

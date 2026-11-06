@@ -5,6 +5,7 @@ import argparse
 from dataclasses import asdict
 import hashlib
 import json
+import os
 from pathlib import Path
 import signal
 
@@ -20,6 +21,8 @@ def main(argv=None):
     ap.add_argument("--output", required=True)
     ap.add_argument("--max-steps", type=int, default=500)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--progress-steps", type=int, default=0,
+                    help="Fixed progress for step-annealed evaluation rewards")
     ap.add_argument("--stochastic", action="store_true")
     ap.add_argument("--backend", choices=["chrome", "simulator"])
     ap.add_argument("--video-dir")
@@ -57,14 +60,25 @@ def main(argv=None):
         if writer is not None:
             writer.append_data(frame)
 
-    env = build_env(cfg, frame_callback=frame_callback if args.video_dir else None)
+    progress_path = str(Path(args.output).resolve().with_suffix(".progress.json"))
+    atomic_json({"total_steps": args.progress_steps}, progress_path)
+    previous_progress = os.environ.get("CURRICULUM_PROGRESS_FILE")
+    os.environ["CURRICULUM_PROGRESS_FILE"] = progress_path
+    env = None
     try:
+        env = build_env(cfg, frame_callback=frame_callback if args.video_dir else None)
         policy = StatePklPolicy(args.state_pkl, env, cfg.get("model", {}), args.stochastic)
         canonical_starts = json.dumps(sorted(starts, key=lambda row: str(row["id"])),
                                      sort_keys=True).encode()
+        # Frozen starts bypass these training-reset settings; they are still
+        # retained in the complete config for provenance.
+        scene = {k: v for k, v in cfg["env"].items() if k not in (
+            "parquet_path", "holdout_parquet", "spawn_curriculum",
+            "projection_scale_range", "stagger_first_episode", "reset_ahead")}
         protocol = dict(starts_sha256=hashlib.sha256(canonical_starts).hexdigest(), seed=args.seed,
                         max_steps=args.max_steps, stochastic=args.stochastic,
-                        env=public_config(cfg["env"]), reward=cfg["reward"],
+                        progress_steps=args.progress_steps,
+                        env=public_config(scene), reward=cfg["reward"],
                         dataset=asdict(env.unwrapped.renderer.dataset))
         result = dict(schema_version=1, checkpoint=str(Path(args.state_pkl).resolve()),
                       config=public_config(cfg), protocol=protocol, complete=False, episodes=[])
@@ -78,7 +92,8 @@ def main(argv=None):
             if args.video_dir:
                 import imageio.v2 as imageio
                 Path(args.video_dir).mkdir(parents=True, exist_ok=True)
-                writer = imageio.get_writer(str(Path(args.video_dir) / f"episode_{index:06d}.mp4"), fps=10)
+                writer = imageio.get_writer(str(Path(args.video_dir) / f"episode_{index:06d}.mp4"),
+                                            fps=10, macro_block_size=2)
             try:
                 signal.alarm(args.timeout_s)
                 result["episodes"].append(rollout(env, policy, start, args.max_steps, seed))
@@ -91,8 +106,13 @@ def main(argv=None):
         result["complete"] = True
         atomic_json(result, args.output)
     finally:
-        env.close()
+        if env is not None:
+            env.close()
         signal.signal(signal.SIGALRM, previous_handler)
+        if previous_progress is None:
+            os.environ.pop("CURRICULUM_PROGRESS_FILE", None)
+        else:
+            os.environ["CURRICULUM_PROGRESS_FILE"] = previous_progress
     print("EVALUATION-DONE", flush=True)
     return 0
 
