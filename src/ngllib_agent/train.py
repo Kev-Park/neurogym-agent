@@ -431,7 +431,10 @@ def main(argv=None) -> int:
                 "config": public_config(cfg), "total_steps": lifetime_steps,
                 "wandb_id": run.id, "run_name": args.run_name,
                 "degraded_exits": degraded_exits,
-                "launch_args": vars(args), "iteration": it,
+                # Dotted --set overrides are already in the redacted config;
+                # their original strings can contain inline credentials.
+                "launch_args": {k: v for k, v in vars(args).items() if k != "set"},
+                "iteration": it,
             }
             checkpointer.maybe_save(algo, it, meta=checkpoint_meta)
             if args.checkpoint_every and it % args.checkpoint_every == 0:
