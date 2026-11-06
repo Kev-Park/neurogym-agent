@@ -4,13 +4,16 @@
 #SBATCH --account=pni
 #SBATCH --qos=normal
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:3090:2
+#SBATCH --gres=gpu:3090:8
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=100G
 #SBATCH --exclude=sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2
 #SBATCH --time=00:30:00
 #SBATCH --output=/scratch/kp0374/neurogym-agent/slurm_outputs/zmax-compat-%j.out
 set -euo pipefail
+# Ray 2.56's accelerator-type probe opens physical GPU 0 even when SLURM
+# assigned other GPUs. A full-node GPU allocation includes 0 without altering
+# Ray or inspecting a device outside this job's allocation.
 ROOT=${ROOT:-/scratch/kp0374/integration_20261105}
 cd "$ROOT/neurogym-agent"
 PY=/scratch/kp0374/neurogym-agent/.venv/bin/python
