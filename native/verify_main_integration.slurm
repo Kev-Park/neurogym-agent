@@ -11,9 +11,7 @@
 #SBATCH --time=00:30:00
 #SBATCH --output=/scratch/kp0374/neurogym-agent/slurm_outputs/zmax-compat-%j.out
 set -euo pipefail
-# Ray 2.56's accelerator-type probe opens physical GPU 0 even when SLURM
-# assigned other GPUs. A full-node GPU allocation includes 0 without altering
-# Ray or inspecting a device outside this job's allocation.
+# Include physical GPU 0 in the allocation for Ray's accelerator-type probe.
 ROOT=${ROOT:-/scratch/kp0374/integration_20261105}
 cd "$ROOT/neurogym-agent"
 PY=/scratch/kp0374/neurogym-agent/.venv/bin/python
@@ -24,6 +22,7 @@ export NGL_NATIVE_MESH_LRU_MB=256 NGL_NATIVE_CHUNK_LRU_MB=256 NGL_NATIVE_VAO_LRU
 OUT=/scratch/kp0374/integration_validation_$SLURM_JOB_ID
 mkdir -p "$OUT"
 echo "VALIDATION node=$(hostname) out=$OUT"
+nvidia-smi
 git rev-parse HEAD
 git -C ../neurogym rev-parse HEAD
 "$PY" -m pytest ../neurogym/tests tests -q > "$OUT/tests.log" 2>&1 || { tail -100 "$OUT/tests.log"; exit 1; }
