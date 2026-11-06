@@ -85,6 +85,8 @@ def resolve_task_config(config, custom_factory=False):
                     if env.get(key) and Path(env[key]).resolve() != Path(value):
                         raise ValueError(f"env.{key} conflicts with task.manifest")
                     env[key] = value
+            if env.get("holdout_parquet") and "holdout" not in manifest["artifacts"]:
+                identity["artifacts"]["holdout_parquet"] = file_digest(env["holdout_parquet"])
     else:
         identity = {"artifacts": {}}
         for key in ("parquet_path", "holdout_parquet"):

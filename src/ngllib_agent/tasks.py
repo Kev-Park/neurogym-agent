@@ -107,5 +107,6 @@ def flywire_task(cfg, *, manifest=None):
         termination_factory = make_z_termination_factory(rcfg)
 
     from .rewards.z_free import selection_metadata
-    metadata = selection_metadata if rc.get("mode") == "z_free" else None
+    metadata = selection_metadata if (rc.get("mode") == "z_free" or
+                                      cfg.get("diagnostics", {}).get("click_credit")) else None
     return TaskComponents(provider, reward_factory, termination_factory, metadata)
