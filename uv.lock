@@ -1584,7 +1584,7 @@ wheels = [
 [[package]]
 name = "ngllib"
 version = "0.3.0"
-source = { editable = "../neurogym-zmax-left" }
+source = { editable = "../neurogym" }
 dependencies = [
     { name = "certifi" },
     { name = "cloud-volume" },
@@ -1644,12 +1644,12 @@ requires-dist = [
     { name = "certifi", specifier = ">=2026.10.19" },
     { name = "duckdb", specifier = ">=0.10" },
     { name = "gymnasium" },
-    { name = "ngllib", editable = "../neurogym-zmax-left" },
+    { name = "ngllib", editable = "../neurogym" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pillow", specifier = ">=13.0.0" },
     { name = "pyarrow", specifier = ">=14.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "ray", extras = ["rllib"], specifier = ">=2.40,<3" },
+    { name = "ray", extras = ["rllib"], specifier = "==2.56.0" },
     { name = "torch", specifier = ">=2.4.0", index = "https://download.pytorch.org/whl/cu124" },
     { name = "torchvision", specifier = ">=0.19.0", index = "https://download.pytorch.org/whl/cu124" },
     { name = "wandb", specifier = ">=0.16" },

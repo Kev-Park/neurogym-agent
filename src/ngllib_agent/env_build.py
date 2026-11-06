@@ -74,6 +74,11 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None):
     oc = cfg.get("obs", {})
     obs_mode = oc.get("mode", "raw")  # raw | pos | dino
 
+    if not ec.get("parquet_path"):
+        raise ValueError("env.parquet_path must name a skeleton table; set it in the task config")
+    if rc.get("mode", "z_navigate") not in ("z_navigate", "z_free"):
+        raise ValueError(f"unknown reward.mode: {rc['mode']!r}")
+
     # DINO obs needs the full two-pane render at native resolution (the wrapper
     # splits EM|3D and resizes per pane) — derive these env settings from the mode
     # rather than trusting per-key config to stay consistent.

@@ -27,6 +27,7 @@ obs:
   pos_state_scale: [1.0e5, 1.0e5, 1.0e5, 1.0, 1.0, 1.0, 1.0, 1.0e4]
 
 model:
+  cell_entropy_stopgrad: true
   pos_hidden_dim: 64
   normalize_entropy: true
   cell_entropy_scale: 1.0

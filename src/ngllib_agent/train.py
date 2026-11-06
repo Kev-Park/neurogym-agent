@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import numbers
 import os
+from pathlib import Path
 import time
 
 # Ray auto-ships the CWD as a runtime_env under `uv run` (1.2GB repo) — see
@@ -49,7 +50,7 @@ def _restore_entropy_schedule(algo, lifetime_steps):
 
 def build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="ngllib_agent.train")
-    ap.add_argument("--config", default="configs/ppo_zmax_navigate.yaml")
+    ap.add_argument("--config", default=str(Path(__file__).with_name("configs") / "single_neuron.yaml"))
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                     help="Dotted config override applied after load, e.g. "
                          "obs.dino.cuda_graph=true or ppo.lr=1e-4. Value is parsed "
@@ -57,7 +58,7 @@ def build_argparser() -> argparse.ArgumentParser:
                          "sweeps without a config-file-per-lever.")
     ap.add_argument("--run-name", default=f"znav-{int(time.time())}")
     ap.add_argument("--iters", type=int, default=250)
-    ap.add_argument("--obs", choices=["pos", "dino"], default="dino")
+    ap.add_argument("--obs", choices=["pos", "dino"], default=None)
     # Scale / placement.
     # PINNED default topology (2026-07-11, REFINEMENT.md R4-frontier): per GPU
     # node run 2 EnvRunner PROCESSES x 16 threaded envs each on a shared GPU.
@@ -140,7 +141,7 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--resume", action="store_true")
     # Logging
     ap.add_argument("--wandb-mode", choices=["online", "offline", "disabled"],
-                    default="online")
+                    default="disabled")
     ap.add_argument("--wandb-project", default="neurogym-agent")
     return ap
 
@@ -186,7 +187,11 @@ def main(argv=None) -> int:
             for p in parts[:-1]:
                 node = node.setdefault(p, {})
             node[parts[-1]] = _yaml.safe_load(val)
-    cfg.setdefault("obs", {})["mode"] = args.obs
+    if args.obs is not None:
+        cfg.setdefault("obs", {})["mode"] = args.obs
+    args.obs = cfg.get("obs", {}).get("mode", "dino")
+    if args.obs == "dino" and not cfg.get("obs", {}).get("dino", {}).get("patch_tokens", False):
+        raise ValueError("New DINO training requires obs.dino.patch_tokens=true; pooled CLS training is not supported")
     if args.recovery_mode:
         cfg.setdefault("env", {})["recovery_mode"] = args.recovery_mode
     if args.stagger_first_episode:

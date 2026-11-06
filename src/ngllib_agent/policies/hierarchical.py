@@ -72,13 +72,13 @@ class HierarchicalMultiCategorical(TorchMultiCategorical):
     _cell_entropy_scale: float = 1.0
     _dbl_entropy_scale: float = 1.0
     _verb_entropy_scale: float = 1.0
-    _cell_entropy_stopgrad: bool = True
+    _cell_entropy_stopgrad: bool = False
     _split: bool = False
 
     @classmethod
     def for_nvec(cls, nvec, normalize_entropy: bool = False,
                  cell_entropy_scale: float = 1.0,
-                 cell_entropy_stopgrad: bool = True,
+                 cell_entropy_stopgrad: bool = False,
                  dbl_entropy_scale: float = 1.0,
                  verb_entropy_scale: float = 1.0) -> type:
         lens = [int(n) for n in nvec]
@@ -257,7 +257,7 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
         trunk_hiddens: list[int] = [256, 256]   # CLS-only path
         normalize_entropy: bool = False
         cell_entropy_scale: float = 1.0
-        cell_entropy_stopgrad: bool = True   # cell bonus never moves the verb head
+        cell_entropy_stopgrad: bool = False  # main's attached verb gradient
         dbl_entropy_scale: float = 1.0  # double-click head's own multiplier (split heads)
         verb_entropy_scale: float = 1.0  # scales only categorical verb entropy
       spatial (only read when obs has patch_features; see module docstring):
@@ -309,7 +309,7 @@ class HierarchicalPPOModule(TorchRLModule, ValueFunctionAPI):
             nvec,
             normalize_entropy=bool(self.model_config.get("normalize_entropy", False)),
             cell_entropy_scale=float(self.model_config.get("cell_entropy_scale", 1.0)),
-            cell_entropy_stopgrad=bool(self.model_config.get("cell_entropy_stopgrad", True)),
+            cell_entropy_stopgrad=bool(self.model_config.get("cell_entropy_stopgrad", False)),
             dbl_entropy_scale=float(self.model_config.get("dbl_entropy_scale", 1.0)),
             verb_entropy_scale=float(self.model_config.get("verb_entropy_scale", 1.0)),
         )
