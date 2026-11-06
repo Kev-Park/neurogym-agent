@@ -139,6 +139,8 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="Defaults to checkpoints/<run-name> under CWD.")
     ap.add_argument("--checkpoint-every", type=int, default=10)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--allow-data-change", action="store_true",
+                    help="Explicitly permit a resumed checkpoint to use different task data")
     # Logging
     ap.add_argument("--wandb-mode", choices=["online", "offline", "disabled"],
                     default="disabled")
@@ -209,9 +211,12 @@ def main(argv=None) -> int:
     if fragment == 'auto':
         fragment = pc.get('rollout_fragment_length', fragment)
     ckpt_dir = args.checkpoint_dir or os.path.join("checkpoints", args.run_name)
-    if not cfg.get("env", {}).get("parquet_path"):
-        raise ValueError("Supply env.parquet_path in the task config or with --set")
-    resume_path, prior_meta = resume_metadata(ckpt_dir, cfg, explicit=args.resume)
+    from .data import resolve_task_config
+    if args.allow_data_change:
+        cfg.get("task", {}).pop("data_identity", None)
+    cfg, _ = resolve_task_config(cfg)
+    resume_path, prior_meta = resume_metadata(ckpt_dir, cfg, explicit=args.resume,
+                                             allow_data_change=args.allow_data_change)
     args.resume = resume_path is not None
     meta_path = os.path.join(ckpt_dir, "meta.json")
     os.environ.setdefault("CURRICULUM_PROGRESS_FILE", meta_path)

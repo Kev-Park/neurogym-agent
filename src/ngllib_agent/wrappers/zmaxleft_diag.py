@@ -1,8 +1,8 @@
 """Per-episode diagnostics for the zmax-left free-climb task.
 
 Sits between MultiDiscreteActionWrapper and the obs-mode wrappers, so it sees
-the verb-indexed action vector and the RAW ngllib obs (position + the visible
-`segments` tuple this branch adds). Emits one compact line per finished episode
+the verb-indexed action vector, raw position, and task metadata in info.
+Emits one compact line per finished episode
 (greppable as `[zmaxleft-ep]` in the slurm .out — the failure-diagnosis data
 approved 2026-09-24) and mirrors the dict into `info["zmaxleft"]`.
 
@@ -31,10 +31,10 @@ class ZmaxLeftDiagWrapper:
                 super().__init__(env)
                 self._reset_track({})
 
-            def _reset_track(self, obs: dict[str, Any]) -> None:
+            def _reset_track(self, obs: dict[str, Any], metadata=None) -> None:
                 pos = obs.get("position")
                 z = float(np.asarray(pos)[2]) if pos is not None else 0.0
-                segs = set(obs.get("segments", ()))
+                segs = set((metadata or {}).get("segments", ()))
                 self._t = {
                     "z0": z, "z_best": z, "steps": 0, "steps_at_best": 0,
                     "seen": segs, "n0": len(segs), "new_segs": 0,
@@ -80,7 +80,7 @@ class ZmaxLeftDiagWrapper:
                 # info as zmaxleft_prev for eval harnesses).
                 prev = self._emit() if self._t.get("steps", 0) > 0 else None
                 obs, info = self.env.reset(**kwargs)
-                self._reset_track(obs)
+                self._reset_track(obs, info.get("task_metadata"))
                 if prev is not None:
                     info = dict(info)
                     info["zmaxleft_prev"] = prev
@@ -93,7 +93,8 @@ class ZmaxLeftDiagWrapper:
                 verb = int(np.asarray(action).ravel()[0])
                 if 0 <= verb < len(t["verbs"]):
                     t["verbs"][verb] += 1
-                segs = set(obs.get("segments", ()))
+                metadata = info.get("task_metadata", {})
+                segs = set(metadata.get("segments", ()))
                 new = segs - t["seen"]
                 if new:
                     # max_u at load time (mirrors z_free's pricing: best
@@ -103,8 +104,8 @@ class ZmaxLeftDiagWrapper:
                     t["maxu_at_load"].append(max(0.0, u))
                     t["seen"] |= new
                     t["new_segs"] += len(new)
-                for sid, zm in zip(obs.get("segments", ()),
-                                   obs.get("segment_zmax", ())):
+                for sid, zm in zip(metadata.get("segments", ()),
+                                   metadata.get("segment_zmax", ())):
                     if float(zm) > 0.0:
                         t["zmax"][str(sid)] = float(zm)
                 if not segs:

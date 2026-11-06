@@ -101,7 +101,7 @@ def test_v4_delta_and_select_cost():
 
     cfg = ZFreeRewardConfig(shaping_coef=0.001, select_novelty_bonus=0.0,
                             delta_coef=0.0003, select_cost=0.003)
-    rew = make_zfree_reward_factory(cfg)({})
+    rew = _task_reward(make_zfree_reward_factory(cfg)({}))
 
     def _o(z, segs=()):
         return {"position": np.array([0.0, 0.0, float(z)], dtype=np.float32),
@@ -126,7 +126,7 @@ def test_noop_click_cost():
 
     cfg = ZFreeRewardConfig(shaping_coef=0.0, select_novelty_bonus=0.0,
                             noop_click_cost=0.0005)
-    rew = make_zfree_reward_factory(cfg)({})
+    rew = _task_reward(make_zfree_reward_factory(cfg)({}))
 
     def _o(pos, segs=("a",)):
         return {"position": np.array(pos, dtype=np.float32), "segments": tuple(segs)}
@@ -156,7 +156,7 @@ def test_v5_exploration_conditioned_load_cost():
 
     cfg = ZFreeRewardConfig(shaping_coef=0.0, select_novelty_bonus=0.0,
                             select_cost=0.001, explore_penalty_coef=0.0002)
-    rew = make_zfree_reward_factory(cfg)({})
+    rew = _task_reward(make_zfree_reward_factory(cfg)({}))
 
     def _o(z, segs=(), zmax=()):
         return {"position": np.array([0.0, 0.0, float(z)], dtype=np.float32),
@@ -180,9 +180,23 @@ def test_v5_exploration_conditioned_load_cost():
             _o(1200.0, ("a", "b")), False)
     assert abs(r - (-0.001)) < 1e-9
     # Deselecting the unexplored candidate must NOT dodge the penalty:
-    rew2 = make_zfree_reward_factory(cfg)({})
+    rew2 = _task_reward(make_zfree_reward_factory(cfg)({}))
     rew2(_o(0.0, ("a",), (-1.0,)), None, _o(0.0), False)
     rew2(_o(0.0, ("a",), (2000.0,)), None, _o(0.0, ("a",)), False)
     r = rew2(_o(0.0, (), ()), None, _o(0.0, ("a",)), False)   # deselect a
     r = rew2(_o(0.0, ("d",), (-1.0,)), None, _o(0.0, ()), False)
     assert abs(r - (-(0.001 + 0.0002 * 2000))) < 1e-9
+
+
+def _task_reward(reward):
+    from ngllib import TransitionContext
+
+    def call(obs, action, previous, terminated):
+        keys = {"segments", "segment_zmax"}
+        context = TransitionContext(
+            {key: value for key, value in previous.items() if key in keys},
+            {key: value for key, value in obs.items() if key in keys})
+        pure_obs = {key: value for key, value in obs.items() if key not in keys}
+        pure_previous = {key: value for key, value in previous.items() if key not in keys}
+        return reward(pure_obs, action, pure_previous, terminated, context=context)
+    return call

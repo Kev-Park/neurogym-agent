@@ -21,7 +21,17 @@ from probe_double_clicks import AuditPolicy
 from ngllib import state as S
 from ngllib_agent.env_build import action_spec_from_config, build_env, load_config
 from ngllib_agent.wrappers.action import cell_to_pixel, decode
-from ngllib_agent.rewards.z_free import ZFreeRewardConfig, make_zfree_reward_factory
+from ngllib_agent.rewards.z_free import ZFreeRewardConfig, make_zfree_reward_factory, selection_metadata
+from ngllib import TransitionContext
+
+
+def reward_from_snapshot(reward_fn, current, action, previous, terminated):
+    keys = {"segments", "segment_zmax"}
+    context = TransitionContext({k: v for k, v in previous.items() if k in keys},
+                                {k: v for k, v in current.items() if k in keys})
+    return reward_fn({k: v for k, v in current.items() if k not in keys}, action,
+                     {k: v for k, v in previous.items() if k not in keys},
+                     terminated, context=context)
 
 
 def main():
@@ -52,9 +62,9 @@ def main():
     for name, env in [('source', source), ('branch', branch)]:
         base = env.unwrapped
         original = base._make_obs
-        def tap(st, image, original=original, name=name):
+        def tap(st, image, original=original, name=name, renderer=base.renderer):
             obs = original(st, image)
-            raw[name] = copy.deepcopy(obs)
+            raw[name] = {**copy.deepcopy(obs), **selection_metadata(renderer, st)}
             return obs
         base._make_obs = tap
     # -1 is a diagnostic-only explicit left-click no-op, outside policy space.
@@ -193,8 +203,8 @@ def main():
                     history = {**before, 'position': [*before['position'][:2], best_z],
                                'segments': tuple(seen),
                                'segment_zmax': tuple(zmax.get(s, 0.0) for s in seen)}
-                    reward_fn(history, None, history, False)
-                    reward_fn(before, None, before, False)
+                    reward_from_snapshot(reward_fn, history, None, history, False)
+                    reward_from_snapshot(reward_fn, before, None, before, False)
                     peak, discounted, total = best_z, 0.0, 0.0
                     first_reward, changed = None, None
                     selection_delta, visibility_delta = None, None
@@ -204,7 +214,7 @@ def main():
                         prev = copy.deepcopy(raw['branch'])
                         ob, _, term, trunc, _ = branch.step(av)
                         after = raw['branch']
-                        reward = reward_fn(after, ra, prev, False)
+                        reward = reward_from_snapshot(reward_fn, after, ra, prev, False)
                         if t == 0:
                             first_reward = reward
                             changed = set(after['segments']) != set(prev['segments'])

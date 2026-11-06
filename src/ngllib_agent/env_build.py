@@ -15,8 +15,8 @@ from typing import Any
 
 from ngllib.dataset import DatasetSpec
 
-from .providers import FlywireSkeletonProvider
-from .rewards import ZRewardConfig, make_z_reward_factory, make_z_termination_factory
+from .tasks import build_task
+from .data import resolve_task_config, validate_scene
 from .wrappers import (
     ActionSpec,
     DinoObservationWrapper,
@@ -68,7 +68,7 @@ def action_spec_from_config(ac: dict[str, Any]) -> ActionSpec:
     )
 
 
-def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None, frame_callback=None):
+def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None, frame_callback=None, task_factory=None):
     """Construct `TimeLimit(MultiDiscreteActionWrapper(ngllib.Environment))`."""
     import logging
 
@@ -83,14 +83,10 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None, frame
             format="%(asctime)s %(name)s %(levelname)s: %(message)s",
         )
 
-    ec, ac, rc = cfg["env"], cfg["action"], cfg["reward"]
+    cfg, manifest = resolve_task_config(cfg, custom_factory=task_factory is not None)
+    ec, ac = cfg["env"], cfg["action"]
     oc = cfg.get("obs", {})
     obs_mode = oc.get("mode", "raw")  # raw | pos | dino
-
-    if not ec.get("parquet_path"):
-        raise ValueError("env.parquet_path must name a skeleton table; set it in the task config")
-    if rc.get("mode", "z_navigate") not in ("z_navigate", "z_free"):
-        raise ValueError(f"unknown reward.mode: {rc['mode']!r}")
 
     # DINO obs needs the full two-pane render at native resolution (the wrapper
     # splits EM|3D and resizes per pane) — derive these env settings from the mode
@@ -108,65 +104,7 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None, frame
         # z-navigation. Keep both panes unless re-testing that ablation.
         ec = dino_layout(ec, oc)
 
-    # env.holdout_parquet: a frozen eval pool whose root_ids are EXCLUDED from
-    # training resets, so eval measures unseen-neuron generalization. The eval
-    # CLI resets with explicit states and is unaffected.
-    exclude = None
-    if ec.get("holdout_parquet"):
-        import pyarrow.parquet as pq
-
-        exclude = [
-            str(r) for r in
-            pq.read_table(ec["holdout_parquet"], columns=["root_id"])
-            .column("root_id").to_pylist()
-        ]
-    psr = ec.get("projection_scale_range")
-    provider = FlywireSkeletonProvider(
-        ec["parquet_path"],
-        projection_scale_range=tuple(psr) if psr else None,
-        spawn_curriculum=ec.get("spawn_curriculum"),
-        exclude_root_ids=exclude,
-    )
-    # reward.mode selects the task's reward/termination pair:
-    #   (absent)  z-navigate — reach the start segment's known z-max (terminal).
-    #   "z_free"  zmax-left free climb — best-so-far z + annealed selection-
-    #             novelty scaffold, NO task terminal (TimeLimit-only).
-    if rc.get("mode") == "z_free":
-        from .rewards import ZFreeRewardConfig, make_no_termination_factory, \
-            make_v3_termination_factory, make_zfree_reward_factory
-
-        zfree = ZFreeRewardConfig(
-            shaping_coef=rc.get("shaping_coef", 0.001),
-            select_novelty_bonus=rc.get("select_novelty_bonus", 0.1),
-            select_novelty_end_steps=rc.get("select_novelty_end_steps", 1_500_000),
-            select_novelty_cap=rc.get("select_novelty_cap", 10),
-            step_penalty=rc.get("step_penalty", 0.0),
-            delta_coef=rc.get("delta_coef", 0.0),
-            select_cost=rc.get("select_cost", 0.0),
-            explore_penalty_coef=rc.get("explore_penalty_coef", 0.0),
-            noop_click_cost=rc.get("noop_click_cost", 0.0),
-        )
-        reward_factory = make_zfree_reward_factory(zfree)
-        # v3 earliness pressure (TRAINING configs only — eval uses the v2
-        # config so episodes stay TimeLimit-only; see z_free.py):
-        if rc.get("budget_max") or rc.get("stall_limit"):
-            termination_factory = make_v3_termination_factory(
-                budget_min=rc.get("budget_min", 100),
-                budget_max=rc.get("budget_max", 500),
-                stall_limit=rc.get("stall_limit", 125),
-            )
-        else:
-            termination_factory = make_no_termination_factory()
-    else:
-        rcfg = ZRewardConfig(
-            z_tolerance=rc["z_tolerance"],
-            success=rc["success"],
-            z_shaping_coef=rc["z_shaping_coef"],
-            step_penalty=rc["step_penalty"],
-            z_tolerance_frac=rc.get("z_tolerance_frac"),
-        )
-        reward_factory = make_z_reward_factory(rcfg)
-        termination_factory = make_z_termination_factory(rcfg)
+    task = build_task(cfg, manifest, task_factory)
 
     image_size = ec.get("image_size")
     backend = BACKENDS.get(str(ec.get("backend", "chrome")))
@@ -246,12 +184,14 @@ def build_env(cfg: dict[str, Any], first_episode_limit: int | None = None, frame
             if k in ec:
                 env_kwargs[k] = ec[k]
 
+    validate_scene(manifest, renderer.dataset)
     env = Environment(
         backend=renderer,
         orientation=ec.get("orientation", "euler"),
-        reset_state_provider=provider,
-        reward_factory=reward_factory,
-        termination_factory=termination_factory,
+        reset_state_provider=task.reset_state_provider,
+        reward_factory=task.reward_factory,
+        termination_factory=task.termination_factory,
+        task_metadata_provider=task.metadata_provider,
         **env_kwargs,
     )
     if frame_callback is not None:
@@ -392,4 +332,9 @@ def load_config(path: str) -> dict[str, Any]:
     import yaml
 
     with open(path) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    if cfg.get("task", {}).get("manifest"):
+        from pathlib import Path
+
+        cfg["task"]["manifest"] = str((Path(path).resolve().parent / cfg["task"]["manifest"]).resolve())
+    return cfg

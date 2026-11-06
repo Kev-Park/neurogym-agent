@@ -209,7 +209,7 @@ def main() -> int:
         def tapped(obs):
             frames.append(np.asarray(obs["image"], dtype=np.uint8).copy())
             zs.append(float(np.asarray(obs["position"])[2]))
-            nsegs.append(len(obs.get("segments", ())))
+            nsegs.append(len(env.unwrapped.task_metadata.get("segments", ())))
             return orig(obs)
 
         w.observation = tapped

@@ -20,22 +20,22 @@ class ClickOutcomeWrapper(gym.Wrapper):
         self._directory = Path(directory) / 'snapshots'
         self._directory.mkdir(parents=True, exist_ok=True)
 
-    def _note_history(self, obs):
-        self._seen.update(str(s) for s in obs['segments'])
+    def _note_history(self, obs, metadata):
+        self._seen.update(str(s) for s in metadata['segments'])
         self._best_z = max(self._best_z, float(obs['position'][2]))
-        for sid, zm in zip(obs['segments'], obs.get('segment_zmax', ())):
+        for sid, zm in zip(metadata['segments'], metadata.get('segment_zmax', ())):
             if float(zm) > 0:
                 self._zmax[str(sid)] = float(zm)
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
-        self._previous = obs
+        self._previous_metadata = info['task_metadata']
         self._episode = uuid.uuid4().int % (2 ** 31)
         self._step = 0
         self._seen, self._zmax = set(), {}
         self._best_z = float(obs['position'][2])
         self._snapshot_taken = False
-        self._note_history(obs)
+        self._note_history(obs, info['task_metadata'])
         return obs, info
 
     def step(self, action):
@@ -51,7 +51,7 @@ class ClickOutcomeWrapper(gym.Wrapper):
                             action=[int(v) for v in action], seen=sorted(self._seen),
                             zmax=dict(self._zmax), best_z=self._best_z)
         obs, reward, term, trunc, info = self.env.step(action)
-        before, after = set(self._previous['segments']), set(obs['segments'])
+        before, after = set(self._previous_metadata['segments']), set(info['task_metadata']['segments'])
         if snapshot is not None and before == after:
             (self._directory / f'{self._episode}-{self._step}.json').write_text(json.dumps(snapshot))
             self._snapshot_taken = True
@@ -61,8 +61,8 @@ class ClickOutcomeWrapper(gym.Wrapper):
             tiles, meshes, self._episode, self._step,
         ], dtype=np.float64)
         self._step += 1
-        self._previous = obs
-        self._note_history(obs)
+        self._previous_metadata = info['task_metadata']
+        self._note_history(obs, info['task_metadata'])
         return obs, reward, term, trunc, info
 
 

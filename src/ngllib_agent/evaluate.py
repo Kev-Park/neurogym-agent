@@ -40,6 +40,8 @@ def main(argv=None):
     import torch
 
     cfg = checkpoint_config(args.state_pkl, load_config(args.config) if args.config else None)
+    from .data import resolve_task_config
+    cfg, _ = resolve_task_config(cfg)
     if args.backend:
         cfg["env"]["backend"] = args.backend
     cfg["env"]["max_episode_steps"] = args.max_steps
@@ -78,7 +80,7 @@ def main(argv=None):
         protocol = dict(starts_sha256=hashlib.sha256(canonical_starts).hexdigest(), seed=args.seed,
                         max_steps=args.max_steps, stochastic=args.stochastic,
                         progress_steps=args.progress_steps,
-                        env=public_config(scene), reward=cfg["reward"],
+                        env=public_config(scene), reward=cfg.get("reward", {}),
                         dataset=asdict(env.unwrapped.renderer.dataset))
         result = dict(schema_version=1, checkpoint=str(Path(args.state_pkl).resolve()),
                       config=public_config(cfg), protocol=protocol, complete=False, episodes=[])

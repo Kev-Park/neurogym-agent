@@ -22,7 +22,7 @@ It is exploration scaffolding, not objective: it anneals linearly to zero by
 `novelty_end_steps` global env steps (same progress-file mechanism as the spawn
 curriculum), after which the trained policy optimizes pure best-so-far z.
 
-Needs `obs["segments"]` (the visible-set tuple ngllib adds on this branch).
+Selection and mesh metadata arrive through the task-only transition context.
 """
 
 from __future__ import annotations
@@ -95,13 +95,13 @@ _RIGHT_CLICK, _DOUBLE_CLICK = 1, 2
 _CSS_PANE_X = 900.0
 
 
-def is_noop_click(obs: dict[str, Any], action, prev_obs: dict[str, Any]) -> bool:
+def is_noop_click(obs: dict[str, Any], action, prev_obs: dict[str, Any], *, context) -> bool:
     """True iff `action` was a click that changed nothing (see noop_click_cost)."""
     if action is None:
         return False
     kind = int(action["action_type"])
     if kind == _DOUBLE_CLICK:
-        return _visible(obs) == _visible(prev_obs)
+        return _visible(context.current_metadata) == _visible(context.previous_metadata)
     if kind == _RIGHT_CLICK and float(np.asarray(action["mouse_xy"])[0]) >= _CSS_PANE_X:
         return bool(np.allclose(np.asarray(obs["position"]), np.asarray(prev_obs["position"])))
     return False
@@ -113,6 +113,17 @@ def _z(obs: dict[str, Any]) -> float:
 
 def _visible(obs: dict[str, Any]) -> frozenset[str]:
     return frozenset(str(s) for s in obs.get("segments", ()))
+
+
+def selection_metadata(renderer, state):
+    """Optional climbing-task metadata; never a policy observation."""
+    from ngllib.state import visible_segments
+
+    segments = tuple(sorted(visible_segments(state["segments"])))
+    zmax = getattr(renderer, "mesh_zmax", None)
+    return {"segments": segments, "segment_zmax": tuple(
+        float(np.float32(value if zmax and (value := zmax(sid)) is not None else -1.0))
+        for sid in segments)}
 
 
 class _GlobalSteps:
@@ -172,10 +183,10 @@ def make_zfree_reward_factory(
                 return 1.0
             return max(0.0, 1.0 - float(steps) / float(end))
 
-        def reward_fn(obs, action, prev_obs, terminated) -> float:
+        def reward_fn(obs, action, prev_obs, terminated, *, context) -> float:
             if state["z_best"] is None:
                 state["z_best"] = _z(prev_obs)
-                state["seen"] = set(_visible(prev_obs))
+                state["seen"] = set(_visible(context.previous_metadata))
                 state["n_init"] = len(state["seen"])
             r = cfg.step_penalty
             # best-so-far potential
@@ -188,7 +199,7 @@ def make_zfree_reward_factory(
                 r += cfg.delta_coef * (z - _z(prev_obs))
             # annealed selection-novelty scaffold (deduped for the episode,
             # payout capped at the first `select_novelty_cap` new segments)
-            new = _visible(obs) - state["seen"]
+            new = _visible(context.current_metadata) - state["seen"]
             if new:
                 # v5: price each new load against the best unexploited
                 # candidate ALREADY in hand (before this step's additions;
@@ -205,9 +216,9 @@ def make_zfree_reward_factory(
                 if paid:
                     r += cfg.select_novelty_bonus * novelty_scale() * paid
                 r -= load_cost * len(new)
-            if cfg.noop_click_cost and is_noop_click(obs, action, prev_obs):
+            if cfg.noop_click_cost and is_noop_click(obs, action, prev_obs, context=context):
                 r -= cfg.noop_click_cost
-            note_zmax(obs)
+            note_zmax(context.current_metadata)
             return float(r)
 
         return reward_fn

@@ -25,8 +25,11 @@ def main():
     raw = {}
     original = env.unwrapped._make_obs
     def tap(state, image):
+        from ngllib_agent.rewards.z_free import selection_metadata
+
         obs = original(state, image)
         raw.update(copy.deepcopy(obs))
+        raw.update(selection_metadata(env.unwrapped.renderer, state))
         return obs
     env.unwrapped._make_obs = tap
     policy = AuditPolicy('/scratch/kp0374/checkpoints/zmaxleft-v7i-grid/ckpt_000900.pkl',

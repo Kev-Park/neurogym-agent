@@ -46,13 +46,17 @@ def public_config(value):
     return value
 
 
-def resume_metadata(ckpt_dir, config, explicit=False):
+def resume_metadata(ckpt_dir, config, explicit=False, allow_data_change=False):
     """Auto-continue only a checkpoint paired with the same task settings."""
     path = latest_checkpoint(ckpt_dir)
     if path is None:
         return None, {}
     sidecar = path.with_suffix(".json")
     metadata = json.loads(sidecar.read_text()) if sidecar.exists() else {}
+    previous_data = (metadata.get("config") or {}).get("task", {}).get("data_identity")
+    current_data = config.get("task", {}).get("data_identity")
+    if previous_data is not None and previous_data != current_data and not allow_data_change:
+        raise ValueError("Checkpoint task data changed; intentional transfer requires --allow-data-change with --resume")
     if not explicit and metadata.get("config") != public_config(config):
         raise ValueError("Checkpoint directory contains a different or unpaired run; use a new directory or explicit --resume")
     if not metadata and explicit:

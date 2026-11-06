@@ -97,8 +97,11 @@ def main():
     raw = {}
     original_obs = env.unwrapped._make_obs
     def tap_obs(state, image):
+        from ngllib_agent.rewards.z_free import selection_metadata
+
         result = original_obs(state, image)
         raw.update(result)
+        raw.update(selection_metadata(env.unwrapped.renderer, state))
         return result
     env.unwrapped._make_obs = tap_obs
     renderer = env.unwrapped._renderer
