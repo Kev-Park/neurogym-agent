@@ -38,8 +38,8 @@ for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
   echo "[sup] attempt ${attempt}: offset=${cur} remain=${remain} budget=${budget}s"
   timeout -k 30 "$budget" uv run --no-sync python scripts/eval_d0.py \
     --config "$CONFIG" \
-    --eval-d0 /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
-    --skeleton /scratch/kp0374/neurogym-agent/segment_positions.parquet \
+    --eval-d0 /scratch/kp0374/ngllib-agent/eval_d0_v1.parquet \
+    --skeleton /scratch/kp0374/ngllib-agent/segment_positions.parquet \
     --state-pkl "$PKL" \
     --obs dino --stochastic \
     --repeats "$REPEATS" \

@@ -7,7 +7,7 @@
 set -u
 JID="$1"
 GLOB="${2:-slurm_outputs/procscale-${JID}.out}"
-cd "${POLL_DIR:-/scratch/kp0374/neurogym-agent}"
+cd "${POLL_DIR:-/scratch/kp0374/ngllib-agent}"
 for i in $(seq 1 160); do
   st=$(squeue -j "$JID" -h -o '%T' 2>/dev/null)
   if [ -z "$st" ]; then

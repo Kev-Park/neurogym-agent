@@ -13,6 +13,6 @@
 
 
 set -eu
-cd /scratch/kp0374/wt/neurogym-agent-zmax-left
+cd /scratch/kp0374/wt/ngllib-agent-zmax-left
 export PYTHONUNBUFFERED=1
 uv run --no-sync python scripts/probe_node_compat.py "$@"

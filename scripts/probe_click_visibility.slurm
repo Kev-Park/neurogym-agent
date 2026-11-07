@@ -15,7 +15,7 @@
 # Click-visibility audit (scripts/probe_click_visibility.py): can a 3D-pane
 # right-click hit content the policy could not see? PKL/CONFIG literal at submit.
 set -eu
-cd /scratch/kp0374/wt/neurogym-agent-zmax-left
+cd /scratch/kp0374/wt/ngllib-agent-zmax-left
 export PYTHONUNBUFFERED=1
 PKL=${PKL:-/scratch/kp0374/checkpoints/zmaxleft-v7/ckpt_000450.pkl}
 CONFIG=${CONFIG:-configs/native_zmaxleft_v7_eval.yaml}
@@ -23,5 +23,5 @@ N=${N:-12}
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
   uv run --no-sync python scripts/probe_click_visibility.py \
     --config "$CONFIG" --state-pkl "$PKL" \
-    --holdout /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet \
+    --holdout /scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet \
     --n "$N" --out "click_visibility_${SLURM_JOB_ID}.json"

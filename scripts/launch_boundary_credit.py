@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 
-root = Path('/scratch/kp0374/wt/neurogym-agent-zmax-left')
+root = Path('/scratch/kp0374/wt/ngllib-agent-zmax-left')
 manifest = root / 'boundary_credit_pipeline.json'
 assert not manifest.exists(), 'Inspect existing boundary experiment instead of duplicating it'
 source = Path('/scratch/kp0374/checkpoints/zmaxleft-click-credit')

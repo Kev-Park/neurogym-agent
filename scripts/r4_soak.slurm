@@ -21,7 +21,7 @@
 #     29-30 @ 32 procs; peak 32-36). Summary compares first-10 vs last-10
 #     iters for flatness and prints PASS/FAIL lines.
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 

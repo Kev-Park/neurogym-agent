@@ -15,7 +15,7 @@
 # REFINEMENT R4: threads-vs-spawn A/B at M=8, then threaded density sweep.
 # Per phase: 3 PPO iters (dino obs), batch = 128*M, VRAM sampled every 10s.
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 

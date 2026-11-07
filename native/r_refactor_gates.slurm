@@ -29,8 +29,8 @@ cd "${SLURM_SUBMIT_DIR:-$(pwd)}"
 export PYTHONUNBUFFERED=1
 export NGL_MASK_UI=${NGL_MASK_UI:-1}     # same state on both sides (gate 5 note)
 OUT=/scratch/kp0374/native_spike
-POOL=/scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
-SKEL=/scratch/kp0374/neurogym-agent/segment_positions.parquet
+POOL=/scratch/kp0374/ngllib-agent/eval_d0_v1.parquet
+SKEL=/scratch/kp0374/ngllib-agent/segment_positions.parquet
 rc=0
 section() { echo; echo "################ $1 ################"; }
 

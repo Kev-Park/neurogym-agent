@@ -16,7 +16,7 @@
 # VAO_MB=128 reproduces the TRAINING launchers' GPU mesh slot pool (4 slots);
 # unset = the eval/render default (2 GB, 64 slots).
 set -eu
-cd /scratch/kp0374/wt/neurogym-agent-zmax-left
+cd /scratch/kp0374/wt/ngllib-agent-zmax-left
 export PYTHONUNBUFFERED=1
 if [ -n "${VAO_MB:-}" ]; then export NGL_NATIVE_VAO_LRU_MB="$VAO_MB"; fi
 PKL=${PKL:-/scratch/kp0374/checkpoints/zmaxleft-v7c/ckpt_000740.pkl}
@@ -24,5 +24,5 @@ CONFIG=${CONFIG:-configs/native_zmaxleft_v7_eval.yaml}
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
   uv run --no-sync python scripts/probe_empty_screens.py \
     --config "$CONFIG" --state-pkl "$PKL" \
-    --holdout /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet \
+    --holdout /scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet \
     --n "${N:-12}" --out "empty_screens_${SLURM_JOB_ID}.json"

@@ -5,7 +5,7 @@ import argparse
 from pathlib import Path
 
 
-ROOT = Path('/scratch/kp0374/wt/neurogym-agent-zmax-left')
+ROOT = Path('/scratch/kp0374/wt/ngllib-agent-zmax-left')
 manifest = ROOT / 'click_credit_followup.json'
 ap = argparse.ArgumentParser()
 ap.add_argument('--resume', action='store_true')

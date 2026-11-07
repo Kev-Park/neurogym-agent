@@ -28,7 +28,7 @@ def main():
     dataset = {"id": "calibrated-validation", **asdict(DatasetSpec.from_config())}
     cfg["task"] = {"factory": "examples.axis_task:build_task", "manifest": str(out / "manifest.json"),
                    "precompute": {"factory": "examples.axis_task:precompute", "params": {
-                       "source_parquet": "/scratch/kp0374/neurogym-agent/segment_positions.parquet",
+                       "source_parquet": "/scratch/kp0374/ngllib-agent/segment_positions.parquet",
                        "seed": 73, "count": 2, "delta_x": 100, "dataset": dataset}}}
     cfg["reward"] = {"mode": "custom_x"}
     cfg["ppo"].update(sgd_minibatch_size=32, num_sgd_iter=1)

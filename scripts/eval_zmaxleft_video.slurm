@@ -15,7 +15,7 @@
 # Render zmax-left rollout MP4s for visual validation (6 holdout states by
 # headroom strata). PKL is passed literally at submit time (bridge rule).
 set -eu
-cd /scratch/kp0374/wt/neurogym-agent-zmax-left
+cd /scratch/kp0374/wt/ngllib-agent-zmax-left
 export PYTHONUNBUFFERED=1
 PKL=${PKL:-/scratch/kp0374/checkpoints/zmaxleft-v2/ckpt_000200.pkl}
 VIDEO_ARGS=${VIDEO_ARGS:-}
@@ -23,5 +23,5 @@ VIDEO_ARGS=${VIDEO_ARGS:-}
 echo "=== node: $(hostname) pkl: $PKL args: $VIDEO_ARGS ==="
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
   uv run --no-sync python scripts/eval_zmaxleft_video.py \
-    --holdout /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet \
+    --holdout /scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet \
     --state-pkl "$PKL" --out-dir eval_videos_zmaxleft $VIDEO_ARGS

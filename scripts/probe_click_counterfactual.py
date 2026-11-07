@@ -79,7 +79,7 @@ def main():
         result['action_type'] = 0
         return result
     wrapper.action = action
-    rows = pq.read_table('/scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet').to_pylist()[::8][:24]
+    rows = pq.read_table('/scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet').to_pylist()[::8][:24]
     if args.cases_file:
         rows = json.load(open(args.cases_file))
     records = []

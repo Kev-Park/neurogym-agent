@@ -17,7 +17,7 @@
 # loss for MOST iters (a few nan on browser restarts is expected). Also
 # captures wall time per iter for throughput comparison against legacy.
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 

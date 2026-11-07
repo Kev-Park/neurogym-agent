@@ -27,7 +27,7 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=None,
                     help="RNG seed (printed for reproducibility; random if unset).")
     ap.add_argument("--parquet",
-                    default="/scratch/kp0374/neurogym-agent/segment_positions.parquet")
+                    default="/scratch/kp0374/ngllib-agent/segment_positions.parquet")
     ap.add_argument("--projection-scale", type=float, default=14000.0,
                     help="Fixed spawn zoom (viewer projectionScale).")
     args = ap.parse_args()

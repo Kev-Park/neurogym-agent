@@ -10,7 +10,7 @@
 #   - aggregate stays flat         => genuine node-level serializer (shared
 #                                     driver / host mem / PCIe) above the GPU.
 set -u
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 M=32; N=100; CPUS=16; MEM=48G
 
 run_series () {
@@ -19,7 +19,7 @@ run_series () {
   for g in $(seq 1 "$k"); do
     log="/tmp/ps3_k${k}_g${g}.out"
     srun --exact --ntasks=1 --gres=gpu:1 --cpus-per-task=$CPUS --mem=$MEM \
-      bash -lc 'echo "DIAG CVD=[$CUDA_VISIBLE_DEVICES] gpus=$(nvidia-smi -L | wc -l) cpus=$(nproc)"; cd /scratch/kp0374/neurogym-agent && UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_throughput.py '"$M $N" >"$log" 2>&1 &
+      bash -lc 'echo "DIAG CVD=[$CUDA_VISIBLE_DEVICES] gpus=$(nvidia-smi -L | wc -l) cpus=$(nproc)"; cd /scratch/kp0374/ngllib-agent && UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_throughput.py '"$M $N" >"$log" 2>&1 &
     pids="$pids $!"; logs="$logs $log"
   done
   for p in $pids; do wait "$p"; done

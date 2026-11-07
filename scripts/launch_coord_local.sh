@@ -89,7 +89,7 @@ export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --lr ${LR:-5.0e-4} \
   --sample-timeout-s ${SAMPLE_TIMEOUT_S} \
   --checkpoint-dir ${CKPT} --checkpoint-every ${CHECKPOINT_EVERY:-10} \
-  --wandb-project neurogym-agent --resume ${EXTRA_TRAIN_ARGS:-}"
+  --wandb-project ngllib-agent --resume ${EXTRA_TRAIN_ARGS:-}"
 
 LOG="${STATE_DIR}/coord-${RUN}-$(date +%Y%m%d-%H%M%S).log"
 SUP="${STATE_DIR}/supervisor-${RUN}.sh"

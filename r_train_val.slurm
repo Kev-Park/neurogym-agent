@@ -20,7 +20,7 @@
 # threaded envs per GPU node), 3 nodes -> 6 runners x 16 = 96 envs, 2M env-steps.
 # Learner is num_learners=0 (CPU, in driver); DINO is env-side. --resume auto-set
 # so a relaunch after preemption/bug continues from the latest checkpoint.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 
@@ -72,7 +72,7 @@ srun --overlap --nodes=1 --ntasks=1 -w "$HEAD_NODE" \
         --sample-timeout-s 600 \
         --checkpoint-dir "$CKPT_DIR" \
         --checkpoint-every 10 \
-        --wandb-project neurogym-agent \
+        --wandb-project ngllib-agent \
         $RESUME_FLAG
 PPO_EXIT=$?
 

@@ -21,18 +21,18 @@
 #    so Chrome's answers are re-collected and replayed rather than reused.
 # 2. zoom boundary: the shared rule both backends implement.
 #
-#   REPO=/scratch/kp0374/neurogym-agent \
-#   WT=/scratch/kp0374/wt/neurogym-agent-login \
-#   NGLLIB=/scratch/kp0374/wt/neurogym-login/src \
+#   REPO=/scratch/kp0374/ngllib-agent \
+#   WT=/scratch/kp0374/wt/ngllib-agent-login \
+#   NGLLIB=/scratch/kp0374/wt/ngllib-login/src \
 #   sbatch native/r_login_gates.slurm
 set -e
-REPO=${REPO:-/scratch/kp0374/neurogym-agent}
-WT=${WT:-/scratch/kp0374/wt/neurogym-agent-login}
+REPO=${REPO:-/scratch/kp0374/ngllib-agent}
+WT=${WT:-/scratch/kp0374/wt/ngllib-agent-login}
 cd "$REPO"
 export PYTHONUNBUFFERED=1
 [ -n "${NGLLIB:-}" ] && export PYTHONPATH="$NGLLIB:$WT/src:${PYTHONPATH:-}"
 OUT=/scratch/kp0374/native_spike
-POOL=${POOL:-/scratch/kp0374/neurogym-agent/eval_d0_v1.parquet}
+POOL=${POOL:-/scratch/kp0374/ngllib-agent/eval_d0_v1.parquet}
 N=${N_STATES:-8}
 JSONL=$OUT/login_select_browser_$SLURM_JOB_ID.jsonl
 FRAMES=$OUT/login_select_frames_$SLURM_JOB_ID

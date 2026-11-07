@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import time
 
-ROOT = Path('/scratch/kp0374/wt/neurogym-agent-zmax-left')
+ROOT = Path('/scratch/kp0374/wt/ngllib-agent-zmax-left')
 MANIFEST = ROOT / 'entropy_v7j_pipeline.json'
 RUN_PREFIX = 'zmaxleft-v7j'
 OUTPUT_STEM = 'entropy_v7j'

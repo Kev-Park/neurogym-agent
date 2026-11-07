@@ -48,7 +48,7 @@ def cell_to_pixel(cell: int, spec: ActionSpec) -> tuple[float, float]:
 
 def decode(md_action, spec: ActionSpec) -> tuple[list, bool]:
     """
-    Translate a MultiDiscrete sample into the full 17-element neurogym action vector
+    Translate a MultiDiscrete sample into the full 17-element ngllib action vector
     (Euler-angle mode). Returns (action_vector, right_click_fired).
 
     md_action layout:

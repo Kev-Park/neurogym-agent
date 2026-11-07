@@ -20,7 +20,7 @@
 #   PASS (native 2-GPU): both GPUs utilized + aggregate sps ~2x single-GPU (~50-60).
 #   FAIL (renderer pins to GPU0): GPU0 pegged, GPU1 light, sps flat (~30).
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 

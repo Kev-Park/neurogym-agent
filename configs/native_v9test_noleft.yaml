@@ -24,8 +24,8 @@
 
 env:
   backend: simulator
-  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
-  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
+  parquet_path: /scratch/kp0374/ngllib-agent/segment_positions.parquet
+  holdout_parquet: /scratch/kp0374/ngllib-agent/eval_d0_v1.parquet
   projection_scale_range: [3500, 14000]
   # STEP-ANCHORED, not v9-test's per-env reset count (changed 2026-08-31
   # after job 871074 was preempted at iteration 111). end_resets anneals on

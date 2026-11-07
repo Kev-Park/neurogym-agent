@@ -24,7 +24,7 @@ Mirrors _pick_3d_world's pixel mapping and 7x7 radius search.
     uv run --no-sync python scripts/probe_click_visibility.py \
         --config configs/native_zmaxleft_v7_eval.yaml \
         --state-pkl /scratch/kp0374/checkpoints/zmaxleft-v7/ckpt_000450.pkl \
-        --holdout /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet --n 12
+        --holdout /scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet --n 12
 """
 
 from __future__ import annotations

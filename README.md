@@ -1,5 +1,25 @@
 # ngllib-agent
 
+## Installation
+
+Clone both repositories as siblings (Python 3.12 and uv required):
+
+```bash
+git clone https://github.com/Kev-Park/ngllib.git
+git clone https://github.com/Kev-Park/ngllib-agent.git
+cd ngllib-agent
+uv sync --locked
+uv run --no-sync playwright install chromium
+```
+
+The editable dependency points to `../ngllib`. Keep that sibling directory
+name, or explicitly change the uv source when using a different layout.
+Run the commands below with `uv run --no-sync` to use this environment.
+Dataset files and runtime credentials are supplied separately.
+
+Existing W&B runs retain their original project; pass `--wandb-project`
+explicitly when continuing one in a project created before the repository rename.
+
 New training defaults to a single 3D-pane max-Z navigation task with spatial
 DINO patch tokens. Supply the reset dataset explicitly:
 
@@ -104,13 +124,13 @@ comparison. Historical task-specific metrics remain in the existing scripts,
 which now share policy loading with the supported evaluator.
 
 Distributed RL for FlyWire neuron navigation in Neuroglancer, built on
-[`ngllib`](../neurogym) 0.2's Gymnasium-compliant `Environment`.
+[`ngllib`](../ngllib) 0.2's Gymnasium-compliant `Environment`.
 
 - **Algorithm:** RLlib PPO (synchronous large-batch, `sample_async`).
 - **Task:** Z-navigate — reach a segment's max-z point within tolerance.
 - **Topology:** login-node coordinator + `salloc --no-shell` renderer/learner
   pool restricted to vulkan-capable nodes (see repo `../.claude/CLAUDE.md`
-  "Node quirks"). Design: `../neurogym/agent_plan.md`.
+  "Node quirks"). Design: `../ngllib/agent_plan.md`.
 
 Package layout under `src/ngllib_agent/` (Milestone 1 scaffold):
 

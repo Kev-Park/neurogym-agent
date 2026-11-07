@@ -15,7 +15,7 @@
 
 # Phase-2 end-to-end: per-env DINO (baseline) vs batched DINO (proto), single
 # process AND process-packing sweep. See probe_e2e_batched.py / run_e2e_sweep.sh.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 echo "===== single-process baseline vs proto ====="
 bash scripts/run_e2e_sweep.sh 1 32 baseline
 bash scripts/run_e2e_sweep.sh 1 32 proto

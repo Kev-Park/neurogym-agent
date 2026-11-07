@@ -23,7 +23,7 @@
 # the fast 5 (vs baseline: one big auto round waiting the full ~200s recovery).
 # Short 60-iter run; compare glitch-iter wall-times to the val-2x16-v2 baseline
 # (glitch iters ~200s there). Backfill-friendly 45min.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 CKPT_DIR=/scratch/kp0374/checkpoints/barrier-ft
@@ -61,7 +61,7 @@ srun --overlap --nodes=1 --ntasks=1 -w "$HEAD_NODE" \
         --sample-timeout-s 25 \
         --checkpoint-dir "$CKPT_DIR" \
         --checkpoint-every 20 \
-        --wandb-project neurogym-agent
+        --wandb-project ngllib-agent
 PPO_EXIT=$?
 
 for n in "${NODES[@]}"; do

@@ -17,5 +17,5 @@
 
 # Exclusive good 3090 node so each GPU-process gets abundant CPU + no co-tenant.
 # See run_procscale3.sh for the hypothesis being tested.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 bash scripts/run_procscale3.sh

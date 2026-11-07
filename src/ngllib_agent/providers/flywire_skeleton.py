@@ -4,7 +4,7 @@ Samples a start state from a parquet of L2 skeleton nodes with schema
 `(root_id: str, x: float, y: float, z: float)`. Each episode: pick a `root_id`,
 start at a random node of that segment with a random orientation, and target the
 segment's max-z point (`task_info["z_max"]`). Ported from the legacy
-`neurogym-agent/envs/ngl_gym_env.py` sampling, backed by DuckDB over the parquet
+`ngllib-agent/envs/ngl_gym_env.py` sampling, backed by DuckDB over the parquet
 (shared via the OS page cache — see `agent_plan.md` §9).
 """
 

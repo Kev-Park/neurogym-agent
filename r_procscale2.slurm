@@ -15,5 +15,5 @@
 
 # Corrected GPU-scaling sweep: 3 tasks so each srun --gres=gpu:1 step gets its
 # own cgroup-isolated GPU (see run_procscale2.sh for the why).
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 bash scripts/run_procscale2.sh

@@ -144,7 +144,7 @@ def build_argparser() -> argparse.ArgumentParser:
     # Logging
     ap.add_argument("--wandb-mode", choices=["online", "offline", "disabled"],
                     default="disabled")
-    ap.add_argument("--wandb-project", default="neurogym-agent")
+    ap.add_argument("--wandb-project", default="ngllib-agent")
     return ap
 
 

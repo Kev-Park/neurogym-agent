@@ -17,7 +17,7 @@
 # state-pickle checkpoint, stochastic protocol (REFINEMENT R11).
 #   sbatch r_eval_video.slurm /path/to/ckpt.pkl out_subdir
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 
 PKL=${1:?state pickle path}

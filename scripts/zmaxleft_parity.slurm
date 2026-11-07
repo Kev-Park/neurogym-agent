@@ -15,7 +15,7 @@
 # interaction SEQUENCES (neighbor select / toggle / SHOW_ALL / hop move).
 # Needs a vulkan-good node (Chrome HW rendering) — exclude list per CLAUDE.md.
 set -u
-cd /scratch/kp0374/wt/neurogym-agent-zmax-left
+cd /scratch/kp0374/wt/ngllib-agent-zmax-left
 export PYTHONUNBUFFERED=1
 mkdir -p zmaxleft_parity_out
 

@@ -18,7 +18,7 @@
 # stale one-time launch) and training survives multiple restarts per env_runner.
 # Expected: ~3 restarts per env_runner over 20 iterations.
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 

@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import time
 
-ROOT = Path('/scratch/kp0374/wt/neurogym-agent-zmax-left')
+ROOT = Path('/scratch/kp0374/wt/ngllib-agent-zmax-left')
 MANIFEST = ROOT / 'entropy_v7i_pipeline.json'
 ARMS = ['control', 'verb', 'grid', 'both']
 EXCLUDE = 'sarekl15-3,sarekl15-6,sarekl16-4,sarekl15-8,sarekl16-2,sarekl16-6'

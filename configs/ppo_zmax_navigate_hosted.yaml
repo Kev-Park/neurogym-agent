@@ -13,11 +13,11 @@ env:
   # from disk). Not for production: the hosted build cannot load graphene
   # sources and can change under a running experiment.
   viewer: hosted
-  parquet_path: /scratch/kp0374/neurogym-agent/segment_positions.parquet
+  parquet_path: /scratch/kp0374/ngllib-agent/segment_positions.parquet
   # Frozen eval pool held OUT of training resets (200 of 124k root_ids) so
   # eval_d0 scores unseen neurons. Added 2026-08-24 — runs before this
   # (incl. coord-test-v7) trained WITHOUT the holdout.
-  holdout_parquet: /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet
+  holdout_parquet: /scratch/kp0374/ngllib-agent/eval_d0_v1.parquet
   # Spawn zoom sampled log-uniform per episode (2026-08-24; was fixed 14000).
   # Zoomed-in spawns make zoom-relevant states part of the training
   # distribution — the fixed-scale v7 policy never learned the zoom verb

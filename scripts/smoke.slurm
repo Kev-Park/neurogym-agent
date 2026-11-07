@@ -14,7 +14,7 @@
 # Milestone 1 browser-in-the-loop smoke: sanity env loop, then single-process PPO.
 # Run from the repo root on the cluster after `uv sync`.
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 
 echo "=== node: $(hostname) ==="

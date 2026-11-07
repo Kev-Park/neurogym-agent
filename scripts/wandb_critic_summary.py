@@ -26,7 +26,7 @@ KEYS = [
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", nargs="+", help="wandb run display names")
-    ap.add_argument("--project", default="neurogym-agent")
+    ap.add_argument("--project", default="ngllib-agent")
     ap.add_argument("--entity", default=None)
     ap.add_argument("--bins", type=int, default=10)
     ap.add_argument("--list", action="store_true",

@@ -19,7 +19,7 @@
 #   the existing cluster so the env_runners can be scheduled across nodes
 #   rather than a fresh local Ray instance.
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 # Ray 2.43+ auto-uploads CWD (1.26 GB here) under `uv run` — /scratch/ is shared FS.
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0

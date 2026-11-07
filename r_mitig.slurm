@@ -47,11 +47,11 @@ case "$ARM" in
   *) echo "unknown ARM=$ARM"; exit 2 ;;
 esac
 
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 CKPT_DIR="/scratch/kp0374/checkpoints/${RUN_NAME}"
-EVDIR="/scratch/kp0374/neurogym-agent/event_logs/${RUN_NAME}"
+EVDIR="/scratch/kp0374/ngllib-agent/event_logs/${RUN_NAME}"
 mkdir -p "$EVDIR"
 export NGLLIB_EVENT_LOG="$EVDIR/ev-{host}-{pid}.jsonl"
 

@@ -14,7 +14,7 @@ Frame tap (same trick as eval_video.py): the raw obs["image"] exists below
 DinoObservationWrapper; wrap that instance's observation method.
 
   uv run --no-sync python scripts/eval_zmaxleft_video.py \
-      --holdout /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet \
+      --holdout /scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet \
       --state-pkl /scratch/kp0374/checkpoints/zmaxleft-v2/ckpt_000200.pkl
 """
 

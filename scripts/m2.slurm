@@ -17,7 +17,7 @@
 # env runners (each with its own Chrome) sample in parallel, the driver-side
 # learner collects + trains + broadcasts, and PPO loss moves.
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 
 echo "=== node: $(hostname) ==="

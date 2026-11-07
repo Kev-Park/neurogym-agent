@@ -12,7 +12,7 @@
 # Each step prints a DIAG line (visible GPU count) so we can verify isolation
 # actually happened before trusting the scaling numbers.
 set -u
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 M=32
 N=100
 
@@ -22,7 +22,7 @@ run_series () {
   for g in $(seq 1 "$k"); do
     log="/tmp/ps2_k${k}_g${g}.out"
     srun --exact --ntasks=1 --gres=gpu:1 --cpus-per-task=8 --mem=48G \
-      bash -lc 'echo "DIAG CVD=[$CUDA_VISIBLE_DEVICES] visible_gpus=$(nvidia-smi -L | wc -l)"; cd /scratch/kp0374/neurogym-agent && UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_throughput.py '"$M $N" >"$log" 2>&1 &
+      bash -lc 'echo "DIAG CVD=[$CUDA_VISIBLE_DEVICES] visible_gpus=$(nvidia-smi -L | wc -l)"; cd /scratch/kp0374/ngllib-agent && UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_throughput.py '"$M $N" >"$log" 2>&1 &
     pids="$pids $!"; logs="$logs $log"
   done
   for p in $pids; do wait "$p"; done

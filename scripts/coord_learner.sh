@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # Learner role for coordinator-driven distributed PPO.
 #
 # Runs INSIDE a `srun --overlap` step spawned by the M4 coordinator.
@@ -25,7 +25,7 @@
 set -e
 # COORD_WORKDIR: repo checkout to run from (worktree runs override this;
 # default = the browser-production checkout).
-cd "${COORD_WORKDIR:-/scratch/kp0374/neurogym-agent}"
+cd "${COORD_WORKDIR:-/scratch/kp0374/ngllib-agent}"
 export PYTHONUNBUFFERED=1
 # Skip Ray auto-CWD upload (see scripts/ppo_smoke.py comment).
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0

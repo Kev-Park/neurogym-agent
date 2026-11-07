@@ -13,8 +13,8 @@
 
 # Gate 6 (renderer_seam_plan.md section 9): a short training run per backend,
 # sps and return curve compared pre/post refactor. Submit the SAME file from
-# the pre-seam checkout (wt/neurogym-agent-native) and the refactor checkout
-# (wt/neurogym-agent-refactor); it runs from whichever it was submitted from,
+# the pre-seam checkout (wt/ngllib-agent-native) and the refactor checkout
+# (wt/ngllib-agent-refactor); it runs from whichever it was submitted from,
 # so the two arms differ only in the code under test.
 #
 #   BACKEND=simulator  reproduces native-v9-pace740's recipe exactly:

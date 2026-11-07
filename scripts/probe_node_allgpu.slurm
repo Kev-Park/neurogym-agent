@@ -13,7 +13,7 @@
 
 
 set -eu
-cd /scratch/kp0374/wt/neurogym-agent-zmax-left
+cd /scratch/kp0374/wt/ngllib-agent-zmax-left
 export PYTHONUNBUFFERED=1
 nvidia-smi --query-gpu=index,uuid,pci.bus_id,name,driver_version --format=csv
 pids=()

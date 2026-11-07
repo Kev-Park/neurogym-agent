@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 
-ROOT = Path('/scratch/kp0374/wt/neurogym-agent-zmax-left')
+ROOT = Path('/scratch/kp0374/wt/ngllib-agent-zmax-left')
 MANIFEST = ROOT / 'verb_entropy_pipeline.json'
 PREFIX = 'verb_entropy_'
 RUN_PREFIX = 'zmaxleft-verb-entropy-'

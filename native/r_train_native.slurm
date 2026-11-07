@@ -91,5 +91,5 @@ uv run --no-sync python -m ngllib_agent.train \
   --iters "$ITERS" \
   --train-batch-size 4000 \
   --checkpoint-dir "$CKPT" --checkpoint-every 10 \
-  --wandb-project neurogym-agent \
+  --wandb-project ngllib-agent \
   --resume

@@ -146,7 +146,7 @@ def main():
                        policy_target_hit_chance=float(p[target_cells & pane].sum() / p[pane].sum()))
 
     renderer._cell_sample, renderer.click = sample, click
-    rows = pq.read_table('/scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet').to_pylist()
+    rows = pq.read_table('/scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet').to_pylist()
     # Evenly cover all 200 starts, with shard offsets selecting disjoint episodes.
     picks = rows[::5][args.offset:args.offset + args.limit]
     records = []

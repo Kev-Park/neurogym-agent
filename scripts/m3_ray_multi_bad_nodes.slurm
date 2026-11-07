@@ -17,7 +17,7 @@
 # Follows the standard Ray-on-SLURM pattern (head on first node, workers
 # join by address).
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 # Ray >=2.43 under `uv run` auto-uploads CWD as runtime_env (1.2 GB here > 512 MB
 # limit). All nodes see /scratch/ over shared FS, so no upload is needed. Matches

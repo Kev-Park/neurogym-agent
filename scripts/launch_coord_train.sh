@@ -17,7 +17,7 @@
 # v7 measured steps/iter ~= 4080 at --train-batch-size 4000, so N steps needs
 # target-iters ~= N/4080 (v7's 370 = 1.6M, not the 2M an older estimate said).
 set -u
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 
 RUN=${1:-val-2x16-coord}
 RENDERERS=${2:-2}
@@ -45,7 +45,7 @@ export WORKLOAD_CMD="uv run --no-sync python -m ngllib_agent.train \
   --run-name ${RUN} --num-env-runners ${NUM_ENV_RUNNERS} \
   --iters 100000 --train-batch-size ${TRAIN_BATCH:-4000} --sample-timeout-s ${SAMPLE_TIMEOUT_S} \
   --checkpoint-dir ${CKPT} --checkpoint-every 10 \
-  --wandb-project neurogym-agent --resume ${EXTRA_TRAIN_ARGS:-}"
+  --wandb-project ngllib-agent --resume ${EXTRA_TRAIN_ARGS:-}"
 
 # PARTITION=highpri when the preempt partition is starved (established practice:
 # no preemption of running jobs, we queue for the next opening). SALLOC_TIME
@@ -63,7 +63,7 @@ LOG="${STATE_DIR}/coord-${RUN}-$(date +%Y%m%d-%H%M%S).log"
 SUP="${STATE_DIR}/supervisor-${RUN}.sh"
 cat > "$SUP" <<SUPEOF
 #!/bin/bash
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export RAY_NUM_CPUS="${RAY_NUM_CPUS}"
 export RAY_HEAD_ENDPOINT_FILE="${RAY_HEAD_ENDPOINT_FILE}"
 export NUM_RENDERERS="${NUM_RENDERERS}"

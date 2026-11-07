@@ -15,5 +15,5 @@
 
 # DINO throughput: per-env (batch 2) vs batched, and threaded per-env ceiling.
 # See scripts/probe_dino.py.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_dino.py

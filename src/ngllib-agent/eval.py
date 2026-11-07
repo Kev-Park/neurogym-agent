@@ -54,7 +54,7 @@ def build_env(
 
     def _make():
         return NGLGymEnv(
-            neurogym_config_path=env_cfg["neurogym_config_path"],
+            ngllib_config_path=env_cfg["ngllib_config_path"],
             segment_data=segment_data,
             segment_ids=segment_ids,
             action_spec=action_spec,
@@ -76,7 +76,7 @@ def build_env(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate a trained PPO policy on neurogym.")
+    parser = argparse.ArgumentParser(description="Evaluate a trained PPO policy on ngllib.")
     parser.add_argument("--config", type=str, default=str(_THIS_DIR / "config" / "default.yaml"))
     parser.add_argument("--segment_positions", type=str, required=True, help="Path to segment_positions.parquet.")
     parser.add_argument("--checkpoint", type=str, required=True)

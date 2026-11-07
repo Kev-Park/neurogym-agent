@@ -4,8 +4,8 @@
 #
 #   bash native/launch_gates67.sh [ckpt.pkl]
 #
-# Pre arm  = wt/neurogym-agent-native  (native-renderer, the commit the seam forked from)
-# Post arm = wt/neurogym-agent-refactor (simulator-refactor)
+# Pre arm  = wt/ngllib-agent-native  (native-renderer, the commit the seam forked from)
+# Post arm = wt/ngllib-agent-refactor (simulator-refactor)
 #
 # Gate 7: native-v9-pace740 ckpt_000740 evaluated k=5 on the 200-pair holdout,
 #         simulator (one job per arm) and Chrome (20 x 10-pair shards per arm,
@@ -16,8 +16,8 @@
 set -u
 PKL=${1:-/scratch/kp0374/checkpoints/native-v9-pace740/ckpt_000740.pkl}
 OUT=/scratch/kp0374/native_spike
-PRE=/scratch/kp0374/wt/neurogym-agent-native
-POST=/scratch/kp0374/wt/neurogym-agent-refactor
+PRE=/scratch/kp0374/wt/ngllib-agent-native
+POST=/scratch/kp0374/wt/ngllib-agent-refactor
 GATE6=$POST/native/r_train_gate6.slurm
 LOG=$OUT/gates67_jobs.txt
 : > "$LOG"

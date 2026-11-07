@@ -146,7 +146,7 @@ def build_env(
 
     def _make():
         return NGLGymEnv(
-            neurogym_config_path=env_cfg["neurogym_config_path"],
+            ngllib_config_path=env_cfg["ngllib_config_path"],
             segment_data=segment_data,
             segment_ids=segment_ids,
             action_spec=action_spec,

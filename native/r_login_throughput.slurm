@@ -32,12 +32,12 @@
 # would contend for one GPU instead.
 #
 #   ITERS=12 RUN_PREFIX=v6ab \
-#   REPO=/scratch/kp0374/neurogym-agent WT=/scratch/kp0374/wt/neurogym-agent-login \
-#   NGLLIB=/scratch/kp0374/wt/neurogym-login/src sbatch native/r_login_throughput.slurm
+#   REPO=/scratch/kp0374/ngllib-agent WT=/scratch/kp0374/wt/ngllib-agent-login \
+#   NGLLIB=/scratch/kp0374/wt/ngllib-login/src sbatch native/r_login_throughput.slurm
 set -e
 set -o pipefail
-REPO=${REPO:-/scratch/kp0374/neurogym-agent}
-WT=${WT:-/scratch/kp0374/wt/neurogym-agent-login}
+REPO=${REPO:-/scratch/kp0374/ngllib-agent}
+WT=${WT:-/scratch/kp0374/wt/ngllib-agent-login}
 cd "$REPO"
 export PYTHONUNBUFFERED=1
 export RAY_NUM_CPUS=${RAY_NUM_CPUS:-44}

@@ -17,7 +17,7 @@
 # Cycle-time lever probe: capture_scale / cache-clear / footprint flags.
 # Sized small (12cpu/24G) to backfill into co-tenanted nodes. Sample frames are
 # copied to slurm_outputs/levers-frames-$SLURM_JOB_ID for visual QA.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_cycle_levers.py
 RC=$?

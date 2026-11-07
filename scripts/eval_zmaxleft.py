@@ -18,7 +18,7 @@ Per-state metrics (budgets post-hoc from the z series, default 250,500):
 
 Usage (GPU node):
   uv run --no-sync python scripts/eval_zmaxleft.py \
-      --holdout /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet \
+      --holdout /scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet \
       --state-pkl /scratch/kp0374/checkpoints/<run>/ckpt_<it>.pkl \
       --output eval_zmaxleft_<run>_<it>.json
   (--random-policy for the null baseline; --repeats K for Tier-2 noise floors.)

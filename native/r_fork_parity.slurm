@@ -19,7 +19,7 @@
 # REPO holds the venv, PROBE the script (both must be on a shared filesystem,
 # not the login node's /tmp).
 set -e
-REPO=${REPO:-/scratch/kp0374/neurogym-agent}
+REPO=${REPO:-/scratch/kp0374/ngllib-agent}
 PROBE=${PROBE:-scripts/probe_fork_parity.py}
 cd "$REPO"
 export PYTHONUNBUFFERED=1

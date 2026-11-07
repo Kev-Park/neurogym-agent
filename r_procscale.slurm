@@ -18,5 +18,5 @@
 # Per-node process-scaling + GPU-scaling sweep for the screenshot-readback
 # ceiling. Short --time so the scheduler can backfill it past the highpri
 # reservation holding the good fleet. Runs on a HW-confirmed vulkan-good node.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_procscale.py

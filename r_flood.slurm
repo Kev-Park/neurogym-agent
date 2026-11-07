@@ -15,7 +15,7 @@
 
 # Pure screenshot-readback ceiling on ONE GPU: sweep browser count and flood
 # captureScreenshot. See scripts/probe_flood.py.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 for M in 1 4 8 16 32; do
   UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_flood.py "$M" 15
 done

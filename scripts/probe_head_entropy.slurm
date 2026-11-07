@@ -15,13 +15,13 @@
 # Per-head entropy of v7-family checkpoints on identical states
 # (scripts/probe_head_entropy.py). States come from the FIRST label's policy.
 set -eu
-cd /scratch/kp0374/wt/neurogym-agent-zmax-left
+cd /scratch/kp0374/wt/ngllib-agent-zmax-left
 export PYTHONUNBUFFERED=1
 C=/scratch/kp0374/checkpoints
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp \
   uv run --no-sync python scripts/probe_head_entropy.py \
     --config configs/native_zmaxleft_v7_eval.yaml \
-    --holdout /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet \
+    --holdout /scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet \
     --label v7=$C/zmaxleft-v7/ckpt_000450.pkl \
     --label v7b=$C/zmaxleft-v7b/ckpt_000800.pkl \
     --label v7c=$C/zmaxleft-v7c/ckpt_000800.pkl \

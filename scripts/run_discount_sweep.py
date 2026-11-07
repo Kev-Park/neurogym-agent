@@ -5,7 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 
-ROOT = Path('/scratch/kp0374/wt/neurogym-agent-zmax-left')
+ROOT = Path('/scratch/kp0374/wt/ngllib-agent-zmax-left')
 CHECKPOINTS = Path('/scratch/kp0374/checkpoints')
 MANIFEST = ROOT / 'discount_sweep_pipeline.json'
 SOURCE = CHECKPOINTS / 'zmaxleft-verb-entropy-fixed-on'

@@ -72,7 +72,7 @@ uv run --no-sync python -m ngllib_agent.train \
   --iters "$ITERS" \
   --train-batch-size "$BATCH" \
   --checkpoint-dir "$CKPT" --checkpoint-every 10 \
-  --wandb-project neurogym-agent --wandb-mode "$WANDB_MODE" \
+  --wandb-project ngllib-agent --wandb-mode "$WANDB_MODE" \
   --resume
 
 if [ "$USE_MPS" = "1" ]; then

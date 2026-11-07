@@ -15,9 +15,9 @@
 # Needs a GPU: Chromium/ANGLE for one arm, the simulator's EGL context for the
 # other. NGLLIB prepends a branch checkout of ngllib so the production
 # checkouts keep running main.
-#   NGLLIB=/scratch/kp0374/wt/neurogym-login/src sbatch native/r_fork_sim_match.slurm
+#   NGLLIB=/scratch/kp0374/wt/ngllib-login/src sbatch native/r_fork_sim_match.slurm
 set -e
-REPO=${REPO:-/scratch/kp0374/neurogym-agent}
+REPO=${REPO:-/scratch/kp0374/ngllib-agent}
 cd "$REPO"
 export PYTHONUNBUFFERED=1
 [ -n "${NGLLIB:-}" ] && export PYTHONPATH="$NGLLIB:${PYTHONPATH:-}"

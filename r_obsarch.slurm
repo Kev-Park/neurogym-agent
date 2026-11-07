@@ -14,7 +14,7 @@
 #SBATCH --output=slurm_outputs/obsarch-%j.out
 
 # Phase-1: per-env-CPU-decode+DINO vs batched-GPU-decode+DINO. See probe_obs_arch.py.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 for M in 16 32; do
   UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_obs_arch.py "$M" 8
 done

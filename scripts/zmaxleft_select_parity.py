@@ -36,8 +36,8 @@ from ngllib.simulator.renderer import SimulatorRenderer
 from ngllib_agent.providers.flywire_skeleton import FlywireSkeletonProvider
 
 PARQUET = os.environ.get(
-    "PARQUET", "/scratch/kp0374/neurogym-agent/segment_positions.parquet")
-CONFIG = os.environ.get("CONFIG", "/scratch/kp0374/neurogym-agent/config.json")
+    "PARQUET", "/scratch/kp0374/ngllib-agent/segment_positions.parquet")
+CONFIG = os.environ.get("CONFIG", "/scratch/kp0374/ngllib-agent/config.json")
 OUT = os.environ.get("EM_OUT", "zmaxleft_parity_out")
 N_STATES = int(os.environ.get("N_STATES", "6"))
 SEED = int(os.environ.get("SEED", "7"))

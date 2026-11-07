@@ -35,11 +35,11 @@ else
   # What coordinate system is mouse_xy actually in? Read it off the DOM.
   uv run --no-sync python native/probe_select_parity.py --mode rects \
     --config configs/native_select.yaml \
-    --pool /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet --n-states 1
+    --pool /scratch/kp0374/ngllib-agent/eval_d0_v1.parquet --n-states 1
 
   uv run --no-sync python native/probe_select_parity.py --mode browser \
     --config configs/native_select.yaml \
-    --pool /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
+    --pool /scratch/kp0374/ngllib-agent/eval_d0_v1.parquet \
     --n-states "$N" --out "$OUT" --frame-dir "$FRAMES"
 fi
 

@@ -126,7 +126,7 @@ while :; do
       --iters "$ITERS" \
       --train-batch-size "$BATCH" \
       --checkpoint-dir "$CKPT" --checkpoint-every "${CKPT_EVERY:-10}" \
-      --wandb-project neurogym-agent --wandb-mode "$WANDB_MODE" \
+      --wandb-project ngllib-agent --wandb-mode "$WANDB_MODE" \
       --learner-gpu \
       --resume
   rc=$?

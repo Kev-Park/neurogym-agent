@@ -94,7 +94,7 @@ def make_vec_env(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train click-based PPO agent on neurogym.")
+    parser = argparse.ArgumentParser(description="Train click-based PPO agent on ngllib.")
     parser.add_argument("--config", type=str, default=str(_THIS_DIR / "config" / "default.yaml"))
     parser.add_argument("--segment_positions", type=str, required=True, help="Path to segment_positions.parquet.")
     parser.add_argument("--n_envs", type=int, default=None)

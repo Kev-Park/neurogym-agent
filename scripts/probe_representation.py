@@ -25,7 +25,7 @@ information; trained << inputs => it discards some.
     uv run --no-sync python scripts/probe_representation.py \
         --config configs/native_zmaxleft_v7_eval.yaml \
         --state-pkl /scratch/kp0374/checkpoints/zmaxleft-v7/ckpt_000450.pkl \
-        --holdout /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet --n 16
+        --holdout /scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet --n 16
 """
 
 from __future__ import annotations

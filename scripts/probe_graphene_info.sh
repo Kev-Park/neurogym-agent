@@ -21,7 +21,7 @@ echo "data_dir info bearer: $(code -H "Authorization: Bearer $TOK" "$(tohttp $DD
 echo "mesh info anon:       $(code "$(tohttp $DD)/$MD/info")   (absolute: $(code "$(tohttp $MD)/info"))"
 echo "old-root manifest via server (bearer): $(code -H "Authorization: Bearer $TOK" "https://prodv1.flywire-daf.com/meshing/1.0/flywire_public/manifest/720575940625112137:0?verify=1")"
 # CloudVolume view of the same
-cd /scratch/kp0374/neurogym-agent && uv run --no-sync python - <<'PY' 2>&1 | tail -6
+cd /scratch/kp0374/ngllib-agent && uv run --no-sync python - <<'PY' 2>&1 | tail -6
 from cloudvolume import CloudVolume
 cv = CloudVolume('graphene://https://prodv1.flywire-daf.com/segmentation/1.0/flywire_public', mip=0, agglomerate=False, use_https=True, progress=False)
 print("CV cloudpath:", cv.meta.cloudpath, "| res", cv.resolution.tolist(), "| bounds", cv.bounds.to_list())

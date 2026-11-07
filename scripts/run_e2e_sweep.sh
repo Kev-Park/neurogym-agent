@@ -3,7 +3,7 @@
 # sweep, opt 2) and sum their sps. Total browsers P*M must fit VRAM (<=~32/GPU).
 #   bash scripts/run_e2e_sweep.sh <P> <M> <baseline|proto>
 set -u
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 P=$1; M=$2; MODE=$3
 pids=""; logs=""
 for g in $(seq 1 "$P"); do

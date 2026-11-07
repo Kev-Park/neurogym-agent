@@ -98,7 +98,7 @@ class NGLGymEnv(gym.Env):
 
     def __init__(
         self,
-        neurogym_config_path: str,
+        ngllib_config_path: str,
         segment_data: dict[str, np.ndarray],
         segment_ids: list[str],
         action_spec: ActionSpec,
@@ -120,7 +120,7 @@ class NGLGymEnv(gym.Env):
         self._reset_zoom_perturb_frac = reset_zoom_perturb_frac
         self._segment_data = segment_data
         self._segment_ids = segment_ids
-        self._neurogym_config_path = neurogym_config_path
+        self._ngllib_config_path = ngllib_config_path
         self._headless = headless
         self._neuro_env_options = {
             "euler_angles": True,
@@ -211,7 +211,7 @@ class NGLGymEnv(gym.Env):
     def _make_neuro_env(self) -> Environment:
         self._browser_manager.wait_ready()
         self._reconnect()
-        env = Environment(headless=self._headless, config_path=self._neurogym_config_path)
+        env = Environment(headless=self._headless, config_path=self._ngllib_config_path)
         env.options = self._neuro_env_options
         env.browser = self._browser  # inject — skips ngllib's own Chrome launch
         return env

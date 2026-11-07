@@ -1,5 +1,5 @@
 env:
-  neurogym_config_path: "config.json"
+  ngllib_config_path: "config.json"
   headless: true
   pane_3d_bounds: [900, 0, 1800, 900]
 
@@ -42,7 +42,7 @@ train:
   seed: 0
 
 logging:
-  wandb_project: "neurogym-agent"
+  wandb_project: "ngllib-agent"
   wandb_mode: "online"
   checkpoint_dir: "./checkpoints"
   checkpoint_freq: 10000

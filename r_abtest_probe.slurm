@@ -19,7 +19,7 @@
 # A ThreadedVectorEnv joins all M threads per step, so a glitchy sub-env stalls
 # the step (within-runner barrier analog). Compare sps + stall tax between
 # escalate (current) and in_place (cheap context recycle at the source).
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 export UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp

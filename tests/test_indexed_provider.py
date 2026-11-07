@@ -18,8 +18,8 @@ import numpy as np
 from ngllib_agent.providers import FlywireSkeletonProvider, IndexedStateProvider
 
 
-SKEL = "/scratch/kp0374/neurogym-agent/segment_positions.parquet"
-STATS = "/scratch/kp0374/neurogym-agent/cell_stats.csv"
+SKEL = "/scratch/kp0374/ngllib-agent/segment_positions.parquet"
+STATS = "/scratch/kp0374/ngllib-agent/cell_stats.csv"
 
 
 def main() -> int:

@@ -24,7 +24,7 @@
 # then the full pool. Single env, sequential pairs (~20-35s/pair at
 # capture_scale 0.5), 200 pairs ~= 1-2h.
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 
 MODE=${1:?pkl|random}

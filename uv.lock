@@ -1584,7 +1584,7 @@ wheels = [
 [[package]]
 name = "ngllib"
 version = "0.3.0"
-source = { editable = "../neurogym" }
+source = { editable = "../ngllib" }
 dependencies = [
     { name = "certifi" },
     { name = "cloud-volume" },
@@ -1644,7 +1644,7 @@ requires-dist = [
     { name = "certifi", specifier = ">=2026.10.19" },
     { name = "duckdb", specifier = ">=0.10" },
     { name = "gymnasium" },
-    { name = "ngllib", editable = "../neurogym" },
+    { name = "ngllib", editable = "../ngllib" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pillow", specifier = ">=13.0.0" },
     { name = "pyarrow", specifier = ">=14.0.0" },

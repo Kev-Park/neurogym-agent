@@ -19,7 +19,7 @@
 # reset recovery (resilient wrapper) that ports the legacy anti-thundering-herd
 # behavior. Fresh run-name/ckpt-dir so it starts at iter 0 (clean glitch-rate
 # comparison vs val-2x16-mn). --resume auto-set so a relaunch continues.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 
@@ -66,7 +66,7 @@ srun --overlap --nodes=1 --ntasks=1 -w "$HEAD_NODE" \
         --sample-timeout-s 600 \
         --checkpoint-dir "$CKPT_DIR" \
         --checkpoint-every 10 \
-        --wandb-project neurogym-agent \
+        --wandb-project ngllib-agent \
         $RESUME_FLAG
 PPO_EXIT=$?
 

@@ -29,7 +29,7 @@ BATCH="${BATCH:-4000}"
 TIMEOUT="${TIMEOUT:-600}"
 ITERS="${ITERS:-45}"
 
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 CKPT_DIR="/scratch/kp0374/checkpoints/${RUN_NAME}"

@@ -25,12 +25,12 @@
 #   3. a short TRAINING run per backend under RLlib, where the viewer is
 #      served inside env-runner processes rather than a probe.
 #
-#   REPO=/scratch/kp0374/neurogym-agent WT=/scratch/kp0374/wt/neurogym-agent-login \
-#   NGLLIB=/scratch/kp0374/wt/neurogym-login/src sbatch native/r_server_only_verify.slurm
+#   REPO=/scratch/kp0374/ngllib-agent WT=/scratch/kp0374/wt/ngllib-agent-login \
+#   NGLLIB=/scratch/kp0374/wt/ngllib-login/src sbatch native/r_server_only_verify.slurm
 set -e
 set -o pipefail
-REPO=${REPO:-/scratch/kp0374/neurogym-agent}
-WT=${WT:-/scratch/kp0374/wt/neurogym-agent-login}
+REPO=${REPO:-/scratch/kp0374/ngllib-agent}
+WT=${WT:-/scratch/kp0374/wt/ngllib-agent-login}
 cd "$REPO"
 export PYTHONUNBUFFERED=1
 export RAY_NUM_CPUS=${RAY_NUM_CPUS:-30}

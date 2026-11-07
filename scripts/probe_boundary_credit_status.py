@@ -10,7 +10,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--jobs', nargs='*')  # Shared Windows monitor interface; manifest is authoritative.
 ap.add_argument('--manifest', default='boundary_credit_pipeline.json')
 args = ap.parse_args()
-root = Path('/scratch/kp0374/wt/neurogym-agent-zmax-left')
+root = Path('/scratch/kp0374/wt/ngllib-agent-zmax-left')
 assert Path(args.manifest).name == args.manifest
 path = root / args.manifest
 

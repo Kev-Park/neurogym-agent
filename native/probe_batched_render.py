@@ -30,7 +30,7 @@ def main() -> int:
     ap.add_argument("--views", type=int, default=32)
     ap.add_argument("--meshes", type=int, default=8)
     ap.add_argument("--secs", type=float, default=60.0)
-    ap.add_argument("--pool", default="/scratch/kp0374/neurogym-agent/eval_d0_v1.parquet")
+    ap.add_argument("--pool", default="/scratch/kp0374/ngllib-agent/eval_d0_v1.parquet")
     args = ap.parse_args()
 
     rids = [str(r) for r in

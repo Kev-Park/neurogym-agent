@@ -16,7 +16,7 @@
 # One allocation of 4 GPUs; each config uses R runners (1 GPU each) x M browsers.
 # Reports aggregate sps + per-GPU util so we see the saturation frontier.
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 echo "=== node=$(hostname) CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES ==="

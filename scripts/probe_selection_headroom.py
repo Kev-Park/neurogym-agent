@@ -34,7 +34,7 @@ def main():
     env.unwrapped._make_obs = tap
     policy = AuditPolicy('/scratch/kp0374/checkpoints/zmaxleft-v7i-grid/ckpt_000900.pkl',
                          env, cfg['model'], stochastic=True)
-    rows = pq.read_table('/scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet').to_pylist()[::8][:args.limit]
+    rows = pq.read_table('/scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet').to_pylist()[::8][:args.limit]
     records, completed = [], []
     try:
         for row in rows:

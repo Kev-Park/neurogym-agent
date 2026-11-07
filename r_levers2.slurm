@@ -16,7 +16,7 @@
 
 # Aggregate confirm of capture_scale=0.5: M=16 threaded vector, scale 1.0 vs 0.5
 # (same node/co-tenancy for a clean relative signal).
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 for S in 1.0 0.5; do
   UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_throughput.py 16 120 "$S" 2>&1 | grep -E "^\[thru\] RESULT|warmup"

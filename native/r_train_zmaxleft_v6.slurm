@@ -20,7 +20,7 @@
 #     (bitwise-identical to eager, parity 0.00e+00).
 #   - ONE training's 24 runners spread over 4 GPUs (--gres=4, GPU_FRAC 0.166
 #     => Ray packs exactly 6 runners per GPU). Requires the ngllib EGL fix
-#     (neurogym zmax-left >= 2b5e97c) so each runner's GL context follows its
+#     (ngllib zmax-left >= 2b5e97c) so each runner's GL context follows its
 #     assigned GPU; before it every GL context sat on physical GPU0 and extra
 #     GPUs bought nothing. Measured (job 998146, per-iter medians): 1 GPU 218,
 #     4 GPU 269 sps (fast iters ~285); 8 GPUs add nothing (host-bound), so 4.
@@ -82,7 +82,7 @@ uv run --no-sync python -m ngllib_agent.train \
   --iters "$ITERS" \
   --train-batch-size "$BATCH" \
   --checkpoint-dir "$CKPT" --checkpoint-every 10 \
-  --wandb-project neurogym-agent --wandb-mode "$WANDB_MODE" \
+  --wandb-project ngllib-agent --wandb-mode "$WANDB_MODE" \
   ${LEARNER_GPU:+--learner-gpu} \
   --resume
 

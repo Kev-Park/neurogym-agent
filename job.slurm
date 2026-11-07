@@ -20,7 +20,7 @@ if [ -n "$LATEST_CKPT" ]; then
     RESUME_ARG="--resume $LATEST_CKPT"
 fi
 
-uv run src/neurogym-agent/train.py \
+uv run src/ngllib-agent/train.py \
   --segment_positions segment_positions.parquet \
   --wandb_mode online \
   --run_name hierarchical_v3 \

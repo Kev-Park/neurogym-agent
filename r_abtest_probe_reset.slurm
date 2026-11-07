@@ -17,7 +17,7 @@
 
 # Q2 RESET-PATH probe A/B (the variant): hammers _navigate_with_retry — the path
 # recovery_mode actually changes — where the step-path probe saw nothing.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 export UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp

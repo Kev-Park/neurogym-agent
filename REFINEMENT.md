@@ -3,7 +3,7 @@
 > Working tracker for the remaining gaps between "production-ready supervised"
 > and "unattended at full scale". Work through top to bottom; check items off
 > as they land. Conventions: **[DECIDED]** locked, **[decide]** needs a call.
-> Context: `../neurogym/agent_plan.md` (design), dist-rl-v1/v2 findings
+> Context: `../ngllib/agent_plan.md` (design), dist-rl-v1/v2 findings
 > (2026-07-03 / 07-06).
 
 ---

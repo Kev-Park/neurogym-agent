@@ -7,7 +7,7 @@
 # Kept as a script (not an inline ssh heredoc) so the salloc/srun variables
 # don't have to survive WSL->ssh quote-escaping.
 set -u
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 
 NODE="${1:-sarekl15-4}"
 NGPU="${2:-3}"
@@ -21,7 +21,7 @@ if [ -z "${JID}" ]; then echo "ALLOC-FAILED"; exit 1; fi
 
 echo "=== running procscale sweep on ${NODE} (${NGPU} GPU) ==="
 srun --jobid="${JID}" --overlap -N1 bash -lc \
-  'cd /scratch/kp0374/neurogym-agent && UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_procscale.py'
+  'cd /scratch/kp0374/ngllib-agent && UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_procscale.py'
 rc=$?
 
 echo "=== SWEEP-DONE (rc=${rc}), releasing alloc ${JID} ==="

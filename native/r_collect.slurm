@@ -15,7 +15,7 @@
 # Browser-side calibration pairs: (state, raw frame a/b) x N via the MAIN
 # checkout's venv+configs; the script lives on the native-renderer worktree.
 set -e
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python \
     "${SLURM_SUBMIT_DIR:-$(pwd)}"/native/collect_pairs.py \

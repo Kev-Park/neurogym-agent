@@ -3,7 +3,7 @@
 Task: reach the target segment's max-z point. Termination fires when the viewer
 z is within `z_tolerance` of `task_info["z_max"]`; reward is a sparse success
 bonus on termination, otherwise Z-shaping toward the target plus a step penalty.
-Ported from the legacy `neurogym-agent/envs/reward.py::compute`, split to fit
+Ported from the legacy `ngllib-agent/envs/reward.py::compute`, split to fit
 ngllib 0.2's separate reward/termination factory hooks.
 
 `task_info` contract (produced by the StateProvider): `{"z_max": float, ...}`.

@@ -18,9 +18,9 @@
 #   sbatch --export=ALL,POLICY_ARGS='--state-pkl /scratch/kp0374/checkpoints/zmaxleft-v1/ckpt_200.pkl --stochastic' \
 #          scripts/eval_zmaxleft.slurm
 set -eu
-cd /scratch/kp0374/wt/neurogym-agent-zmax-left
+cd /scratch/kp0374/wt/ngllib-agent-zmax-left
 export PYTHONUNBUFFERED=1
-HOLDOUT=${HOLDOUT:-/scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet}
+HOLDOUT=${HOLDOUT:-/scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet}
 OUTPUT=${OUTPUT:-eval_zmaxleft_${SLURM_JOB_ID}.json}
 POLICY_ARGS=${POLICY_ARGS:---random-policy}
 

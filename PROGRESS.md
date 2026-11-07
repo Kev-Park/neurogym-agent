@@ -1,13 +1,13 @@
-# neurogym-agent — training code progress
+# ngllib-agent — training code progress
 
 > ⚠️ **SUPERSEDED** — this document describes the legacy SB3-based training code
 > on this repo's `main` branch as of mid-2026. That stack is being fully replaced
 > on the `dist-rl-rewrite` branch by a Ray RLlib + APPO/PPO distributed
 > architecture (multi-node, salloc-managed, ngllib 0.2 API). See
-> `../neurogym/agent_plan.md` for the current design. Do not use this file for
+> `../ngllib/agent_plan.md` for the current design. Do not use this file for
 > new work; it's kept for historical context only.
 
-Goal: train a PPO agent that right-clicks on a neuron mesh in Neuroglancer to navigate to the highest Z-position. Talks to `ngllib.Environment` in-process (one Chrome per `SubprocVecEnv` worker). Plan file: `../neurogym/agent_plan.md`.
+Goal: train a PPO agent that right-clicks on a neuron mesh in Neuroglancer to navigate to the highest Z-position. Talks to `ngllib.Environment` in-process (one Chrome per `SubprocVecEnv` worker). Plan file: `../ngllib/agent_plan.md`.
 
 ## What's built
 
@@ -18,10 +18,10 @@ Added via `uv add`:
 - `stable-baselines3`, `gymnasium`, `wandb`, `pyyaml`
 - `torch==2.6.0+cu124`, `torchvision==0.21.0+cu124` — pinned to the `pytorch-cu124` uv index via `[tool.uv.sources]`. Verified `torch.cuda.is_available() == True` on the RTX 3050 dev box; same wheels work on RTX 3090 for real training.
 
-### Package layout ([src/neurogym-agent/](src/neurogym-agent/))
+### Package layout ([src/ngllib-agent/](src/ngllib-agent/))
 
 ```
-src/neurogym-agent/
+src/ngllib-agent/
 ├── __init__.py
 ├── train.py                          PPO entry point
 ├── eval.py                           rollout + per-link success rate
@@ -30,7 +30,7 @@ src/neurogym-agent/
 ├── envs/
 │   ├── __init__.py
 │   ├── ngl_gym_env.py                gymnasium.Env wrapping ngllib.Environment
-│   ├── action_translator.py          MultiDiscrete -> 17-d neurogym action
+│   ├── action_translator.py          MultiDiscrete -> 17-d ngllib action
 │   └── reward.py                     sparse reward + no-op penalty
 ├── obs/
 │   ├── __init__.py
@@ -47,7 +47,7 @@ src/neurogym-agent/
 ### Design decisions fixed in code
 
 - **Action space.** `MultiDiscrete([1024, 2, 9, 9, 9])` = `[click_cell, click_type, dEulerX_bin, dEulerY_bin, dEulerZ_bin]`. 32×32 click grid restricted to the 3D pane `[x=900..1800, y=0..900]`. Rotation bins: 9 per axis (4 neg / noop / 4 pos) at 0.08 rad step.
-- **Frozen neurogym action indices** (always 0): `left_click`, `double_click`, modifier keys, `delta_position_xyz`, `delta_crossSectionScale`, `delta_projectionScale`.
+- **Frozen ngllib action indices** (always 0): `left_click`, `double_click`, modifier keys, `delta_position_xyz`, `delta_crossSectionScale`, `delta_projectionScale`.
 - **`json_change` auto-set** by the translator when `right_click == 0` and any rotation bin is non-zero. (`apply_actions` uses an `elif` chain, so clicks and rotations can't fire in the same step — policy will learn to alternate.)
 - **Reward.** Sparse `+1` when `|Z_now - Z_max| <= z_tolerance` (default 10); `noop_penalty = -0.01` when a right-click doesn't move the crosshair (within `noop_position_eps = 0.5`).
 - **Termination.** Success tolerance reached, or `max_episode_steps = 300` truncation.
@@ -98,8 +98,8 @@ https://neuroglancer-demo.appspot.com/#!<state2>
 ### Smoke train (1 env, short)
 
 ```
-cd neurogym-agent
-.venv/Scripts/python src/neurogym-agent/train.py \
+cd ngllib-agent
+.venv/Scripts/python src/ngllib-agent/train.py \
   --start_links path/to/start_links.txt \
   --z_max       path/to/z_max.txt \
   --n_envs 1 \
@@ -110,7 +110,7 @@ cd neurogym-agent
 ### Full train (4 envs, W&B online)
 
 ```
-.venv/Scripts/python src/neurogym-agent/train.py \
+.venv/Scripts/python src/ngllib-agent/train.py \
   --start_links path/to/start_links.txt \
   --z_max       path/to/z_max.txt \
   --n_envs 4 \
@@ -120,7 +120,7 @@ cd neurogym-agent
 ### Eval
 
 ```
-.venv/Scripts/python src/neurogym-agent/eval.py \
+.venv/Scripts/python src/ngllib-agent/eval.py \
   --start_links path/to/held_out_urls.txt \
   --z_max       path/to/held_out_z.txt \
   --checkpoint  checkpoints/<run_id>/final.zip \
@@ -138,6 +138,6 @@ cd neurogym-agent
 
 ## Reference
 
-- Current design (Ray RLlib rewrite): [../neurogym/agent_plan.md](../neurogym/agent_plan.md)
-- Env source of truth (ngllib 0.2 src-layout): [../neurogym/src/ngllib/environment.py](../neurogym/src/ngllib/environment.py)
-- Click dispatch: [../neurogym/src/ngllib/utils/MouseActionHandler.py](../neurogym/src/ngllib/utils/MouseActionHandler.py)
+- Current design (Ray RLlib rewrite): [../ngllib/agent_plan.md](../ngllib/agent_plan.md)
+- Env source of truth (ngllib 0.2 src-layout): [../ngllib/src/ngllib/environment.py](../ngllib/src/ngllib/environment.py)
+- Click dispatch: [../ngllib/src/ngllib/utils/MouseActionHandler.py](../ngllib/src/ngllib/utils/MouseActionHandler.py)

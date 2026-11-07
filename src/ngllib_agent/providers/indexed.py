@@ -8,8 +8,8 @@ Both inputs can be `.parquet` or `.csv` — DuckDB reads either.
 
 Example:
     provider = IndexedStateProvider(
-        skeleton_source="/scratch/kp0374/neurogym-agent/segment_positions.parquet",
-        cell_stats_source="/scratch/kp0374/neurogym-agent/cell_stats.parquet",
+        skeleton_source="/scratch/kp0374/ngllib-agent/segment_positions.parquet",
+        cell_stats_source="/scratch/kp0374/ngllib-agent/cell_stats.parquet",
         predicate="length_nm > 100000",   # only ~long neurons
     )
 

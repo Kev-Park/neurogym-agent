@@ -19,6 +19,6 @@
 # M5 reset-ahead functional smoke: one browser, 4 episode boundaries, verify
 # warm contexts are prepped in the background and adopted at reset (warm=true,
 # navigate_ms~0). Small + short so it backfills ahead of the 3-node sweep jobs.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_reset_ahead.py

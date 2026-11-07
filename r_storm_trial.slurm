@@ -19,12 +19,12 @@
 # reset before a glitch storm. Emits per-env reset/glitch JSONL (NGLLIB_EVENT_LOG)
 # + per-node 1Hz GPU/load CSV + train.py iter/checkpoint MARK lines. escalate
 # baseline (the config that storms). NOTHING is mitigated here — data only.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 export PYTHONUNBUFFERED=1
 export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
 
 RUN=storm-trial-$SLURM_JOB_ID
-EVDIR=/scratch/kp0374/neurogym-agent/event_logs/$RUN
+EVDIR=/scratch/kp0374/ngllib-agent/event_logs/$RUN
 mkdir -p "$EVDIR"
 # EnvRunner actors inherit this from their node's raylet (srun propagates env).
 export NGLLIB_EVENT_LOG="$EVDIR/ev-{host}-{pid}.jsonl"

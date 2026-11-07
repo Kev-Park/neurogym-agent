@@ -15,5 +15,5 @@
 
 # CPU-decode ceiling (memory-bandwidth confirmation) vs GPU nvJPEG decode.
 # See scripts/probe_decode.py.
-cd /scratch/kp0374/neurogym-agent
+cd /scratch/kp0374/ngllib-agent
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/probe_decode.py

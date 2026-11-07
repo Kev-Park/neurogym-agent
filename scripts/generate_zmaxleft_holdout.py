@@ -18,8 +18,8 @@ Sampling mirrors FlywireSkeletonProvider exactly (uniform root, uniform node,
 Shoemake quaternion, log-uniform projectionScale in [3500, 14000]).
 
   uv run --no-sync python scripts/generate_zmaxleft_holdout.py \
-      --skeleton /scratch/kp0374/neurogym-agent/segment_positions.parquet \
-      --output   /scratch/kp0374/neurogym-agent/eval_zmaxleft_v1.parquet
+      --skeleton /scratch/kp0374/ngllib-agent/segment_positions.parquet \
+      --output   /scratch/kp0374/ngllib-agent/eval_zmaxleft_v1.parquet
 """
 
 from __future__ import annotations

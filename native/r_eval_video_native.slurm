@@ -23,6 +23,6 @@ OUT=${2:?output subdir}
 shift 2
 UV_CACHE_DIR=/tmp/uvcache_kp0374 TMPDIR=/tmp uv run --no-sync python scripts/eval_video.py \
   --config configs/ppo_zmax_navigate.yaml \
-  --eval-d0 /scratch/kp0374/neurogym-agent/eval_d0_v1.parquet \
-  --skeleton /scratch/kp0374/neurogym-agent/segment_positions.parquet \
+  --eval-d0 /scratch/kp0374/ngllib-agent/eval_d0_v1.parquet \
+  --skeleton /scratch/kp0374/ngllib-agent/segment_positions.parquet \
   --state-pkl "$PKL" --out-dir "/scratch/kp0374/native_spike/eval_videos/$OUT" "$@"
